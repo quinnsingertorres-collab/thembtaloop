@@ -365,11 +365,6 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
   font-size:10px; font-weight:700; color:#fff; background:var(--accent);
   padding:2px 8px; border-radius:20px; font-family:'Space Grotesk', sans-serif;
 }
-.line-bubble{
-  display:inline-flex; align-items:center; justify-content:center;
-  width:20px; height:20px; border-radius:50%; font-weight:800; font-size:11px;
-  font-family:'Space Grotesk', sans-serif; margin-left:4px;
-}
 .roster-status-badge{
   font-size:10px; font-weight:700; color:#fff;
   padding:2px 8px; border-radius:20px; font-family:'Space Grotesk', sans-serif;
@@ -432,10 +427,6 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
       </div>
       <div class="menu-link" data-navto="ROSTER">
         <span>Fleet Roster</span>
-        <span class="menu-link-arrow">&rsaquo;</span>
-      </div>
-      <div class="menu-link" data-navto="INSPECTORS">
-        <span>Green Line Inspectors</span>
         <span class="menu-link-arrow">&rsaquo;</span>
       </div>
       <div class="menu-link" data-navto="POINTS">
@@ -593,18 +584,6 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
    </div>
   </div>
 
-  <div class="panel full-bleed" id="inspectorsPanel" style="display:none;">
-   <div class="full-bleed-inner">
-    <div class="panel-head">
-      <h2>Green Line Inspectors</h2>
-      <span class="note">&mdash;</span>
-    </div>
-    <div class="back-link" id="inspectorsBackBtn">&lsaquo; Back</div>
-    <div class="roster-list" id="inspectorsList"></div>
-    <div class="storage-note">CI = Chief Inspector &middot; MCI = Mobile Chief Inspector</div>
-   </div>
-  </div>
-
   <div class="panel full-bleed" id="bugsPanel" style="display:none;">
    <div class="full-bleed-inner">
     <div class="panel-head">
@@ -753,9 +732,6 @@ const PAGES = {
   },
   POINTS: {
     hex:'#B45309', label:'Points', isPoints:true
-  },
-  INSPECTORS: {
-    hex:'#0E7490', label:'Green Line Inspectors', isInspectors:true
   },
   BUGS: {
     hex:'#334155', label:'Bugs & Feature Requests', isBugs:true
@@ -1265,8 +1241,8 @@ function switchPage(key){
   if(p.isModNotifs && !state.isModerator) key = 'B'; // safety: never land on Alerts and Notifications without moderator rights
   state.currentPage = key;
   const page = PAGES[key];
-  if(!page.isRoster && !page.isMembers && !page.isModNotifs && !page.isSettings && !page.isPoints && !page.isBugs && !page.isInspectors) state.lastMainPage = key;
-  document.getElementById('pageChip').textContent = key === 'SUBWAY' ? 'S' : (key === 'ROSTER' ? 'R' : (key === 'MEMBERS' ? 'A' : (key === 'MODNOTIFS' ? '\u26a0' : (key === 'MATTAPAN' ? 'MH' : (key === 'POINTS' ? 'P' : (key === 'BUGS' ? '!' : (key === 'INSPECTORS' ? 'GL' : (key === 'SETTINGS' ? '\u2699' : key))))))));
+  if(!page.isRoster && !page.isMembers && !page.isModNotifs && !page.isSettings && !page.isPoints && !page.isBugs) state.lastMainPage = key;
+  document.getElementById('pageChip').textContent = key === 'SUBWAY' ? 'S' : (key === 'ROSTER' ? 'R' : (key === 'MEMBERS' ? 'A' : (key === 'MODNOTIFS' ? '\u26a0' : (key === 'MATTAPAN' ? 'MH' : (key === 'POINTS' ? 'P' : (key === 'BUGS' ? '!' : (key === 'SETTINGS' ? '\u2699' : key)))))));
   document.getElementById('pageChip').style.background = page.hex;
   document.getElementById('pageChip').style.color = getTextColorFor(page.hex);
   document.getElementById('pageTitle').textContent = displayName(page.label);
@@ -1278,7 +1254,6 @@ function switchPage(key){
   const modNotifsPanel = document.getElementById('modNotifsPanel');
   const pointsPanel = document.getElementById('pointsPanel');
   const bugsPanel = document.getElementById('bugsPanel');
-  const inspectorsPanel = document.getElementById('inspectorsPanel');
   const settingsPanel = document.getElementById('settingsPanel');
 
   mainGrid.style.display = 'none';
@@ -1287,7 +1262,6 @@ function switchPage(key){
   modNotifsPanel.style.display = 'none';
   pointsPanel.style.display = 'none';
   bugsPanel.style.display = 'none';
-  inspectorsPanel.style.display = 'none';
   settingsPanel.style.display = 'none';
 
   if(page.isRoster){
@@ -1311,11 +1285,6 @@ function switchPage(key){
   }
   if(page.isBugs){
     bugsPanel.style.display = 'block';
-    return;
-  }
-  if(page.isInspectors){
-    inspectorsPanel.style.display = 'block';
-    buildInspectorsPanel();
     return;
   }
   if(page.isSettings){
@@ -2769,52 +2738,6 @@ function updateRosterActiveBadges(){
   });
 }
 
-const INSPECTOR_POSTS = [
-  { num:'900', location:'Medford/Tufts', lines:['E'] },
-  { num:'901', location:'North Station', lines:['D','E'] },
-  { num:'902', location:"Gov't Center", lines:['B','C','D','E'] },
-  { num:'903', location:'Park Street East', lines:['B','C','D','E'] },
-  { num:'904', location:'Park Street West (CI)', lines:['B','C','D','E'] },
-  { num:'905', location:'Boylston', lines:['B','C','D','E'] },
-  { num:'907', location:'Copley', lines:['B','C','D','E'] },
-  { num:'909', location:'Kenmore', lines:['B','C','D'] },
-  { num:'912', location:'Beacon Street (MCI)', lines:['C'] },
-  { num:'913', location:'Cleveland Circle (Crossback Operator)', lines:['C'] },
-  { num:'914', location:'Reservoir/Upper Yard', lines:['B'] },
-  { num:'915', location:'Newton Highlands', lines:['D'] },
-  { num:'916', location:'Fenway', lines:['D'] },
-  { num:'917', location:'Commonwealth Ave (MCI)', lines:['B'] },
-  { num:'918', location:'Riverside', lines:['D'] },
-  { num:'920', location:'Huntington Ave (MCI)', lines:['E'] },
-  { num:'921', location:'Mattapan', lines:['M'] },
-  { num:'922', location:'Upper End Comm Ave (MCI)', lines:['B'] },
-  { num:'925', location:'Ashmont', lines:['M'] },
-  { num:'926', location:'Reservoir/Cleveland Circle Yardmaster', lines:[] },
-  { num:'927', location:'Riverside Yardmaster', lines:[] },
-  { num:'928', location:'Inner Belt Yardmaster', lines:[] },
-  { num:'950', location:'Union Square', lines:['D'] },
-  { num:'952', location:'Lechmere', lines:['D','E'] },
-  { num:'953', location:'GLX (MCI)', lines:['E'] }
-];
-
-function buildInspectorsPanel(){
-  const list = document.getElementById('inspectorsList');
-  const lineHex = { B: PAGES.B.hex, C: PAGES.C.hex, D: PAGES.D.hex, E: PAGES.E.hex, M: PAGES.MATTAPAN.hex };
-  list.innerHTML = INSPECTOR_POSTS.map(p => {
-    const badges = p.lines.length
-      ? p.lines.map(l => `<span class="line-bubble" style="background:${lineHex[l]}; color:${getTextColorFor(lineHex[l])};">${l}</span>`).join('')
-      : '';
-    return `
-      <div class="roster-row">
-        <div class="roster-row-head">
-          <span class="roster-car-chip">${p.num}</span>
-          <span class="roster-type-tag">${p.location}</span>
-          ${badges}
-        </div>
-      </div>`;
-  }).join('');
-}
-
 async function buildRosterPanel(){
   const [rosterData, gltpsMap, tagMap] = await Promise.all([loadRoster(), loadGltps(), getUserTagMap()]);
   const activeSet = getActiveCarSet();
@@ -3497,7 +3420,6 @@ document.getElementById('modNotifSendBtn').addEventListener('click', async ()=>{
 });
 document.getElementById('pointsBackBtn').addEventListener('click', ()=> switchPage(state.lastMainPage || 'B'));
 document.getElementById('bugsBackBtn').addEventListener('click', ()=> switchPage(state.lastMainPage || 'B'));
-document.getElementById('inspectorsBackBtn').addEventListener('click', ()=> switchPage(state.lastMainPage || 'B'));
 
 document.getElementById('abbrevSwitch').addEventListener('click', ()=>{
   state.abbreviate = !state.abbreviate;
