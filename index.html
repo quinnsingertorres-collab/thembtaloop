@@ -445,19 +445,7 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
 </head>
 <body class="dark">
 
-<div id="authGateScreen" class="gate-screen">
-  <div class="gate-card">
-    <h1>Welcome to In the Loop!</h1>
-    <p>To continue please sign in with Google.</p>
-    <button id="gateSignInBtn" class="gate-signin-btn">
-      <svg viewBox="0 0 48 48" width="18" height="18"><path fill="#FFC107" d="M43.6 20.5H42V20.4H24v7.2h11.3c-1.6 4.6-6 7.9-11.3 7.9-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.1 8 3l5.1-5.1C33.9 6 29.2 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.2-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6 4.4C13.9 15.1 18.6 12 24 12c3.1 0 5.8 1.1 8 3l5.1-5.1C33.9 6 29.2 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.1 0 9.7-1.9 13.2-5.1l-6.1-5.2C29.2 35.5 26.7 36.4 24 36.4c-5.3 0-9.7-3.3-11.3-7.9l-6 4.6C9.6 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20.4H24v7.2h11.3c-.8 2.2-2.2 4.1-4.1 5.5l6.1 5.2C39.9 36.1 44 30.7 44 24c0-1.2-.1-2.4-.4-3.5z"/></svg>
-      Sign in with Google
-    </button>
-  </div>
-  <div class="gate-footer">To submit bug reports, join the Discord server! <a href="https://discord.gg/RYckv4jz8n" target="_blank" rel="noopener">discord.gg/RYckv4jz8n</a></div>
-</div>
-
-<div id="lineSelectScreen" class="gate-screen" style="display:none;">
+<div id="lineSelectScreen" class="gate-screen">
   <div class="gate-card">
     <h1>Choose your line</h1>
     <div class="line-select-grid">
@@ -466,7 +454,6 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
       <button class="line-select-btn" data-line="orange" style="--line-color:#ED8B00;">Orange Line</button>
       <button class="line-select-btn" data-line="green" style="--line-color:#00843D;">Green Line</button>
     </div>
-    <p class="gate-note">Heads up: Red, Blue, and Orange Line tracking are placeholders for now. Only the Green Line (and Mattapan) is actually up and running &mdash; more lines are planned down the road.</p>
   </div>
 </div>
 
@@ -3881,7 +3868,6 @@ const LAST_PAGE_KEY = 'last_page_v1';
 const LINE_DISPLAY_NAMES = { red:'Red Line', blue:'Blue Line', orange:'Orange Line', green:'Green Line' };
 
 function hideAllGateScreens(){
-  document.getElementById('authGateScreen').style.display = 'none';
   document.getElementById('lineSelectScreen').style.display = 'none';
   document.getElementById('placeholderLineScreen').style.display = 'none';
   document.getElementById('welcomeScreen').style.display = 'none';
@@ -3910,14 +3896,9 @@ function showPrivacyWarningScreen(){
   document.getElementById('privacyWarningScreen').style.display = 'flex';
 }
 document.getElementById('privacyWarningDismissBtn').addEventListener('click', ()=>{
-  routeAfterSignIn();
+  hideAllGateScreens();
 });
 
-function showAuthGateScreen(){
-  hideAllGateScreens();
-  applyLineAccent(null);
-  document.getElementById('authGateScreen').style.display = 'flex';
-}
 function showLineSelectScreen(){
   hideAllGateScreens();
   applyLineAccent(null);
@@ -3992,7 +3973,10 @@ function revealApp(line){
 // Decides what to show right after a successful sign-in (or on load, for an
 // already-signed-in returning visitor): first-timers pick a line; returning
 // users go straight back to whatever they had selected/were viewing before.
-function routeAfterSignIn(){
+// Decides what to show on page load, regardless of sign-in status: no line
+// chosen yet -> line-select screen; a real line already chosen -> straight
+// into that line's app; a placeholder line chosen -> its coming-soon screen.
+function routeOnLoad(){
   let selectedLine = null;
   try{ selectedLine = localStorage.getItem(LINE_SELECTION_KEY); }catch(e){ /* ignore */ }
   if(!selectedLine){
@@ -4057,8 +4041,6 @@ async function completeSignIn(name, email, uid, photoURL){
   if(freshSignInInProgress){
     freshSignInInProgress = false;
     showWelcomeScreen(name);
-  }else{
-    routeAfterSignIn();
   }
 }
 
@@ -4080,7 +4062,6 @@ function resetSignedOutUI(){
   if(state.currentPage === 'ROSTER') buildRosterPanel();
   if(state.currentPage === 'MEMBERS' || state.currentPage === 'MODNOTIFS') switchPage('B');
   updateDiscordBanner();
-  showAuthGateScreen();
 }
 
 async function signOut(){
@@ -4171,7 +4152,6 @@ async function attemptSignIn(){
 }
 
 document.getElementById('googleSignInBtn').addEventListener('click', attemptSignIn);
-document.getElementById('gateSignInBtn').addEventListener('click', attemptSignIn);
 
 document.getElementById('menuBtn').addEventListener('click', (e)=>{
   e.stopPropagation();
@@ -4398,6 +4378,8 @@ async function init(){
 
   refreshDestinationOverrideCache();
   setInterval(refreshDestinationOverrideCache, 60000);
+
+  routeOnLoad();
 }
 
 if('serviceWorker' in navigator){
