@@ -1183,6 +1183,32 @@ function isSoloType7(v){
 }
 const SOLO_TYPE7_GRAY = '#6B7280';
 
+// Real-time per-car crowding is only available from MBTA for Orange Line
+// (all cars) and Red Line's newer 1900-series CRRC cars — not Green Line or
+// Blue Line, and not every Red Line car even when the feed includes it.
+const CROWDING_LABELS = {
+  MANY_SEATS_AVAILABLE: 'Many seats available',
+  FEW_SEATS_AVAILABLE: 'Few seats available',
+  STANDING_ROOM_ONLY: 'Standing room only',
+  CRUSHED_STANDING_ROOM_ONLY: 'Crushed standing room only',
+  FULL: 'Full',
+  NOT_ACCEPTING_PASSENGERS: 'Not accepting passengers'
+};
+const CROWDING_COLORS = {
+  MANY_SEATS_AVAILABLE: '#0F8A4B',
+  FEW_SEATS_AVAILABLE: '#B45309',
+  STANDING_ROOM_ONLY: '#D97706',
+  CRUSHED_STANDING_ROOM_ONLY: '#D64545',
+  FULL: '#D64545',
+  NOT_ACCEPTING_PASSENGERS: '#6B7280'
+};
+function getCrowdingForCar(v, carNum){
+  if(!v || !v.carriages) return null;
+  const match = v.carriages.find(c => String(c.label) === String(carNum));
+  if(!match || !match.occupancy_status) return null;
+  return match.occupancy_status;
+}
+
 function lineCarType(label){
   if(state.activeLine === 'red') return getRedCarType(label);
   if(state.activeLine === 'orange') return getOrangeCarType(label);
@@ -2350,12 +2376,17 @@ async function showCarModal(v){
     const oosBlock = `<div class="modal-row-spacer"></div>${oosViewLine}${oosButton}`;
 
     if(!isGreenLine){
+      const crowdingStatus = getCrowdingForCar(v, carNum);
+      const crowdingRow = crowdingStatus
+        ? `<div class="modal-row"><span>Crowding</span><strong style="color:${CROWDING_COLORS[crowdingStatus] || 'inherit'};">${CROWDING_LABELS[crowdingStatus] || crowdingStatus}</strong></div>`
+        : '';
       return `
         <div class="modal-section">
           <h4>${getCarPositionLabel(i, isGreenLine)} \u2014 ${formatCarNumberForDisplay(carNum)}</h4>
           <div class="modal-row"><span>Type</span><strong>${type}</strong></div>
           <div class="modal-row"><span>Builder</span><strong>${info.builder}</strong></div>
           <div class="modal-row"><span>Year built</span><strong>${info.year}</strong></div>
+          ${crowdingRow}
           ${oosBlock}
         </div>`;
     }
@@ -3330,7 +3361,7 @@ async function fetchLiveVehicles(){
 }
 
 async function fetchRedLineVehicles(){
-  const url = withMbtaKey("https://api-v3.mbta.com/vehicles?filter[route]=Red&include=stop,trip&fields[vehicle]=current_status,current_stop_sequence,direction_id,label,latitude,longitude,updated_at,speed&fields[stop]=name&fields[trip]=headsign");
+  const url = withMbtaKey("https://api-v3.mbta.com/vehicles?filter[route]=Red&include=stop,trip&fields[vehicle]=current_status,current_stop_sequence,direction_id,label,latitude,longitude,updated_at,speed,carriages&fields[stop]=name&fields[trip]=headsign");
   const controller = new AbortController();
   const timeout = setTimeout(()=>controller.abort(), 6000);
   const res = await fetch(url, { signal: controller.signal, headers: MBTA_HEADERS });
@@ -3357,6 +3388,7 @@ async function fetchRedLineVehicles(){
       stopName: stopName,
       headsign: headsign,
       tripId: tripRel ? tripRel.id : null,
+      carriages: v.attributes.carriages || null,
       speedMph: speedMph,
       updatedAt: v.attributes.updated_at
     };
@@ -3364,7 +3396,7 @@ async function fetchRedLineVehicles(){
 }
 
 async function fetchOrangeLineVehicles(){
-  const url = withMbtaKey("https://api-v3.mbta.com/vehicles?filter[route]=Orange&include=stop,trip&fields[vehicle]=current_status,current_stop_sequence,direction_id,label,latitude,longitude,updated_at,speed&fields[stop]=name&fields[trip]=headsign");
+  const url = withMbtaKey("https://api-v3.mbta.com/vehicles?filter[route]=Orange&include=stop,trip&fields[vehicle]=current_status,current_stop_sequence,direction_id,label,latitude,longitude,updated_at,speed,carriages&fields[stop]=name&fields[trip]=headsign");
   const controller = new AbortController();
   const timeout = setTimeout(()=>controller.abort(), 6000);
   const res = await fetch(url, { signal: controller.signal, headers: MBTA_HEADERS });
@@ -3382,7 +3414,8 @@ async function fetchOrangeLineVehicles(){
     return {
       id: v.id, branch: 'ORANGE', label: v.attributes.label || v.id,
       status: v.attributes.current_status, direction: v.attributes.direction_id,
-      stopName: stopName, headsign: headsign, speedMph: speedMph, updatedAt: v.attributes.updated_at
+      stopName: stopName, headsign: headsign, carriages: v.attributes.carriages || null,
+      speedMph: speedMph, updatedAt: v.attributes.updated_at
     };
   }).filter(v => v.stopName);
 }
