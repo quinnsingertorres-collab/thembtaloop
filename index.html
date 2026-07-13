@@ -802,7 +802,7 @@ function withMbtaKey(url){
 
 const BRANCH_ORDER = ['B','C','D','E','MATTAPAN'];
 const NAV_ORDER = ['B','C','D','E','SUBWAY','MATTAPAN'];
-const RED_NAV_ORDER = ['REDASHMONT','REDBRAINTREE'];
+const RED_NAV_ORDER = ['REDTRUNK','REDASHMONT','REDBRAINTREE'];
 const ORANGE_NAV_ORDER = ['ORANGE'];
 const BLUE_NAV_ORDER = ['BLUE'];
 
@@ -845,6 +845,11 @@ const PAGES = {
   MATTAPAN: {
     hex:'#EA580C', label:'Mattapan High Speed Line',
     stops: ["Ashmont","Cedar Grove","Butler","Milton","Central Avenue","Valley Road","Capen Street","Mattapan"]
+  },
+  REDTRUNK: {
+    hex:'#FA2D27', label:'Trunk', isMulti:true,
+    stops: ["Alewife","Davis","Porter","Harvard","Central","Kendall/MIT","Charles/MGH","Park Street",
+      "Downtown Crossing","South Station","Broadway","Andrew","JFK/UMass"]
   },
   REDASHMONT: {
     hex:'#FA2D27', label:'Ashmont', isMulti:true,
@@ -957,6 +962,39 @@ const RED_CAR_INFO = {
   'Type 4': { builder:'CRRC', year:'2019–2027' },
   'Unknown': { builder:'Unknown', year:'Unknown' }
 };
+const RED_BRANCH_COLORS = { ashmont:'#D57065', braintree:'#ECC1BC' };
+const RED_BRANCH_TEXT_COLORS = { ashmont:'#FFFFFE', braintree:'#C83C2B' };
+const RED_ASHMONT_ONLY_STOPS = ["Savin Hill","Fields Corner","Shawmut","Ashmont"];
+const RED_BRAINTREE_ONLY_STOPS = ["North Quincy","Wollaston","Quincy Center","Quincy Adams","Braintree"];
+
+// Once we've ever gotten a clear signal for which branch a given train
+// (vehicle id) belongs to, remember it — so a train that originated at
+// Braintree (or Ashmont) keeps showing that branch's color even once it's
+// back out on the shared trunk where headsign/stop alone can't tell branches
+// apart. Naturally self-corrects if that vehicle id later starts a genuinely
+// different trip with its own clear signal.
+let redVehicleBranchMemory = {};
+
+// Red Line vehicles all share the same route id ("Red") — there's no
+// per-branch route the way Green Line has Green-B/C/D/E. Headsign is the
+// most reliable signal (Ashmont/Braintree southbound trips say so
+// directly); stop name is the fallback for trains sitting at a branch-only
+// stop. Once determined, that origin branch sticks for this vehicle for the
+// rest of its trip, even through the shared trunk.
+function getRedLineBranch(v){
+  let branch = null;
+  if(v.headsign === 'Ashmont') branch = 'ashmont';
+  else if(v.headsign === 'Braintree') branch = 'braintree';
+  else if(RED_ASHMONT_ONLY_STOPS.includes(v.stopName)) branch = 'ashmont';
+  else if(RED_BRAINTREE_ONLY_STOPS.includes(v.stopName)) branch = 'braintree';
+
+  if(branch){
+    redVehicleBranchMemory[v.id] = branch;
+    return branch;
+  }
+  return redVehicleBranchMemory[v.id] || null;
+}
+
 function getRedCarType(label){
   const firstNum = parseInt(String(label).split(/[^0-9]+/).filter(Boolean)[0], 10);
   if(isNaN(firstNum)) return 'Unknown';
@@ -1498,12 +1536,27 @@ function findStopIndex(pageKey, stopName){
   return findStopIndexInList(PAGES[pageKey].stops, stopName);
 }
 
+// Centralizes "which vehicles belong on this page" so Red Line's Ashmont and
+// Braintree tabs can filter by actual determined branch (not just whether a
+// train happens to be sitting on a shared-trunk stop that both pages list).
+function getRelevantVehiclesForPage(key){
+  const page = PAGES[key];
+  let relevant = page.isMulti
+    ? state.vehicles.filter(v => findStopIndex(key, v.stopName) !== null)
+    : state.vehicles.filter(v => v.branch === key);
+  if(key === 'REDASHMONT'){
+    relevant = relevant.filter(v => getRedLineBranch(v) === 'ashmont');
+  }else if(key === 'REDBRAINTREE'){
+    relevant = relevant.filter(v => getRedLineBranch(v) === 'braintree');
+  }
+  return relevant;
+}
+
 function countForPage(key){
   const page = PAGES[key];
   if(page.isMembers) return null;
   if(page.isRoster) return ROSTER_CARS.length;
-  if(page.isMulti) return state.vehicles.filter(v => findStopIndex(key, v.stopName) !== null).length;
-  return state.vehicles.filter(v => v.branch === key).length;
+  return getRelevantVehiclesForPage(key).length;
 }
 
 /* ---------------- Bottom nav ---------------- */
@@ -1517,15 +1570,18 @@ function buildNav(){
     : NAV_ORDER;
   order.forEach(key=>{
     const p = PAGES[key];
+    const effectiveHex = key === 'REDASHMONT' ? RED_BRANCH_COLORS.ashmont
+      : key === 'REDBRAINTREE' ? RED_BRANCH_COLORS.braintree
+      : p.hex;
     const btn = document.createElement('div');
     btn.className = 'nav-btn';
     const isActive = key === state.currentPage;
     if(isActive){
-      btn.style.background = p.hex;
-      btn.style.color = getTextColorFor(p.hex);
+      btn.style.background = effectiveHex;
+      btn.style.color = getTextColorFor(effectiveHex);
     }
-    const mainText = key === 'SUBWAY' ? 'Subway' : (key === 'ROSTER' ? 'Roster' : (key === 'MATTAPAN' ? 'M' : (key === 'REDASHMONT' ? 'Ashmont' : (key === 'REDBRAINTREE' ? 'Braintree' : (key === 'ORANGE' ? 'Orange Line' : (key === 'BLUE' ? 'Blue Line' : key))))));
-    const swatchColor = isActive ? getTextColorFor(p.hex) : p.hex;
+    const mainText = key === 'SUBWAY' ? 'Subway' : (key === 'ROSTER' ? 'Roster' : (key === 'MATTAPAN' ? 'M' : (key === 'REDTRUNK' ? 'Trunk' : (key === 'REDASHMONT' ? 'Ashmont' : (key === 'REDBRAINTREE' ? 'Braintree' : (key === 'ORANGE' ? 'Orange Line' : (key === 'BLUE' ? 'Blue Line' : key)))))));
+    const swatchColor = isActive ? getTextColorFor(effectiveHex) : effectiveHex;
     const count = countForPage(key);
     const countHtml = count === null ? '' : `<span class="nav-count">${count}</span>`;
     btn.innerHTML = `<span class="nav-main"><span class="swatch" style="background:${swatchColor}"></span><span>${mainText}</span></span>${countHtml}`;
@@ -1542,7 +1598,7 @@ function switchPage(key){
   try{ localStorage.setItem(LAST_PAGE_KEY, key); }catch(e){ /* ignore */ }
   const page = PAGES[key];
   if(!page.isRoster && !page.isMembers && !page.isModNotifs && !page.isSettings && !page.isPoints && !page.isBugs && !page.isInspectors) state.lastMainPage = key;
-  document.getElementById('pageChip').textContent = key === 'SUBWAY' ? 'S' : (key === 'ROSTER' ? 'R' : (key === 'MEMBERS' ? 'A' : (key === 'MODNOTIFS' ? '\u26a0' : (key === 'MATTAPAN' ? 'MH' : (key === 'POINTS' ? 'P' : (key === 'BUGS' ? '!' : (key === 'INSPECTORS' ? 'GL' : (key === 'REDASHMONT' ? 'RL' : (key === 'REDBRAINTREE' ? 'RL' : (key === 'BLUE' ? 'BL' : (key === 'ORANGE' ? 'OL' : (key === 'SETTINGS' ? '\u2699' : key))))))))))));
+  document.getElementById('pageChip').textContent = key === 'SUBWAY' ? 'S' : (key === 'ROSTER' ? 'R' : (key === 'MEMBERS' ? 'A' : (key === 'MODNOTIFS' ? '\u26a0' : (key === 'MATTAPAN' ? 'MH' : (key === 'POINTS' ? 'P' : (key === 'BUGS' ? '!' : (key === 'INSPECTORS' ? 'GL' : (key === 'REDTRUNK' ? 'RL' : (key === 'REDASHMONT' ? 'A' : (key === 'REDBRAINTREE' ? 'B' : (key === 'BLUE' ? 'BL' : (key === 'ORANGE' ? 'OL' : (key === 'SETTINGS' ? '\u2699' : key)))))))))))));
   document.getElementById('pageChip').style.background = page.hex;
   document.getElementById('pageChip').style.color = getTextColorFor(page.hex);
   document.getElementById('pageTitle').textContent = displayName(page.label);
@@ -1731,13 +1787,19 @@ function renderTrainDots(){
 
   const candidates = page.isMulti ? state.vehicles : state.vehicles.filter(v => v.branch === key);
 
-  const relevant = candidates
+  let relevant = candidates
     .map(v => {
       const idx = findStopIndex(key, v.stopName);
       return { v, idx };
     })
     .filter(x => x.idx !== null)
     .map(x => ({ ...x, targetY: computeDisplayY(x.idx, x.v.direction, x.v.status, layout.stopY) }));
+
+  if(key === 'REDASHMONT'){
+    relevant = relevant.filter(x => getRedLineBranch(x.v) === 'ashmont');
+  }else if(key === 'REDBRAINTREE'){
+    relevant = relevant.filter(x => getRedLineBranch(x.v) === 'braintree');
+  }
 
   // Fill the station dot with the train's color while it's actually stopped there.
   relevant.forEach(({ v, idx })=>{
@@ -1791,9 +1853,19 @@ function renderTrainDots(){
 
     items.forEach(entry=>{
       const bubbleY = entry.y;
-      const bubbleBranch = entry.v.branch === 'MATTAPAN' ? 'M' : getDisplayBranch(entry.v.branch);
-      const branchHex = getBranchHex(entry.v.branch);
-      const textColor = getTextColorFor(branchHex);
+      let bubbleBranch = entry.v.branch === 'MATTAPAN' ? 'M' : getDisplayBranch(entry.v.branch);
+      let branchHex = getBranchHex(entry.v.branch);
+      let textColor;
+      let redBranch = null;
+      if(state.activeLine === 'red'){
+        redBranch = getRedLineBranch(entry.v);
+        if(redBranch){
+          branchHex = RED_BRANCH_COLORS[redBranch];
+          textColor = RED_BRANCH_TEXT_COLORS[redBranch];
+          bubbleBranch = redBranch === 'ashmont' ? 'A' : 'B';
+        }
+      }
+      if(textColor === undefined) textColor = getTextColorFor(branchHex);
       const displayY = entry.targetY;
 
       const effectiveBubbleLabel = consistOverrideCache[carSetKey(entry.v.label)] || entry.v.label;
@@ -1826,7 +1898,11 @@ function renderTrainDots(){
         (destOverrideEntry.originalDirection === undefined || destOverrideEntry.originalDirection === entry.v.direction)
       );
       const destBadge = hasAlteredDestination ? `<span class="bubble-dest-badge" title="Destination reported as changed">&#9888;</span>` : '';
-      if(state.activeLine !== 'green'){
+      if(state.activeLine === 'red'){
+        bubble.innerHTML = redBranch
+          ? `<span class="bletter">${bubbleBranch}</span><span class="bnums"><span class="bline bline-first">${carParts[0]}</span></span>${destBadge}`
+          : `<span class="bnums"><span class="bline bline-first">${carParts[0]}</span></span>${destBadge}`;
+      }else if(state.activeLine !== 'green'){
         bubble.innerHTML = `<span class="bnums"><span class="bline bline-first">${carParts[0]}</span></span>${destBadge}`;
       }else if(carParts.length >= 2){
         bubble.innerHTML = `<span class="bletter">${bubbleBranch}</span><span class="bnums">${carParts.map((p,i) => `<span class="bline${i===0?' bline-first':''}">${p}</span>`).join('')}</span>${destBadge}`;
@@ -3262,6 +3338,12 @@ function renderVehicleList(){
     ? state.vehicles.filter(v => findStopIndex(key, v.stopName) !== null)
     : state.vehicles.filter(v => v.branch === key);
 
+  if(key === 'REDASHMONT'){
+    relevant = relevant.filter(v => getRedLineBranch(v) === 'ashmont');
+  }else if(key === 'REDBRAINTREE'){
+    relevant = relevant.filter(v => getRedLineBranch(v) === 'braintree');
+  }
+
   if(state.filterDirection !== 'ALL'){
     relevant = relevant.filter(v => String(v.direction) === state.filterDirection);
   }
@@ -3931,7 +4013,7 @@ function rebuildTypeFilterOptions(){
 
 const LINE_DEFAULT_PAGE = { green:'B', red:'REDASHMONT', orange:'ORANGE', blue:'BLUE' };
 const LINE_PAGE_KEYS = {
-  red: ['REDASHMONT','REDBRAINTREE'],
+  red: ['REDTRUNK','REDASHMONT','REDBRAINTREE'],
   orange: ['ORANGE'],
   blue: ['BLUE'],
   green: ['B','C','D','E','SUBWAY','MATTAPAN']
@@ -3959,7 +4041,7 @@ function revealApp(line){
   let savedPage = null;
   try{ savedPage = localStorage.getItem(LAST_PAGE_KEY); }catch(e){ /* ignore */ }
   const defaultPage = LINE_DEFAULT_PAGE[line] || 'B';
-  const OTHER_LINE_SPECIFIC_PAGES = ['REDASHMONT','REDBRAINTREE','ORANGE','BLUE'];
+  const OTHER_LINE_SPECIFIC_PAGES = ['REDTRUNK','REDASHMONT','REDBRAINTREE','ORANGE','BLUE'];
   const validForThisLine = savedPage && PAGES[savedPage] && (
     line === 'green'
       ? !OTHER_LINE_SPECIFIC_PAGES.includes(savedPage)
