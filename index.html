@@ -330,8 +330,15 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
   line-height:1.5; text-align:left;
 }
 .bottom-left-info .weather-line{font-size:10px; text-align:left; justify-self:start;}
+.top-mobile-info{
+  display:none;
+  font-family:'IBM Plex Mono', monospace; font-size:11px; color:var(--text-dim);
+  line-height:1.5; text-align:center; padding:4px 16px 0;
+}
+.top-mobile-info .weather-line{font-size:10.5px;}
 @media (max-width:480px){
   .bottom-left-info{display:none;}
+  .top-mobile-info{display:block;}
   .bottom-nav-inner{flex-wrap:nowrap; gap:2px; padding:4px; overflow-x:auto; -webkit-overflow-scrolling:touch; max-width:calc(100vw - 24px); scrollbar-width:none;}
   .bottom-nav-inner::-webkit-scrollbar{display:none;}
   .nav-btn{padding:5px 8px; font-size:10px; gap:1px; border-radius:11px;}
@@ -551,6 +558,11 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
       <div class="live-pill"><span class="dot" id="statusDot"></span><span id="statusLabel">Connecting&hellip;</span></div>
     </div>
   </header>
+
+  <div class="top-mobile-info" id="topMobileInfo">
+    <div id="clockTop">--:--:-- ET</div>
+    <div class="weather-line" id="weatherDisplayTop">Loading weather&hellip;</div>
+  </div>
 
   <div class="banner" id="demoBanner">Demo mode — the live MBTA feed isn't reachable from this environment, so this is showing simulated Green Line traffic.</div>
 
@@ -1063,6 +1075,19 @@ function getRedLineBranch(v){
 
   if(redVehicleBranchMemory[v.id]) return redVehicleBranchMemory[v.id];
 
+  // Authoritative: this specific trip's real scheduled stop sequence from
+  // MBTA's timetable, not a guess. The lookup is async, so kick it off (it's
+  // cached/deduped) and use the result once it's resolved on a later render.
+  if(v.tripId){
+    const scheduled = tripBranchCache[v.tripId];
+    if(scheduled === 'ashmont' || scheduled === 'braintree'){
+      redVehicleBranchMemory[v.id] = scheduled;
+      String(v.label).split('-').forEach(carNum => logRedCarOrigin(carNum, scheduled));
+      return scheduled;
+    }
+    ensureTripBranchLookup(v.tripId);
+  }
+
   const carNums = String(v.label).split('-');
   let bestGuess = null;
   let bestTs = -1;
@@ -1075,11 +1100,11 @@ function getRedLineBranch(v){
     return bestGuess;
   }
 
-  // No direct signal, no session memory, no persisted log for either car —
-  // every Red Line train should still show as Ashmont or Braintree, never a
-  // generic/unbranded state, so fall back to a deterministic guess (stable
-  // for this vehicle, not saved to the origin log since it's not an actual
-  // observation).
+  // Truly last resort: no direct signal, no session memory, no persisted
+  // log, and either no trip id or the schedule lookup came back
+  // inconclusive (e.g. a short-turn trip with no branch-only stop at all).
+  // Still show a real branch rather than a generic/unbranded bubble, but
+  // this specific case is a stable guess, not an observation — not logged.
   let hash = 0;
   const seed = String(v.id || v.label);
   for(let i=0;i<seed.length;i++){ hash = (hash * 31 + seed.charCodeAt(i)) >>> 0; }
@@ -1124,6 +1149,40 @@ function getBlueCarType(label){
 }
 
 // Central lookup so car-type logic can branch by line in one place.
+// Type 7 cars aren't supposed to run solo in revenue service — if one shows
+// up as a single-car train, it's almost always a deadhead/maintenance move
+// or an anomaly worth flagging, so it's auto-marked out of service and
+// grayed out on the track map rather than shown as a normal in-service train.
+// Users can manually confirm a solo Type 7 is legitimately in service,
+// overriding the auto-detection for this specific vehicle/trip.
+let soloType7OverrideCache = {};
+async function refreshSoloType7OverrideCache(){
+  if(!firebaseReady) return;
+  try{
+    const snap = await fbDb.collection('solo_type7_overrides').get();
+    const map = {};
+    snap.forEach(doc => { map[doc.id] = true; });
+    soloType7OverrideCache = map;
+  }catch(e){ console.error(e); }
+}
+async function markSoloType7InService(vehicleId){
+  if(!firebaseReady) return;
+  try{
+    await fbDb.collection('solo_type7_overrides').doc(vehicleId).set({
+      confirmedBy: state.userName, confirmedByUid: state.uid || null, ts: Date.now()
+    });
+    soloType7OverrideCache[vehicleId] = true;
+  }catch(e){ console.error(e); }
+}
+
+function isSoloType7(v){
+  if(state.activeLine !== 'green') return false;
+  if(soloType7OverrideCache[v.id]) return false;
+  const parts = String(v.label).split('-');
+  return parts.length === 1 && getCarType(parts[0]) === 'Type 7';
+}
+const SOLO_TYPE7_GRAY = '#6B7280';
+
 function lineCarType(label){
   if(state.activeLine === 'red') return getRedCarType(label);
   if(state.activeLine === 'orange') return getOrangeCarType(label);
@@ -1951,6 +2010,11 @@ function renderTrainDots(){
 
     items.forEach(entry=>{
       const bubbleY = entry.y;
+      const effectiveBubbleLabel = consistOverrideCache[carSetKey(entry.v.label)] || entry.v.label;
+      const carParts = String(effectiveBubbleLabel).split('-');
+      const isRainbowCar = carParts.includes('3706');
+      const isOOS = isSoloType7(entry.v) || carParts.some(c => outOfServiceCarsCache[c]);
+
       let bubbleBranch = entry.v.branch === 'MATTAPAN' ? 'M' : getDisplayBranch(entry.v.branch);
       let branchHex = getBranchHex(entry.v.branch);
       let textColor;
@@ -1964,11 +2028,12 @@ function renderTrainDots(){
         }
       }
       if(textColor === undefined) textColor = getTextColorFor(branchHex);
+      if(isOOS){
+        branchHex = SOLO_TYPE7_GRAY;
+        textColor = getTextColorFor(branchHex);
+        bubbleBranch = 'OOS';
+      }
       const displayY = entry.targetY;
-
-      const effectiveBubbleLabel = consistOverrideCache[carSetKey(entry.v.label)] || entry.v.label;
-      const carParts = String(effectiveBubbleLabel).split('-');
-      const isRainbowCar = carParts.includes('3706');
 
       seenVehicleIds.add(String(entry.v.id));
       let bubble = existingBubbles[entry.v.id];
@@ -1978,10 +2043,10 @@ function renderTrainDots(){
         ladder.appendChild(bubble);
       }
       bubble.__vehicleRef = entry.v;
-      bubble.className = 'train-bubble' + (isRainbowCar ? ' rainbow-outline' : '');
+      bubble.className = 'train-bubble' + (isRainbowCar && !isOOS ? ' rainbow-outline' : '');
       bubble.dataset.vehicleId = entry.v.id;
       bubble.dataset.cars = carParts.join(',');
-      if(!isRainbowCar){
+      if(!isRainbowCar || isOOS){
         bubble.style.background = branchHex;
         bubble.style.color = textColor;
       }
@@ -2070,6 +2135,26 @@ function todayDateString(){
   return new Date().toLocaleDateString('en-CA', { timeZone:'America/New_York' }); // YYYY-MM-DD
 }
 
+// Cache of car numbers currently marked out of service (today only), so
+// train bubbles can show "OOS" without an async lookup per render.
+let outOfServiceCarsCache = {};
+async function refreshOutOfServiceCache(){
+  if(!firebaseReady) return;
+  try{
+    const snap = await fbDb.collection('car_out_of_service').get();
+    const map = {};
+    const today = todayDateString();
+    const staleDocs = [];
+    snap.forEach(doc=>{
+      const d = doc.data();
+      if(d.date === today && d.outOfService) map[doc.id] = true;
+      else staleDocs.push(doc.ref);
+    });
+    outOfServiceCarsCache = map;
+    staleDocs.forEach(ref => ref.delete().catch(e => console.error(e)));
+  }catch(e){ console.error(e); }
+}
+
 async function loadCarOutOfService(carNum){
   if(!firebaseReady) return null;
   try{
@@ -2091,11 +2176,13 @@ async function markCarOutOfService(carNum){
       outOfService: true, markedBy: state.userName, markedByUid: state.uid || null,
       ts: Date.now(), date: todayDateString()
     });
+    outOfServiceCarsCache[carNum] = true;
   }catch(e){ console.error(e); }
 }
 async function clearCarOutOfService(carNum){
   if(!firebaseReady) return;
   try{ await fbDb.collection('car_out_of_service').doc(carNum).delete(); }catch(e){ console.error(e); }
+  delete outOfServiceCarsCache[carNum];
 }
 
 async function loadVehicleOperator(vehicleId, carNum){
@@ -2255,7 +2342,7 @@ async function showCarModal(v){
          <span class="signin-note">Marked by ${liveName(oosData.markedBy, oosData.markedByUid, userInfoMap)} today \u2014 clears at end of service day</span>`
       : '';
     const oosButton = state.signedIn
-      ? `<button class="account-btn" data-oos-toggle="${carNum}" data-oos-current="${isOOS ? '1' : '0'}" style="margin-top:6px; ${isOOS ? 'background:#0F8A4B;' : 'background:#D64545;'}">${isOOS ? 'Mark back in service' : 'Mark out of service'}</button>`
+      ? `<button class="account-btn" data-oos-toggle="${carNum}" data-oos-current="${isOOS ? '1' : '0'}" style="margin-top:6px; ${isOOS ? 'background:#0F8A4B;' : 'background:#D64545;'}">${isOOS ? 'Mark this car back in service' : 'Mark this car out of service'}</button>`
       : `<div class="signin-note">Sign in to report a car's service status.</div>`;
     const oosBlock = `<div class="modal-row-spacer"></div>${oosViewLine}${oosButton}`;
 
@@ -2369,8 +2456,15 @@ async function showCarModal(v){
        <button class="account-btn" id="tripNotesSaveBtn" style="margin-top:6px;">Add note</button>`
     : `<div class="signin-note">Sign in to add trip notes.</div>`;
 
+  const soloType7Notice = isSoloType7(v)
+    ? `<div class="modal-row"><span>Status</span><strong style="color:#D64545;">Out of Service (auto-detected)</strong></div>
+       <div class="signin-note">Type 7 cars don't normally run solo &mdash; this is likely a deadhead/maintenance move, so it's automatically flagged and shown gray on the track map.</div>
+       ${state.signedIn ? `<button class="account-btn" id="soloType7InServiceBtn" style="margin-top:6px; background:#0F8A4B;">Mark this car in service</button>` : `<div class="signin-note">Sign in to mark this car in service.</div>`}`
+    : '';
+
   document.getElementById('carModalBody').innerHTML = `
     <div class="modal-section">
+      ${soloType7Notice}
       <div class="modal-row"><span>Status</span><strong>${statusPhrase(v.status, v.stopName)}</strong></div>
       <div class="modal-row"><span>Destination</span><strong>${effectiveDestination}</strong></div>
       <div class="modal-row"><span>Last reported speed</span><strong>${v.speedMph !== null && v.speedMph !== undefined ? v.speedMph + ' mph' : 'Not reported'}</strong></div>
@@ -2505,6 +2599,15 @@ async function showCarModal(v){
       showCarModal(v);
     });
   });
+
+  const soloType7InServiceBtn = document.getElementById('soloType7InServiceBtn');
+  if(soloType7InServiceBtn){
+    soloType7InServiceBtn.addEventListener('click', async ()=>{
+      if(!window.confirm('Are you sure you want to mark this car as in service? Type 7 trains are not permitted to run solo in revenue service.')) return;
+      await markSoloType7InService(v.id);
+      showCarModal(v);
+    });
+  }
 
   document.querySelectorAll('[data-oos-toggle]').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
@@ -4106,11 +4209,15 @@ function tickClock(){
   const parts = new Intl.DateTimeFormat('en-US', { timeZone:'America/New_York', year:'numeric', month:'2-digit', day:'2-digit' }).formatToParts(now);
   const map = {};
   parts.forEach(p => map[p.type] = p.value);
-  document.getElementById('clock').innerHTML = `<div>${map.month}/${map.day}/${map.year}</div><div>${time} ET</div>`;
+  const html = `<div>${map.month}/${map.day}/${map.year}</div><div>${time} ET</div>`;
+  document.getElementById('clock').innerHTML = html;
+  const topClock = document.getElementById('clockTop');
+  if(topClock) topClock.innerHTML = html;
 }
 
 async function fetchWeather(){
   const el = document.getElementById('weatherDisplay');
+  const topEl = document.getElementById('weatherDisplayTop');
   try{
     const res = await fetch('https://api.open-meteo.com/v1/forecast?latitude=42.3601&longitude=-71.0589&current=temperature_2m&hourly=precipitation_probability&temperature_unit=fahrenheit&timezone=America%2FNew_York&forecast_days=1');
     if(!res.ok) throw new Error('bad status');
@@ -4119,9 +4226,12 @@ async function fetchWeather(){
     let idx = data.hourly.time.indexOf(data.current.time);
     if(idx === -1) idx = 0;
     const precip = data.hourly.precipitation_probability[idx];
-    el.innerHTML = `<div>${temp}\u00b0F</div><div>${precip}% precip</div>`;
+    const html = `<div>${temp}\u00b0F</div><div>${precip}% precip</div>`;
+    el.innerHTML = html;
+    if(topEl) topEl.innerHTML = html;
   }catch(err){
     el.textContent = 'Weather unavailable';
+    if(topEl) topEl.textContent = 'Weather unavailable';
   }
 }
 
@@ -4682,6 +4792,12 @@ async function init(){
 
   refreshRedOriginLogCache();
   setInterval(refreshRedOriginLogCache, 60000);
+
+  refreshOutOfServiceCache();
+  setInterval(refreshOutOfServiceCache, 60000);
+
+  refreshSoloType7OverrideCache();
+  setInterval(refreshSoloType7OverrideCache, 60000);
 
   routeOnLoad();
 }
