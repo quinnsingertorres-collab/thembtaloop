@@ -572,7 +572,7 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
         <h2>Track Map</h2>
         <span class="note" id="mapMeta">&mdash;</span>
       </div>
-      <div class="track-col-labels"><span>Westbound</span><span>Eastbound</span></div>
+      <div class="track-col-labels"><span id="westColLabel">Westbound</span><span id="eastColLabel">Eastbound</span></div>
       <div class="ladder" id="ladder"></div>
     </div>
 
@@ -589,8 +589,8 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
       <div class="filter-bar">
         <select id="filterDirection">
           <option value="ALL">All directions</option>
-          <option value="0">Westbound only</option>
-          <option value="1">Eastbound only</option>
+          <option value="0" id="filterDirWestOpt">Westbound only</option>
+          <option value="1" id="filterDirEastOpt">Eastbound only</option>
         </select>
         <select id="filterType">
           <option value="ALL">All car types</option>
@@ -652,6 +652,16 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
       <div class="roster-edited-by">Sent to all users immediately when confirmed.</div>
       <div class="roster-field-label">Alert text</div>
       <textarea class="roster-textarea" id="modAlertText" placeholder="e.g. Service is currently suspended between Kenmore and Copley..."></textarea>
+      <div class="roster-field-label">Expires in</div>
+      <select class="roster-input" id="modAlertExpiry">
+        <option value="1">1 hour</option>
+        <option value="4">4 hours</option>
+        <option value="12">12 hours</option>
+        <option value="24" selected>24 hours</option>
+        <option value="72">3 days</option>
+        <option value="168">7 days</option>
+        <option value="0">Never (manual removal only)</option>
+      </select>
       <button class="account-btn" id="modAlertSendBtn" style="margin-top:8px;">Confirm &amp; send alert</button>
       <span class="roster-submit-note" id="modAlertNote"></span>
     </div>
@@ -663,6 +673,16 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
       <input type="text" class="roster-input" id="modNotifSubject" placeholder="e.g. New feature: Mattapan tracking!">
       <div class="roster-field-label">Message</div>
       <textarea class="roster-textarea" id="modNotifBody" placeholder="Write the notification text here..."></textarea>
+      <div class="roster-field-label">Expires in</div>
+      <select class="roster-input" id="modNotifExpiry">
+        <option value="1">1 hour</option>
+        <option value="4">4 hours</option>
+        <option value="12">12 hours</option>
+        <option value="24" selected>24 hours</option>
+        <option value="72">3 days</option>
+        <option value="168">7 days</option>
+        <option value="0">Never (manual removal only)</option>
+      </select>
       <button class="account-btn" id="modNotifSendBtn" style="margin-top:8px;">Confirm &amp; send notification</button>
       <span class="roster-submit-note" id="modNotifNote"></span>
     </div>
@@ -789,6 +809,8 @@ function withMbtaKey(url){
 const BRANCH_ORDER = ['B','C','D','E','MATTAPAN'];
 const NAV_ORDER = ['B','C','D','E','SUBWAY','MATTAPAN'];
 const RED_NAV_ORDER = ['REDASHMONT','REDBRAINTREE'];
+const ORANGE_NAV_ORDER = ['ORANGE'];
+const BLUE_NAV_ORDER = ['BLUE'];
 
 const PAGES = {
   B: {
@@ -841,6 +863,18 @@ const PAGES = {
     stops: ["Alewife","Davis","Porter","Harvard","Central","Kendall/MIT","Charles/MGH","Park Street",
       "Downtown Crossing","South Station","Broadway","Andrew","JFK/UMass",
       "North Quincy","Wollaston","Quincy Center","Quincy Adams","Braintree"]
+  },
+  ORANGE: {
+    hex:'#ED8B00', label:'Orange Line',
+    stops: ["Oak Grove","Malden Center","Wellington","Assembly","Sullivan Square","Community College",
+      "North Station","Haymarket","State","Downtown Crossing","Chinatown","Tufts Medical Center",
+      "Back Bay","Massachusetts Avenue","Ruggles","Roxbury Crossing","Jackson Square","Stony Brook",
+      "Green Street","Forest Hills"]
+  },
+  BLUE: {
+    hex:'#003DA5', label:'Blue Line',
+    stops: ["Wonderland","Revere Beach","Beachmont","Suffolk Downs","Orient Heights","Wood Island",
+      "Airport","Maverick","Aquarium","State","Government Center","Bowdoin"]
   },
   ROSTER: {
     hex:'#1F2937', label:'Fleet Roster', isRoster:true
@@ -937,6 +971,45 @@ function getRedCarType(label){
   if(firstNum >= 1800 && firstNum <= 1899) return 'Type 3';
   if(firstNum >= 1900 && firstNum <= 1999) return 'Type 4';
   return 'Unknown';
+}
+
+// Orange Line's entire fleet is now the CRRC-built cars (the old 01200-series
+// Hawker Siddeley cars were fully retired in August 2022).
+const ORANGE_CAR_INFO = {
+  'CRRC': { builder:'CRRC', year:'2018–2025' },
+  'Unknown': { builder:'Unknown', year:'Unknown' }
+};
+function getOrangeCarType(label){
+  const firstNum = parseInt(String(label).split(/[^0-9]+/).filter(Boolean)[0], 10);
+  if(isNaN(firstNum)) return 'Unknown';
+  if(firstNum >= 1400 && firstNum <= 1599) return 'CRRC';
+  return 'Unknown';
+}
+
+// Blue Line's entire fleet is the 0700-series Siemens cars.
+const BLUE_CAR_INFO = {
+  'Siemens': { builder:'Siemens', year:'2007–2010' },
+  'Unknown': { builder:'Unknown', year:'Unknown' }
+};
+function getBlueCarType(label){
+  const firstNum = parseInt(String(label).split(/[^0-9]+/).filter(Boolean)[0], 10);
+  if(isNaN(firstNum)) return 'Unknown';
+  if(firstNum >= 700 && firstNum <= 799) return 'Siemens';
+  return 'Unknown';
+}
+
+// Central lookup so car-type logic can branch by line in one place.
+function lineCarType(label){
+  if(state.activeLine === 'red') return getRedCarType(label);
+  if(state.activeLine === 'orange') return getOrangeCarType(label);
+  if(state.activeLine === 'blue') return getBlueCarType(label);
+  return getCarType(label);
+}
+function lineCarInfoMap(){
+  if(state.activeLine === 'red') return RED_CAR_INFO;
+  if(state.activeLine === 'orange') return ORANGE_CAR_INFO;
+  if(state.activeLine === 'blue') return BLUE_CAR_INFO;
+  return CAR_INFO;
 }
 
 // GLTPS hardware takes up space that displaces two seats, but only on the car
@@ -1053,56 +1126,83 @@ async function saveGltpsEntry(carNum, status){
 }
 
 const CONSIST_KEY = 'consist_overrides_v1';
+const CONSIST_CORRECTION_DAYS = 10;
 
-// Cache of vehicleId -> corrected label, kept in sync so train bubbles on the
+// Order-independent signature for a set of cars, e.g. "3838-3868" and
+// "3868-3838" both become "3838-3868". Corrections are keyed by this instead
+// of a single vehicle/trip instance, so fixing a consist once applies to any
+// future trip that reports the same physical cars together, in any order,
+// for the next 10 days.
+function carSetKey(label){
+  return String(label).split('-').map(s => s.trim()).filter(Boolean).sort().join('-');
+}
+
+// Cache of carSetKey -> corrected label, kept in sync so train bubbles on the
 // track map reflect community consist corrections, not just the car modal.
 let consistOverrideCache = {};
 async function refreshConsistOverrideCache(){
   if(!firebaseReady) return;
   try{
-    const snap = await fbDb.collection('consist_overrides').get();
+    const snap = await fbDb.collection('consist_corrections').get();
     const map = {};
-    snap.forEach(doc => { map[doc.id] = doc.data().label; });
+    const now = Date.now();
+    snap.forEach(doc=>{
+      const d = doc.data();
+      if(!d.expiresAt || d.expiresAt > now) map[doc.id] = d.label;
+    });
     consistOverrideCache = map;
   }catch(e){ console.error(e); }
 }
 
-async function loadConsistOverride(vehicleId){
+async function loadConsistOverride(v){
+  const key = carSetKey(v.label);
   if(firebaseReady){
     try{
-      const doc = await fbDb.collection('consist_overrides').doc(vehicleId).get();
-      return doc.exists ? doc.data() : null;
+      const doc = await fbDb.collection('consist_corrections').doc(key).get();
+      if(!doc.exists) return null;
+      const data = doc.data();
+      if(data.expiresAt && data.expiresAt < Date.now()) return null;
+      return data;
     }catch(e){ console.error(e); return null; }
   }
   try{
     const raw = localStorage.getItem(CONSIST_KEY);
     const data = raw ? JSON.parse(raw) : {};
-    return data[vehicleId] || null;
+    const entry = data[key];
+    if(!entry) return null;
+    if(entry.expiresAt && entry.expiresAt < Date.now()) return null;
+    return entry;
   }catch(e){ return null; }
 }
-async function saveConsistOverride(vehicleId, label){
-  const payload = { label, editedBy: state.userName, editedByUid: state.uid || null, ts: Date.now() };
+async function saveConsistOverride(v, label){
+  const key = carSetKey(v.label);
+  const payload = {
+    label,
+    expiresAt: Date.now() + CONSIST_CORRECTION_DAYS * 24 * 60 * 60 * 1000,
+    editedBy: state.userName, editedByUid: state.uid || null, ts: Date.now()
+  };
   if(firebaseReady){
-    try{ await fbDb.collection('consist_overrides').doc(vehicleId).set(payload); }catch(e){ console.error(e); }
+    try{ await fbDb.collection('consist_corrections').doc(key).set(payload); }catch(e){ console.error(e); }
     return payload;
   }
   try{
     const raw = localStorage.getItem(CONSIST_KEY);
     const data = raw ? JSON.parse(raw) : {};
-    data[vehicleId] = payload;
+    data[key] = payload;
     localStorage.setItem(CONSIST_KEY, JSON.stringify(data));
   }catch(e){ console.error(e); }
   return payload;
 }
-async function deleteConsistOverride(vehicleId){
+async function deleteConsistOverride(v){
+  const key = carSetKey(v.label);
   if(firebaseReady){
-    try{ await fbDb.collection('consist_overrides').doc(vehicleId).delete(); }catch(e){ console.error(e); }
+    try{ await fbDb.collection('consist_corrections').doc(key).delete(); }catch(e){ console.error(e); }
     return;
   }
   try{
     const raw = localStorage.getItem(CONSIST_KEY);
     const data = raw ? JSON.parse(raw) : {};
-    delete data[vehicleId];
+    delete data[key];
     localStorage.setItem(CONSIST_KEY, JSON.stringify(data));
   }catch(e){ console.error(e); }
 }
@@ -1332,12 +1432,38 @@ function getCarType(label){
 
 function getDisplayBranch(branch){
   if(branch === 'RED') return 'RL';
+  if(branch === 'ORANGE') return 'OL';
+  if(branch === 'BLUE') return 'BL';
   return BRANCH_ORDER.includes(branch) ? branch : 'UNK';
 }
 
 function getBranchHex(branch){
   if(branch === 'RED') return '#FA2D27';
+  if(branch === 'ORANGE') return '#ED8B00';
+  if(branch === 'BLUE') return '#003DA5';
   return PAGES[branch] ? PAGES[branch].hex : UNKNOWN_HEX;
+}
+
+// Orange and Red actually run north-south, so their direction labels read
+// better that way; Green and Blue keep the traditional west/east convention.
+function useNorthSouthLabels(){
+  return state.activeLine === 'orange' || state.activeLine === 'red';
+}
+function dirLabels(){
+  return useNorthSouthLabels()
+    ? { west:'Northbound', east:'Southbound', westShort:'NB', eastShort:'SB' }
+    : { west:'Westbound', east:'Eastbound', westShort:'WB', eastShort:'EB' };
+}
+function updateDirectionLabels(){
+  const labels = dirLabels();
+  const westCol = document.getElementById('westColLabel');
+  const eastCol = document.getElementById('eastColLabel');
+  if(westCol) westCol.textContent = labels.west;
+  if(eastCol) eastCol.textContent = labels.east;
+  const westOpt = document.getElementById('filterDirWestOpt');
+  const eastOpt = document.getElementById('filterDirEastOpt');
+  if(westOpt) westOpt.textContent = labels.west + ' only';
+  if(eastOpt) eastOpt.textContent = labels.east + ' only';
 }
 
 function displayName(name){
@@ -1374,7 +1500,10 @@ function countForPage(key){
 function buildNav(){
   const nav = document.getElementById('bottomNav');
   nav.innerHTML = '';
-  const order = state.activeLine === 'red' ? RED_NAV_ORDER : NAV_ORDER;
+  const order = state.activeLine === 'red' ? RED_NAV_ORDER
+    : state.activeLine === 'orange' ? ORANGE_NAV_ORDER
+    : state.activeLine === 'blue' ? BLUE_NAV_ORDER
+    : NAV_ORDER;
   order.forEach(key=>{
     const p = PAGES[key];
     const btn = document.createElement('div');
@@ -1384,7 +1513,7 @@ function buildNav(){
       btn.style.background = p.hex;
       btn.style.color = getTextColorFor(p.hex);
     }
-    const mainText = key === 'SUBWAY' ? 'Subway' : (key === 'ROSTER' ? 'Roster' : (key === 'MATTAPAN' ? 'M' : (key === 'REDASHMONT' ? 'Ashmont' : (key === 'REDBRAINTREE' ? 'Braintree' : key))));
+    const mainText = key === 'SUBWAY' ? 'Subway' : (key === 'ROSTER' ? 'Roster' : (key === 'MATTAPAN' ? 'M' : (key === 'REDASHMONT' ? 'Ashmont' : (key === 'REDBRAINTREE' ? 'Braintree' : (key === 'ORANGE' ? 'Orange Line' : (key === 'BLUE' ? 'Blue Line' : key))))));
     const swatchColor = isActive ? getTextColorFor(p.hex) : p.hex;
     const count = countForPage(key);
     const countHtml = count === null ? '' : `<span class="nav-count">${count}</span>`;
@@ -1402,7 +1531,7 @@ function switchPage(key){
   try{ localStorage.setItem(LAST_PAGE_KEY, key); }catch(e){ /* ignore */ }
   const page = PAGES[key];
   if(!page.isRoster && !page.isMembers && !page.isModNotifs && !page.isSettings && !page.isPoints && !page.isBugs && !page.isInspectors) state.lastMainPage = key;
-  document.getElementById('pageChip').textContent = key === 'SUBWAY' ? 'S' : (key === 'ROSTER' ? 'R' : (key === 'MEMBERS' ? 'A' : (key === 'MODNOTIFS' ? '\u26a0' : (key === 'MATTAPAN' ? 'MH' : (key === 'POINTS' ? 'P' : (key === 'BUGS' ? '!' : (key === 'INSPECTORS' ? 'GL' : (key === 'REDASHMONT' ? 'RL' : (key === 'REDBRAINTREE' ? 'RL' : (key === 'SETTINGS' ? '\u2699' : key))))))))));
+  document.getElementById('pageChip').textContent = key === 'SUBWAY' ? 'S' : (key === 'ROSTER' ? 'R' : (key === 'MEMBERS' ? 'A' : (key === 'MODNOTIFS' ? '\u26a0' : (key === 'MATTAPAN' ? 'MH' : (key === 'POINTS' ? 'P' : (key === 'BUGS' ? '!' : (key === 'INSPECTORS' ? 'GL' : (key === 'REDASHMONT' ? 'RL' : (key === 'REDBRAINTREE' ? 'RL' : (key === 'BLUE' ? 'BL' : (key === 'ORANGE' ? 'OL' : (key === 'SETTINGS' ? '\u2699' : key))))))))))));
   document.getElementById('pageChip').style.background = page.hex;
   document.getElementById('pageChip').style.color = getTextColorFor(page.hex);
   document.getElementById('pageTitle').textContent = displayName(page.label);
@@ -1611,7 +1740,7 @@ function renderTrainDots(){
   });
 
   function estBubbleHeight(label){
-    if(state.activeLine === 'red') return 28;
+    if(state.activeLine !== 'green') return 28;
     const parts = String(label).split('-');
     const lines = parts.length >= 2 ? parts.length : 1;
     return Math.max(28, lines * 14 + 10);
@@ -1656,7 +1785,7 @@ function renderTrainDots(){
       const textColor = getTextColorFor(branchHex);
       const displayY = entry.targetY;
 
-      const effectiveBubbleLabel = consistOverrideCache[entry.v.id] || entry.v.label;
+      const effectiveBubbleLabel = consistOverrideCache[carSetKey(entry.v.label)] || entry.v.label;
       const carParts = String(effectiveBubbleLabel).split('-');
       const isRainbowCar = carParts.includes('3706');
 
@@ -1680,7 +1809,7 @@ function renderTrainDots(){
       bubble.style.minHeight = '28px';
       bubble.style.left = bubbleX + 'px';
       bubble.title = `${getDisplayBranch(entry.v.branch)} \u00b7 Car ${effectiveBubbleLabel} \u2014 tap for details`;
-      if(state.activeLine === 'red'){
+      if(state.activeLine !== 'green'){
         bubble.innerHTML = `<span class="bnums"><span class="bline bline-first">${carParts[0]}</span></span>`;
       }else if(carParts.length >= 2){
         bubble.innerHTML = `<span class="bletter">${bubbleBranch}</span><span class="bnums">${carParts.map((p,i) => `<span class="bline${i===0?' bline-first':''}">${p}</span>`).join('')}</span>`;
@@ -1797,7 +1926,7 @@ async function showCarModal(v){
   document.getElementById('carModalOverlay').classList.add('show');
 
   const [gltpsMap, rosterData, consistOverride, destinationOverride, userInfoMap] = await Promise.all([
-    loadGltps(), loadRoster(), loadConsistOverride(v.id), loadDestinationOverride(v.id), getUserInfoMap()
+    loadGltps(), loadRoster(), loadConsistOverride(v), loadDestinationOverride(v.id), getUserInfoMap()
   ]);
 
   const effectiveLabel = consistOverride ? consistOverride.label : v.label;
@@ -1820,11 +1949,22 @@ async function showCarModal(v){
     tripNotes = null;
   }
 
-  const isRedLine = state.activeLine === 'red';
+  const isGreenLine = state.activeLine === 'green';
 
   const carSections = carParts.map((carNum, i)=>{
-    const type = isRedLine ? getRedCarType(carNum) : getCarType(carNum);
-    const info = (isRedLine ? RED_CAR_INFO : CAR_INFO)[type] || (isRedLine ? RED_CAR_INFO : CAR_INFO)['Unknown'];
+    const type = isGreenLine ? getCarType(carNum) : lineCarType(carNum);
+    const infoMap = lineCarInfoMap();
+    const info = infoMap[type] || infoMap['Unknown'];
+
+    if(!isGreenLine){
+      return `
+        <div class="modal-section">
+          <h4>${i === 0 ? 'Lead Car' : (i === 1 ? 'Trailer Car' : 'Car ' + (i+1))} \u2014 ${carNum}</h4>
+          <div class="modal-row"><span>Type</span><strong>${type}</strong></div>
+          <div class="modal-row"><span>Builder</span><strong>${info.builder}</strong></div>
+          <div class="modal-row"><span>Year built</span><strong>${info.year}</strong></div>
+        </div>`;
+    }
 
     const opData = operatorByCar[carNum];
     const hasOpData = !!(opData && opData.operator);
@@ -1840,17 +1980,6 @@ async function showCarModal(v){
     const operatorBlock = (hasOpData || state.isModerator)
       ? `<div class="modal-row-spacer"></div>${opViewLine}${opEditForm}`
       : '';
-
-    if(isRedLine){
-      return `
-        <div class="modal-section">
-          <h4>${i === 0 ? 'Lead Car' : (i === 1 ? 'Trailer Car' : 'Car ' + (i+1))} \u2014 ${carNum}</h4>
-          <div class="modal-row"><span>Type</span><strong>${type}</strong></div>
-          <div class="modal-row"><span>Builder</span><strong>${info.builder}</strong></div>
-          <div class="modal-row"><span>Year built</span><strong>${info.year}</strong></div>
-          ${operatorBlock}
-        </div>`;
-    }
 
     const gltps = gltpsMap[carNum];
     const gltpsText = gltps ? gltps.status : (type === 'Type 10' ? 'Installed' : 'Unreported');
@@ -1885,7 +2014,7 @@ async function showCarModal(v){
   }).join('');
 
   const consistEditedLine = consistOverride
-    ? `<div class="roster-edited-by">Consist corrected by <strong>${liveName(consistOverride.editedBy, consistOverride.editedByUid, userInfoMap)}</strong> (${timeAgo(new Date(consistOverride.ts).toISOString())})</div>
+    ? `<div class="roster-edited-by">Consist corrected by <strong>${liveName(consistOverride.editedBy, consistOverride.editedByUid, userInfoMap)}</strong> (${timeAgo(new Date(consistOverride.ts).toISOString())}) \u2014 applies to any trip with this same set of cars, in any order, for 10 days</div>
        <button class="roster-reset-btn" id="consistRevertBtn">Revert to MBTA data</button>`
     : '';
 
@@ -1943,6 +2072,7 @@ async function showCarModal(v){
       <div class="modal-row"><span>Last update</span><strong>${secondsAgo}s ago</strong></div>
     </div>
     ${carSections}
+    ${isGreenLine ? `
     <div class="modal-section">
       <h4>Consist (car numbers)</h4>
       ${consistOverride ? '<div class="signin-note">The MBTA feed reported this train\'s consist differently; the numbers above reflect a community correction.</div>' : ''}
@@ -1960,7 +2090,7 @@ async function showCarModal(v){
       <div class="signin-note">Anyone signed in can add to this thread. Clears automatically once this train's destination changes.</div>
       ${tripNotesListHtml}
       ${tripNotesEditForm}
-    </div>
+    </div>` : ''}
   `;
 
   const tripNotesSaveBtn = document.getElementById('tripNotesSaveBtn');
@@ -2020,7 +2150,7 @@ async function showCarModal(v){
     });
   });
 
-  const CONSIST_EDIT_NOTICE = 'Saved! It may take up to a minute for this to show up on the train\'s bubble on the track map for other users.';
+  const CONSIST_EDIT_NOTICE = 'Saved! This applies to any future trip with this same set of cars (in any order) for the next 10 days, and may take up to a minute to show up on the track map for other users.';
 
   const consistSaveBtn = document.getElementById('consistSaveBtn');
   if(consistSaveBtn){
@@ -2028,7 +2158,7 @@ async function showCarModal(v){
       const input = document.getElementById('consistEditInput');
       const newLabel = input.value.trim();
       if(!newLabel) return;
-      await saveConsistOverride(v.id, newLabel);
+      await saveConsistOverride(v, newLabel);
       refreshConsistOverrideCache();
       alert(CONSIST_EDIT_NOTICE);
       showCarModal(v);
@@ -2037,7 +2167,7 @@ async function showCarModal(v){
   const consistRevertBtn = document.getElementById('consistRevertBtn');
   if(consistRevertBtn){
     consistRevertBtn.addEventListener('click', async ()=>{
-      await deleteConsistOverride(v.id);
+      await deleteConsistOverride(v);
       refreshConsistOverrideCache();
       alert(CONSIST_EDIT_NOTICE);
       showCarModal(v);
@@ -2051,7 +2181,7 @@ async function showCarModal(v){
       const newCar = input.value.trim();
       if(!newCar) return;
       const updatedParts = carParts.concat([newCar]);
-      await saveConsistOverride(v.id, updatedParts.join('-'));
+      await saveConsistOverride(v, updatedParts.join('-'));
       refreshConsistOverrideCache();
       alert(CONSIST_EDIT_NOTICE);
       showCarModal(v);
@@ -2062,7 +2192,7 @@ async function showCarModal(v){
       const carToRemove = btn.dataset.removeCar;
       const updatedParts = carParts.filter(c => c !== carToRemove);
       if(updatedParts.length === 0) return; // never allow removing the last car entirely
-      await saveConsistOverride(v.id, updatedParts.join('-'));
+      await saveConsistOverride(v, updatedParts.join('-'));
       refreshConsistOverrideCache();
       alert(CONSIST_EDIT_NOTICE);
       showCarModal(v);
@@ -2361,7 +2491,7 @@ function showBypassNotice(stopName){
 function showStationModal(pageKey, idx, stopName, side){
   const direction = side === 'west' ? 0 : 1;
   const upcoming = getUpcoming(pageKey, idx, direction);
-  const dirLabel = side === 'west' ? 'Westbound' : 'Eastbound';
+  const dirLabel = side === 'west' ? dirLabels().west : dirLabels().east;
 
   document.getElementById('carModalTitle').textContent = `${dirLabel} \u2014 ${displayName(stopName)}`;
 
@@ -2419,7 +2549,7 @@ function showStationDeparturesByName(stopName){
 
   document.getElementById('carModalBody').innerHTML =
     `<div class="modal-row"><span style="color:var(--text-faint); font-size:11px;">Estimated from stop count, not live predictions</span><strong></strong></div>` +
-    renderSide('Westbound', west) + renderSide('Eastbound', east);
+    renderSide(dirLabels().west, west) + renderSide(dirLabels().east, east);
   document.getElementById('carModalOverlay').classList.add('show');
 }
 
@@ -2537,7 +2667,17 @@ async function loadModAlerts(){
   try{
     const snap = await fbDb.collection('mod_alerts').orderBy('ts', 'desc').limit(30).get();
     const out = [];
-    snap.forEach(doc => out.push({ id: doc.id, kind: 'alert', ...doc.data() }));
+    const now = Date.now();
+    const expiredDocs = [];
+    snap.forEach(doc=>{
+      const data = doc.data();
+      if(data.expiresAt && data.expiresAt < now){
+        expiredDocs.push(doc.ref);
+      }else{
+        out.push({ id: doc.id, kind: 'alert', ...data });
+      }
+    });
+    expiredDocs.forEach(ref => ref.delete().catch(e => console.error(e)));
     return out;
   }catch(e){ console.error(e); return []; }
 }
@@ -2546,9 +2686,24 @@ async function loadModNotifications(){
   try{
     const snap = await fbDb.collection('mod_notifications').orderBy('ts', 'desc').limit(30).get();
     const out = [];
-    snap.forEach(doc => out.push({ id: doc.id, kind: 'notification', ...doc.data() }));
+    const now = Date.now();
+    const expiredDocs = [];
+    snap.forEach(doc=>{
+      const data = doc.data();
+      if(data.expiresAt && data.expiresAt < now){
+        expiredDocs.push(doc.ref);
+      }else{
+        out.push({ id: doc.id, kind: 'notification', ...data });
+      }
+    });
+    expiredDocs.forEach(ref => ref.delete().catch(e => console.error(e)));
     return out;
   }catch(e){ console.error(e); return []; }
+}
+async function deleteModItem(kind, id){
+  if(!firebaseReady) return;
+  const collection = kind === 'alert' ? 'mod_alerts' : 'mod_notifications';
+  try{ await fbDb.collection(collection).doc(id).delete(); }catch(e){ console.error(e); }
 }
 async function loadAllModItems(){
   const [alerts, notifs] = await Promise.all([loadModAlerts(), loadModNotifications()]);
@@ -2576,12 +2731,20 @@ async function showNotificationsPanel(){
   }
 
   document.getElementById('carModalBody').innerHTML = items.map(item=>{
+    const expiryNote = item.expiresAt
+      ? `<div class="signin-note">Expires ${new Date(item.expiresAt).toLocaleString('en-US', { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' })}</div>`
+      : `<div class="signin-note">Does not expire automatically</div>`;
+    const removeBtn = state.isModerator
+      ? `<button class="roster-reset-btn" data-remove-mod-item="${item.id}" data-remove-mod-kind="${item.kind}" style="margin-top:6px;">Remove notification</button>`
+      : '';
     if(item.kind === 'alert'){
       return `
         <div class="modal-section">
           <div class="alert-header" style="color:#D64545;">&#9888; Moderator alert</div>
           <div class="alert-desc">${(item.text || '').replace(/</g,'&lt;')}</div>
           <div class="alert-posted">${timeSincePosted(new Date(item.ts).toISOString())}</div>
+          ${expiryNote}
+          ${removeBtn}
         </div>`;
     }
     return `
@@ -2589,8 +2752,18 @@ async function showNotificationsPanel(){
         <div class="alert-header">${(item.subject || '').replace(/</g,'&lt;')}</div>
         <div class="alert-desc">${(item.body || '').replace(/</g,'&lt;')}</div>
         <div class="alert-posted">${timeSincePosted(new Date(item.ts).toISOString())}</div>
+        ${expiryNote}
+        ${removeBtn}
       </div>`;
   }).join('');
+
+  document.querySelectorAll('[data-remove-mod-item]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      if(!window.confirm('Remove this notification for everyone?')) return;
+      await deleteModItem(btn.dataset.removeModKind, btn.dataset.removeModItem);
+      showNotificationsPanel();
+    });
+  });
 }
 
 document.getElementById('notifBellBtn').addEventListener('click', showNotificationsPanel);
@@ -2763,6 +2936,54 @@ async function fetchRedLineVehicles(){
   }).filter(v => v.stopName);
 }
 
+async function fetchOrangeLineVehicles(){
+  const url = withMbtaKey("https://api-v3.mbta.com/vehicles?filter[route]=Orange&include=stop,trip&fields[vehicle]=current_status,current_stop_sequence,direction_id,label,latitude,longitude,updated_at,speed&fields[stop]=name&fields[trip]=headsign");
+  const controller = new AbortController();
+  const timeout = setTimeout(()=>controller.abort(), 6000);
+  const res = await fetch(url, { signal: controller.signal, headers: MBTA_HEADERS });
+  clearTimeout(timeout);
+  if(!res.ok) throw new Error('bad status ' + res.status);
+  const json = await res.json();
+  const included = {};
+  (json.included || []).forEach(item=>{ included[item.type + ':' + item.id] = item.attributes; });
+  return (json.data || []).map(v=>{
+    const stopRel = v.relationships && v.relationships.stop && v.relationships.stop.data;
+    const tripRel = v.relationships && v.relationships.trip && v.relationships.trip.data;
+    const stopName = stopRel ? (included['stop:'+stopRel.id] || {}).name : null;
+    const headsign = tripRel ? (included['trip:'+tripRel.id] || {}).headsign : null;
+    const speedMph = (typeof v.attributes.speed === 'number') ? Math.round(v.attributes.speed * 2.23694) : null;
+    return {
+      id: v.id, branch: 'ORANGE', label: v.attributes.label || v.id,
+      status: v.attributes.current_status, direction: v.attributes.direction_id,
+      stopName: stopName, headsign: headsign, speedMph: speedMph, updatedAt: v.attributes.updated_at
+    };
+  }).filter(v => v.stopName);
+}
+
+async function fetchBlueLineVehicles(){
+  const url = withMbtaKey("https://api-v3.mbta.com/vehicles?filter[route]=Blue&include=stop,trip&fields[vehicle]=current_status,current_stop_sequence,direction_id,label,latitude,longitude,updated_at,speed&fields[stop]=name&fields[trip]=headsign");
+  const controller = new AbortController();
+  const timeout = setTimeout(()=>controller.abort(), 6000);
+  const res = await fetch(url, { signal: controller.signal, headers: MBTA_HEADERS });
+  clearTimeout(timeout);
+  if(!res.ok) throw new Error('bad status ' + res.status);
+  const json = await res.json();
+  const included = {};
+  (json.included || []).forEach(item=>{ included[item.type + ':' + item.id] = item.attributes; });
+  return (json.data || []).map(v=>{
+    const stopRel = v.relationships && v.relationships.stop && v.relationships.stop.data;
+    const tripRel = v.relationships && v.relationships.trip && v.relationships.trip.data;
+    const stopName = stopRel ? (included['stop:'+stopRel.id] || {}).name : null;
+    const headsign = tripRel ? (included['trip:'+tripRel.id] || {}).headsign : null;
+    const speedMph = (typeof v.attributes.speed === 'number') ? Math.round(v.attributes.speed * 2.23694) : null;
+    return {
+      id: v.id, branch: 'BLUE', label: v.attributes.label || v.id,
+      status: v.attributes.current_status, direction: v.attributes.direction_id,
+      stopName: stopName, headsign: headsign, speedMph: speedMph, updatedAt: v.attributes.updated_at
+    };
+  }).filter(v => v.stopName);
+}
+
 function generateDemoRedVehicles(){
   const demo = [];
   const statuses = ['IN_TRANSIT_TO','STOPPED_AT','INCOMING_AT'];
@@ -2793,6 +3014,54 @@ function generateDemoRedVehicles(){
       });
     }
   });
+  return demo;
+}
+
+function generateDemoOrangeVehicles(){
+  const demo = [];
+  const statuses = ['IN_TRANSIT_TO','STOPPED_AT','INCOMING_AT'];
+  const stops = PAGES.ORANGE.stops;
+  const count = 4 + Math.floor(Math.random()*3);
+  for(let i=0;i<count;i++){
+    const idx = Math.floor(Math.random() * stops.length);
+    const dir = Math.round(Math.random());
+    const status = statuses[Math.floor(Math.random()*statuses.length)];
+    const a = 1400 + Math.floor(Math.random()*198);
+    demo.push({
+      id: 'ORANGE-demo-' + i,
+      branch: 'ORANGE',
+      label: `${a}-${a+1}`,
+      status, direction: dir,
+      stopName: stops[idx],
+      headsign: dir === 0 ? stops[stops.length-1] : stops[0],
+      speedMph: status === 'STOPPED_AT' ? 0 : (5 + Math.floor(Math.random()*45)),
+      updatedAt: new Date(Date.now() - Math.floor(Math.random()*90000)).toISOString()
+    });
+  }
+  return demo;
+}
+
+function generateDemoBlueVehicles(){
+  const demo = [];
+  const statuses = ['IN_TRANSIT_TO','STOPPED_AT','INCOMING_AT'];
+  const stops = PAGES.BLUE.stops;
+  const count = 3 + Math.floor(Math.random()*3);
+  for(let i=0;i<count;i++){
+    const idx = Math.floor(Math.random() * stops.length);
+    const dir = Math.round(Math.random());
+    const status = statuses[Math.floor(Math.random()*statuses.length)];
+    const a = 700 + Math.floor(Math.random()*92);
+    demo.push({
+      id: 'BLUE-demo-' + i,
+      branch: 'BLUE',
+      label: `${a}-${a+1}`,
+      status, direction: dir,
+      stopName: stops[idx],
+      headsign: dir === 0 ? stops[stops.length-1] : stops[0],
+      speedMph: status === 'STOPPED_AT' ? 0 : (5 + Math.floor(Math.random()*45)),
+      updatedAt: new Date(Date.now() - Math.floor(Math.random()*90000)).toISOString()
+    });
+  }
   return demo;
 }
 
@@ -2875,7 +3144,10 @@ const STALE_VEHICLE_MS = 150000; // drop trains not updated in the last 150 seco
 
 async function refreshVehicles(){
   try{
-    const vehicles = state.activeLine === 'red' ? await fetchRedLineVehicles() : await fetchLiveVehicles();
+    const vehicles = state.activeLine === 'red' ? await fetchRedLineVehicles()
+      : state.activeLine === 'orange' ? await fetchOrangeLineVehicles()
+      : state.activeLine === 'blue' ? await fetchBlueLineVehicles()
+      : await fetchLiveVehicles();
     // A successful fetch that legitimately returns zero vehicles (e.g. late
     // night when the Green Line has little/no overnight service) is real
     // live data, not a broken feed — only an actual thrown error (network
@@ -2884,7 +3156,10 @@ async function refreshVehicles(){
     setLiveStatus(true);
   }catch(err){
     console.error('Live vehicle feed failed, falling back to demo mode:', err);
-    state.vehicles = state.activeLine === 'red' ? generateDemoRedVehicles() : generateDemoVehicles();
+    state.vehicles = state.activeLine === 'red' ? generateDemoRedVehicles()
+      : state.activeLine === 'orange' ? generateDemoOrangeVehicles()
+      : state.activeLine === 'blue' ? generateDemoBlueVehicles()
+      : generateDemoVehicles();
     setLiveStatus(false);
   }
 
@@ -2959,7 +3234,7 @@ function renderVehicleList(){
     relevant = relevant.filter(v => String(v.direction) === state.filterDirection);
   }
   if(state.filterType !== 'ALL'){
-    relevant = relevant.filter(v => (state.activeLine === 'red' ? getRedCarType(v.label) : getCarType(v.label)) === state.filterType);
+    relevant = relevant.filter(v => (state.activeLine === 'green' ? getCarType(v.label) : lineCarType(v.label)) === state.filterType);
   }
 
   document.getElementById('vehicleListTitle').textContent = key === 'SUBWAY' ? 'Subway trunk trains' : (page.isMulti ? page.label + ' trains' : key + ' branch trains');
@@ -2976,9 +3251,9 @@ function renderVehicleList(){
   }
 
   list.innerHTML = relevant.map((v)=>{
-    const type = state.activeLine === 'red' ? getRedCarType(v.label) : getCarType(v.label);
+    const type = state.activeLine === 'green' ? getCarType(v.label) : lineCarType(v.label);
     const displayBranch = getDisplayBranch(v.branch);
-    const badgeText = v.direction === 0 ? 'WB' : 'EB';
+    const badgeText = v.direction === 0 ? dirLabels().westShort : dirLabels().eastShort;
     const badgeHex = getBranchHex(v.branch);
     const badgeTextColor = getTextColorFor(badgeHex);
     return `
@@ -3615,36 +3890,55 @@ function applyLineAccent(hex){
 function rebuildTypeFilterOptions(){
   const select = document.getElementById('filterType');
   if(!select) return;
-  if(state.activeLine === 'red'){
-    select.innerHTML = `
-      <option value="ALL">All car types</option>
-      <option value="Type 1">Type 1</option>
-      <option value="Type 2">Type 2</option>
-      <option value="Type 3">Type 3</option>
-      <option value="Type 4">Type 4</option>
-      <option value="Unknown">Unknown</option>`;
-  }else{
-    select.innerHTML = `
-      <option value="ALL">All car types</option>
-      <option value="Type 7">Type 7</option>
-      <option value="Type 8">Type 8</option>
-      <option value="Type 9">Type 9</option>
-      <option value="Type 10">Type 10</option>
-      <option value="Unknown">Unknown</option>`;
-  }
+  const optionsByLine = {
+    red: ['Type 1','Type 2','Type 3','Type 4'],
+    orange: ['CRRC'],
+    blue: ['Siemens'],
+    green: ['Type 7','Type 8','Type 9','Type 10']
+  };
+  const opts = optionsByLine[state.activeLine] || optionsByLine.green;
+  select.innerHTML = `<option value="ALL">All car types</option>` +
+    opts.map(o => `<option value="${o}">${o}</option>`).join('') +
+    `<option value="Unknown">Unknown</option>`;
   state.filterType = 'ALL';
 }
+
+const LINE_DEFAULT_PAGE = { green:'B', red:'REDASHMONT', orange:'ORANGE', blue:'BLUE' };
+const LINE_PAGE_KEYS = {
+  red: ['REDASHMONT','REDBRAINTREE'],
+  orange: ['ORANGE'],
+  blue: ['BLUE'],
+  green: ['B','C','D','E','SUBWAY','MATTAPAN']
+};
+const LINE_ACCENT = { red:'#FA2D27', orange:'#ED8B00', blue:'#003DA5', green:null };
+const LINE_DEV_BANNER_TEXT = {
+  red: '&#128679; The Red Line tracker is still in heavy development \u2014 expect bugs and missing features.',
+  orange: '&#128679; The Orange Line tracker is still in heavy development \u2014 expect bugs and missing features.',
+  blue: '&#128679; The Blue Line tracker is still in heavy development \u2014 expect bugs and missing features.'
+};
+
 function revealApp(line){
   hideAllGateScreens();
   state.activeLine = line;
-  applyLineAccent(line === 'red' ? '#FA2D27' : null);
+  applyLineAccent(LINE_ACCENT[line]);
   rebuildTypeFilterOptions();
-  document.getElementById('redLineDevBanner').classList.toggle('show', line === 'red');
+  updateDirectionLabels();
+  const devBanner = document.getElementById('redLineDevBanner');
+  if(line === 'green'){
+    devBanner.classList.remove('show');
+  }else{
+    devBanner.innerHTML = LINE_DEV_BANNER_TEXT[line];
+    devBanner.classList.add('show');
+  }
   let savedPage = null;
   try{ savedPage = localStorage.getItem(LAST_PAGE_KEY); }catch(e){ /* ignore */ }
-  const defaultPage = line === 'red' ? 'REDASHMONT' : 'B';
-  const validForThisLine = savedPage && PAGES[savedPage] &&
-    (line === 'red' ? ['REDASHMONT','REDBRAINTREE'].includes(savedPage) : !['REDASHMONT','REDBRAINTREE'].includes(savedPage));
+  const defaultPage = LINE_DEFAULT_PAGE[line] || 'B';
+  const OTHER_LINE_SPECIFIC_PAGES = ['REDASHMONT','REDBRAINTREE','ORANGE','BLUE'];
+  const validForThisLine = savedPage && PAGES[savedPage] && (
+    line === 'green'
+      ? !OTHER_LINE_SPECIFIC_PAGES.includes(savedPage)
+      : (LINE_PAGE_KEYS[line] || []).includes(savedPage)
+  );
   state.vehicles = []; // avoid a stale frame showing the other line's trains while the new feed loads
   switchPage(validForThisLine ? savedPage : defaultPage);
   refreshVehicles();
@@ -3658,7 +3952,7 @@ function routeAfterSignIn(){
   try{ selectedLine = localStorage.getItem(LINE_SELECTION_KEY); }catch(e){ /* ignore */ }
   if(!selectedLine){
     showLineSelectScreen();
-  }else if(selectedLine === 'green' || selectedLine === 'red'){
+  }else if(['green','red','orange','blue'].includes(selectedLine)){
     revealApp(selectedLine);
   }else{
     showPlaceholderLineScreen(selectedLine);
@@ -3669,7 +3963,7 @@ document.querySelectorAll('.line-select-btn').forEach(btn=>{
   btn.addEventListener('click', ()=>{
     const line = btn.dataset.line;
     try{ localStorage.setItem(LINE_SELECTION_KEY, line); }catch(e){ /* ignore */ }
-    if(line === 'green' || line === 'red'){
+    if(['green','red','orange','blue'].includes(line)){
       revealApp(line);
     }else{
       showPlaceholderLineScreen(line);
@@ -3860,14 +4154,17 @@ document.getElementById('modNotifsBackBtn').addEventListener('click', ()=> switc
 
 document.getElementById('modAlertSendBtn').addEventListener('click', async ()=>{
   const textEl = document.getElementById('modAlertText');
+  const expiryEl = document.getElementById('modAlertExpiry');
   const note = document.getElementById('modAlertNote');
   const text = textEl.value.trim();
   if(!text){ note.textContent = 'Write something first'; setTimeout(()=>{ note.textContent=''; }, 2000); return; }
   if(!firebaseReady){ note.textContent = 'Firebase not configured'; return; }
   if(!window.confirm('Send this alert to all users right now?')) return;
+  const expiryHours = parseInt(expiryEl.value, 10);
+  const expiresAt = expiryHours > 0 ? Date.now() + expiryHours * 60 * 60 * 1000 : null;
   try{
     await fbDb.collection('mod_alerts').add({
-      text, ts: Date.now(), postedBy: state.userName, postedByUid: state.uid || null
+      text, ts: Date.now(), postedBy: state.userName, postedByUid: state.uid || null, expiresAt
     });
     textEl.value = '';
     note.textContent = 'Alert sent!';
@@ -3878,15 +4175,18 @@ document.getElementById('modAlertSendBtn').addEventListener('click', async ()=>{
 document.getElementById('modNotifSendBtn').addEventListener('click', async ()=>{
   const subjectEl = document.getElementById('modNotifSubject');
   const bodyEl = document.getElementById('modNotifBody');
+  const expiryEl = document.getElementById('modNotifExpiry');
   const note = document.getElementById('modNotifNote');
   const subject = subjectEl.value.trim();
   const body = bodyEl.value.trim();
   if(!subject || !body){ note.textContent = 'Subject and message are both required'; setTimeout(()=>{ note.textContent=''; }, 2500); return; }
   if(!firebaseReady){ note.textContent = 'Firebase not configured'; return; }
   if(!window.confirm('Send this notification to all users right now?')) return;
+  const expiryHours = parseInt(expiryEl.value, 10);
+  const expiresAt = expiryHours > 0 ? Date.now() + expiryHours * 60 * 60 * 1000 : null;
   try{
     await fbDb.collection('mod_notifications').add({
-      subject, body, ts: Date.now(), postedBy: state.userName, postedByUid: state.uid || null
+      subject, body, ts: Date.now(), postedBy: state.userName, postedByUid: state.uid || null, expiresAt
     });
     subjectEl.value = '';
     bodyEl.value = '';
