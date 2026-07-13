@@ -271,7 +271,13 @@ body.dark .stop-dot{background:#ffffff;}
 .train-bubble .bletter{font-family:'Space Grotesk', sans-serif; font-size:19px; font-weight:800; line-height:1;}
 .train-bubble .bnums{display:flex; flex-direction:column; align-items:center; justify-content:center; line-height:1.1;}
 .train-bubble .bline{white-space:nowrap; font-size:11.5px; font-weight:500; font-family:'Quicksand', sans-serif;}
-.bubble-dest-badge{color:#D64545; font-weight:800; font-size:26px; margin-left:4px; line-height:1;}
+.bubble-dest-badge{
+  display:inline-flex; align-items:center; justify-content:center;
+  width:22px; height:22px; border-radius:50%;
+  background:#fff; color:#D64545; font-weight:900; font-size:16px;
+  margin-left:5px; line-height:1; box-shadow:0 0 0 2px #D64545, 0 1px 3px rgba(0,0,0,0.4);
+  flex:0 0 auto;
+}
 .train-bubble .bline-first{font-weight:800;}
 
 .train-bubble.rainbow-outline{
@@ -1164,7 +1170,7 @@ async function refreshDestinationOverrideCache(){
   try{
     const snap = await fbDb.collection('destination_overrides').get();
     const map = {};
-    snap.forEach(doc => { map[doc.id] = true; });
+    snap.forEach(doc => { map[doc.id] = doc.data(); });
     destinationOverrideCache = map;
   }catch(e){ console.error(e); }
 }
@@ -1241,16 +1247,19 @@ async function loadDestinationOverride(vehicleId){
     return data[vehicleId] || null;
   }catch(e){ return null; }
 }
-async function saveDestinationOverride(vehicleId, destination){
-  const payload = { destination, editedBy: state.userName, editedByUid: state.uid || null, ts: Date.now() };
+async function saveDestinationOverride(v, destination){
+  const payload = {
+    destination, editedBy: state.userName, editedByUid: state.uid || null, ts: Date.now(),
+    originalHeadsign: v.headsign || null, originalDirection: v.direction
+  };
   if(firebaseReady){
-    try{ await fbDb.collection('destination_overrides').doc(vehicleId).set(payload); }catch(e){ console.error(e); }
+    try{ await fbDb.collection('destination_overrides').doc(v.id).set(payload); }catch(e){ console.error(e); }
     return payload;
   }
   try{
     const raw = localStorage.getItem(DESTINATION_KEY);
     const data = raw ? JSON.parse(raw) : {};
-    data[vehicleId] = payload;
+    data[v.id] = payload;
     localStorage.setItem(DESTINATION_KEY, JSON.stringify(data));
   }catch(e){ console.error(e); }
   return payload;
@@ -1824,7 +1833,11 @@ function renderTrainDots(){
       bubble.style.minHeight = '28px';
       bubble.style.left = bubbleX + 'px';
       bubble.title = `${getDisplayBranch(entry.v.branch)} \u00b7 Car ${effectiveBubbleLabel} \u2014 tap for details`;
-      const hasAlteredDestination = !!destinationOverrideCache[entry.v.id];
+      const destOverrideEntry = destinationOverrideCache[entry.v.id];
+      const hasAlteredDestination = !!destOverrideEntry && (
+        (!destOverrideEntry.originalHeadsign || destOverrideEntry.originalHeadsign === entry.v.headsign) &&
+        (destOverrideEntry.originalDirection === undefined || destOverrideEntry.originalDirection === entry.v.direction)
+      );
       const destBadge = hasAlteredDestination ? `<span class="bubble-dest-badge" title="Destination reported as changed">&#9888;</span>` : '';
       if(state.activeLine !== 'green'){
         bubble.innerHTML = `<span class="bnums"><span class="bline bline-first">${carParts[0]}</span></span>${destBadge}`;
@@ -1942,9 +1955,22 @@ async function showCarModal(v){
   document.getElementById('carModalBody').innerHTML = `<div class="modal-row"><span>Loading&hellip;</span><strong></strong></div>`;
   document.getElementById('carModalOverlay').classList.add('show');
 
-  const [gltpsMap, rosterData, consistOverride, destinationOverride, userInfoMap] = await Promise.all([
+  const [gltpsMap, rosterData, consistOverride, destinationOverrideRaw, userInfoMap] = await Promise.all([
     loadGltps(), loadRoster(), loadConsistOverride(v), loadDestinationOverride(v.id), getUserInfoMap()
   ]);
+
+  // A destination override is tied to the specific trip it was reported on —
+  // once the train's real headsign or direction changes (it terminated,
+  // started a new trip, or reversed), the override no longer applies.
+  let destinationOverride = destinationOverrideRaw;
+  if(destinationOverride && (
+    (destinationOverride.originalHeadsign && destinationOverride.originalHeadsign !== v.headsign) ||
+    (destinationOverride.originalDirection !== undefined && destinationOverride.originalDirection !== v.direction)
+  )){
+    await deleteDestinationOverride(v.id);
+    refreshDestinationOverrideCache();
+    destinationOverride = null;
+  }
 
   const effectiveLabel = consistOverride ? consistOverride.label : v.label;
   const carParts = String(effectiveLabel).split('-');
@@ -2151,7 +2177,7 @@ async function showCarModal(v){
       }
 
       if(!window.confirm('Everyone will be able to see this change. Continue?')) return;
-      await saveDestinationOverride(v.id, destination);
+      await saveDestinationOverride(v, destination);
       refreshDestinationOverrideCache();
       showCarModal(v);
     });
