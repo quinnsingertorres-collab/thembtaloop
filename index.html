@@ -19,16 +19,16 @@
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=Quicksand:wght@600;700&display=swap');
 
 :root{
-  --bg:#F4F7F5;
-  --panel:#FFFFFF;
-  --border:#E1E8E3;
-  --text:#0A0A0A;
-  --text-dim:#5B6D63;
-  --text-faint:#93A69B;
-  --accent:#0F8A4B;
-  --accent-soft:#E6F5EC;
-  --line-black:#111111;
-  --nav-bg:#E3E7E5;
+  --bg:#121816;
+  --panel:#1B2320;
+  --border:#33403B;
+  --text:#F0F4F2;
+  --text-dim:#A9BAB2;
+  --text-faint:#6E8177;
+  --accent:#2FBE72;
+  --accent-soft:#173224;
+  --line-black:#EDEDED;
+  --nav-bg:#232B28;
   --radius:12px;
   --row-h:30px;
 }
@@ -1966,6 +1966,40 @@ function statusPhrase(status, stopName){
 
 function operatorDocId(vehicleId, carNum){ return vehicleId + '_' + carNum; }
 
+function todayDateString(){
+  // Uses the same Eastern-Time convention as the rest of the app's clock, so
+  // "end of day" lines up with when MBTA's own service day actually ends.
+  return new Date().toLocaleDateString('en-CA', { timeZone:'America/New_York' }); // YYYY-MM-DD
+}
+
+async function loadCarOutOfService(carNum){
+  if(!firebaseReady) return null;
+  try{
+    const doc = await fbDb.collection('car_out_of_service').doc(carNum).get();
+    if(!doc.exists) return null;
+    const data = doc.data();
+    if(data.date !== todayDateString()){
+      // Stale from a previous service day — clean it up and treat as cleared.
+      fbDb.collection('car_out_of_service').doc(carNum).delete().catch(e => console.error(e));
+      return null;
+    }
+    return data;
+  }catch(e){ console.error(e); return null; }
+}
+async function markCarOutOfService(carNum){
+  if(!firebaseReady) return;
+  try{
+    await fbDb.collection('car_out_of_service').doc(carNum).set({
+      outOfService: true, markedBy: state.userName, markedByUid: state.uid || null,
+      ts: Date.now(), date: todayDateString()
+    });
+  }catch(e){ console.error(e); }
+}
+async function clearCarOutOfService(carNum){
+  if(!firebaseReady) return;
+  try{ await fbDb.collection('car_out_of_service').doc(carNum).delete(); }catch(e){ console.error(e); }
+}
+
 async function loadVehicleOperator(vehicleId, carNum){
   if(!firebaseReady) return null;
   try{
@@ -2039,12 +2073,17 @@ async function showCarModal(v){
   const carParts = String(effectiveLabel).split('-');
   const secondsAgo = Math.max(0, Math.round((Date.now() - new Date(v.updatedAt).getTime())/1000));
 
-  const [operatorList, tripNotesRaw] = await Promise.all([
+  const [operatorList, tripNotesRaw, oosList] = await Promise.all([
     Promise.all(carParts.map(carNum => loadVehicleOperator(v.id, carNum))),
-    loadTripNotes(v.id)
+    loadTripNotes(v.id),
+    Promise.all(carParts.map(carNum => loadCarOutOfService(carNum)))
   ]);
   const operatorByCar = {};
-  carParts.forEach((carNum, i) => { operatorByCar[carNum] = operatorList[i]; });
+  const oosByCar = {};
+  carParts.forEach((carNum, i) => {
+    operatorByCar[carNum] = operatorList[i];
+    oosByCar[carNum] = oosList[i];
+  });
 
   // Trip notes are tied to the train's current destination — if the MBTA feed
   // now shows a different headsign than when the notes were saved, this is
@@ -2062,6 +2101,17 @@ async function showCarModal(v){
     const infoMap = lineCarInfoMap();
     const info = infoMap[type] || infoMap['Unknown'];
 
+    const oosData = oosByCar[carNum];
+    const isOOS = !!(oosData && oosData.outOfService);
+    const oosViewLine = isOOS
+      ? `<div class="modal-row"><span>Status</span><strong style="color:#D64545;">Out of Service</strong></div>
+         <span class="signin-note">Marked by ${liveName(oosData.markedBy, oosData.markedByUid, userInfoMap)} today \u2014 clears at end of service day</span>`
+      : '';
+    const oosButton = state.signedIn
+      ? `<button class="account-btn" data-oos-toggle="${carNum}" data-oos-current="${isOOS ? '1' : '0'}" style="margin-top:6px; ${isOOS ? 'background:#0F8A4B;' : 'background:#D64545;'}">${isOOS ? 'Mark back in service' : 'Mark out of service'}</button>`
+      : `<div class="signin-note">Sign in to report a car's service status.</div>`;
+    const oosBlock = `<div class="modal-row-spacer"></div>${oosViewLine}${oosButton}`;
+
     if(!isGreenLine){
       return `
         <div class="modal-section">
@@ -2069,6 +2119,7 @@ async function showCarModal(v){
           <div class="modal-row"><span>Type</span><strong>${type}</strong></div>
           <div class="modal-row"><span>Builder</span><strong>${info.builder}</strong></div>
           <div class="modal-row"><span>Year built</span><strong>${info.year}</strong></div>
+          ${oosBlock}
         </div>`;
     }
 
@@ -2116,6 +2167,7 @@ async function showCarModal(v){
         <div class="modal-row"><span>GLTPS</span><strong style="${gltpsColor}">${gltpsText}</strong></div>
         ${gltpsButtons}
         ${operatorBlock}
+        ${oosBlock}
       </div>`;
   }).join('');
 
@@ -2178,25 +2230,25 @@ async function showCarModal(v){
       <div class="modal-row"><span>Last update</span><strong>${secondsAgo}s ago</strong></div>
     </div>
     ${carSections}
-    ${isGreenLine ? `
     <div class="modal-section">
       <h4>Consist (car numbers)</h4>
       ${consistOverride ? '<div class="signin-note">The MBTA feed reported this train\'s consist differently; the numbers above reflect a community correction.</div>' : ''}
       ${consistEditForm}
       ${consistEditedLine}
     </div>
+    ${isGreenLine ? `
     <div class="modal-section">
       <h4>Updated destination</h4>
       ${destinationOverride ? '<div class="signin-note">The MBTA feed reported a different destination; this reflects a community-reported short turn.</div>' : ''}
       ${destinationEditForm}
       ${destinationEditedLine}
-    </div>
+    </div>` : ''}
     <div class="modal-section">
       <h4>Trip notes</h4>
       <div class="signin-note">Anyone signed in can add to this thread. Clears automatically once this train's destination changes.</div>
       ${tripNotesListHtml}
       ${tripNotesEditForm}
-    </div>` : ''}
+    </div>
   `;
 
   const tripNotesSaveBtn = document.getElementById('tripNotesSaveBtn');
@@ -2303,6 +2355,19 @@ async function showCarModal(v){
       await saveConsistOverride(v, updatedParts.join('-'));
       refreshConsistOverrideCache();
       alert(CONSIST_EDIT_NOTICE);
+      showCarModal(v);
+    });
+  });
+
+  document.querySelectorAll('[data-oos-toggle]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const carNum = btn.dataset.oosToggle;
+      const isCurrentlyOOS = btn.dataset.oosCurrent === '1';
+      if(isCurrentlyOOS){
+        await clearCarOutOfService(carNum);
+      }else{
+        await markCarOutOfService(carNum);
+      }
       showCarModal(v);
     });
   });
