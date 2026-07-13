@@ -271,6 +271,7 @@ body.dark .stop-dot{background:#ffffff;}
 .train-bubble .bletter{font-family:'Space Grotesk', sans-serif; font-size:19px; font-weight:800; line-height:1;}
 .train-bubble .bnums{display:flex; flex-direction:column; align-items:center; justify-content:center; line-height:1.1;}
 .train-bubble .bline{white-space:nowrap; font-size:11.5px; font-weight:500; font-family:'Quicksand', sans-serif;}
+.bubble-dest-badge{color:#D64545; font-weight:800; font-size:15px; margin-left:4px; line-height:1;}
 .train-bubble .bline-first{font-weight:800;}
 
 .train-bubble.rainbow-outline{
@@ -1154,6 +1155,20 @@ async function refreshConsistOverrideCache(){
   }catch(e){ console.error(e); }
 }
 
+// Cache of vehicleId -> true for any train currently carrying a
+// community-reported destination override, so the bubble on the track map
+// can flag it with a small warning badge (not just inside the modal).
+let destinationOverrideCache = {};
+async function refreshDestinationOverrideCache(){
+  if(!firebaseReady) return;
+  try{
+    const snap = await fbDb.collection('destination_overrides').get();
+    const map = {};
+    snap.forEach(doc => { map[doc.id] = true; });
+    destinationOverrideCache = map;
+  }catch(e){ console.error(e); }
+}
+
 async function loadConsistOverride(v){
   const key = carSetKey(v.label);
   if(firebaseReady){
@@ -1809,12 +1824,14 @@ function renderTrainDots(){
       bubble.style.minHeight = '28px';
       bubble.style.left = bubbleX + 'px';
       bubble.title = `${getDisplayBranch(entry.v.branch)} \u00b7 Car ${effectiveBubbleLabel} \u2014 tap for details`;
+      const hasAlteredDestination = !!destinationOverrideCache[entry.v.id];
+      const destBadge = hasAlteredDestination ? `<span class="bubble-dest-badge" title="Destination reported as changed">&#9888;</span>` : '';
       if(state.activeLine !== 'green'){
-        bubble.innerHTML = `<span class="bnums"><span class="bline bline-first">${carParts[0]}</span></span>`;
+        bubble.innerHTML = `<span class="bnums"><span class="bline bline-first">${carParts[0]}</span></span>${destBadge}`;
       }else if(carParts.length >= 2){
-        bubble.innerHTML = `<span class="bletter">${bubbleBranch}</span><span class="bnums">${carParts.map((p,i) => `<span class="bline${i===0?' bline-first':''}">${p}</span>`).join('')}</span>`;
+        bubble.innerHTML = `<span class="bletter">${bubbleBranch}</span><span class="bnums">${carParts.map((p,i) => `<span class="bline${i===0?' bline-first':''}">${p}</span>`).join('')}</span>${destBadge}`;
       }else{
-        bubble.innerHTML = `<span class="bletter">${bubbleBranch}</span><span class="bnums"><span class="bline bline-first">${effectiveBubbleLabel}</span></span>`;
+        bubble.innerHTML = `<span class="bletter">${bubbleBranch}</span><span class="bnums"><span class="bline bline-first">${effectiveBubbleLabel}</span></span>${destBadge}`;
       }
 
       const anchorX = side === 'west' ? (bubbleX + layout.BUBBLE_W) : bubbleX;
@@ -2122,6 +2139,7 @@ async function showCarModal(v){
       if(choice === '__REGULAR__'){
         if(!window.confirm('Everyone will be able to see this change. Continue?')) return;
         await deleteDestinationOverride(v.id);
+        refreshDestinationOverrideCache();
         showCarModal(v);
         return;
       }
@@ -2134,6 +2152,7 @@ async function showCarModal(v){
 
       if(!window.confirm('Everyone will be able to see this change. Continue?')) return;
       await saveDestinationOverride(v.id, destination);
+      refreshDestinationOverrideCache();
       showCarModal(v);
     });
   }
@@ -4350,6 +4369,9 @@ async function init(){
 
   refreshConsistOverrideCache();
   setInterval(refreshConsistOverrideCache, 60000);
+
+  refreshDestinationOverrideCache();
+  setInterval(refreshDestinationOverrideCache, 60000);
 }
 
 if('serviceWorker' in navigator){
