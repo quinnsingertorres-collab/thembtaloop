@@ -1959,11 +1959,14 @@ function renderTrainDots(){
     const side = v.direction === 0 ? 'west' : 'east';
     const dot = ladder.querySelector(`.stop-dot[data-stop-idx="${idx}"][data-side="${side}"]`);
     if(dot){
+      const carPartsForOOS = String(consistOverrideCache[carSetKey(v.label)] || v.label).split('-');
+      const isOOS = isSoloType7(v) || carPartsForOOS.some(c => outOfServiceCarsCache[c]);
       let occupiedHex = getBranchHex(v.branch);
       if(state.activeLine === 'red'){
         const branch = getRedLineBranch(v);
         if(branch) occupiedHex = RED_BRANCH_COLORS[branch];
       }
+      if(isOOS) occupiedHex = SOLO_TYPE7_GRAY;
       dot.classList.add('stop-dot-occupied');
       dot.style.setProperty('--occupied-color', occupiedHex);
     }
