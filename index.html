@@ -493,7 +493,10 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
   </div>
   <div class="signed-in-bar" id="signedInBar"><span class="user-chip" id="userChip">G</span></div>
 
-  <button class="alert-btn" id="alertsBtn" title="Service alerts">&#9888;<span class="alert-dot" id="alertsDot" style="display:none;"></span></button>
+  <button class="alert-btn" id="alertsBtn" title="Service alerts">
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none"><path d="M12 3.5L2 20.5h20L12 3.5z" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/><line x1="12" y1="9.5" x2="12" y2="14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="17" r="1.15" fill="currentColor"/></svg>
+    <span class="alert-dot" id="alertsDot" style="display:none;"></span>
+  </button>
 
   <button class="alert-btn" id="notifBellBtn" title="Notifications">
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M13.73 21a2 2 0 0 1-3.46 0" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -975,12 +978,76 @@ const RED_BRAINTREE_ONLY_STOPS = ["North Quincy","Wollaston","Quincy Center","Qu
 // different trip with its own clear signal.
 let redVehicleBranchMemory = {};
 
+// Authoritative fallback for ambiguous northbound trips: instead of
+// guessing, look up this specific trip's actual scheduled stop sequence
+// (MBTA's real timetable data) and check whether it includes an
+// Ashmont-only or Braintree-only stop anywhere in the full trip — this
+// works even while the train is currently sitting on the shared trunk,
+// since it's based on the trip's whole route, not just its current position.
+let tripBranchCache = {}; // tripId -> 'ashmont' | 'braintree' | 'unknown'
+let tripBranchInFlight = {}; // tripId -> true while a lookup is pending
+
+async function fetchTripBranchFromSchedule(tripId){
+  const url = withMbtaKey(`https://api-v3.mbta.com/schedules?filter[trip]=${tripId}&include=stop&fields[schedule]=stop_sequence&fields[stop]=name`);
+  const res = await fetch(url, { headers: MBTA_HEADERS });
+  if(!res.ok) throw new Error('bad status ' + res.status);
+  const json = await res.json();
+  const included = {};
+  (json.included || []).forEach(item=>{ included[item.type + ':' + item.id] = item.attributes; });
+  const stopNames = (json.data || []).map(s=>{
+    const stopRel = s.relationships && s.relationships.stop && s.relationships.stop.data;
+    return stopRel ? (included['stop:'+stopRel.id] || {}).name : null;
+  }).filter(Boolean);
+  if(stopNames.some(name => RED_ASHMONT_ONLY_STOPS.includes(name))) return 'ashmont';
+  if(stopNames.some(name => RED_BRAINTREE_ONLY_STOPS.includes(name))) return 'braintree';
+  return 'unknown';
+}
+
+// Kicks off (and caches) a lookup for this trip's real scheduled branch.
+// Fire-and-forget from the render path, since fetching is async — the
+// result becomes available on a subsequent render once it resolves.
+function ensureTripBranchLookup(tripId){
+  if(!tripId || tripBranchCache[tripId] || tripBranchInFlight[tripId]) return;
+  tripBranchInFlight[tripId] = true;
+  fetchTripBranchFromSchedule(tripId)
+    .then(branch => { tripBranchCache[tripId] = branch; })
+    .catch(e => { console.error(e); tripBranchCache[tripId] = 'unknown'; })
+    .finally(()=>{ delete tripBranchInFlight[tripId]; });
+}
+
+// Persistent, cross-session log of which branch each car (by number) most
+// recently originated from. In-session memory alone resets on every reload
+// and isn't shared between users, so a northbound train that's already past
+// the branch-specific stops (or that a different visitor loads fresh) would
+// otherwise show as un-branded again. This log is a best guess based on the
+// car's most recent known assignment, not a permanent fact — a given car
+// number can run on either branch on different days.
+let redOriginLogCache = {};
+async function refreshRedOriginLogCache(){
+  if(!firebaseReady) return;
+  try{
+    const snap = await fbDb.collection('red_line_car_origins').get();
+    const map = {};
+    snap.forEach(doc => { map[doc.id] = doc.data(); });
+    redOriginLogCache = map;
+  }catch(e){ console.error(e); }
+}
+function logRedCarOrigin(carNum, branch){
+  if(!firebaseReady) return;
+  fbDb.collection('red_line_car_origins').doc(carNum).set({ branch, ts: Date.now() })
+    .then(()=>{ redOriginLogCache[carNum] = { branch, ts: Date.now() }; })
+    .catch(e => console.error(e));
+}
+
 // Red Line vehicles all share the same route id ("Red") — there's no
 // per-branch route the way Green Line has Green-B/C/D/E. Headsign is the
 // most reliable signal (Ashmont/Braintree southbound trips say so
 // directly); stop name is the fallback for trains sitting at a branch-only
 // stop. Once determined, that origin branch sticks for this vehicle for the
-// rest of its trip, even through the shared trunk.
+// rest of its trip, even through the shared trunk. When there's no direct
+// signal available (e.g. a northbound trip already out on the shared trunk,
+// freshly loaded with no in-session memory yet), fall back to the most
+// recently logged origin for any car in this train's consist.
 function getRedLineBranch(v){
   let branch = null;
   if(v.headsign === 'Ashmont') branch = 'ashmont';
@@ -990,9 +1057,35 @@ function getRedLineBranch(v){
 
   if(branch){
     redVehicleBranchMemory[v.id] = branch;
+    String(v.label).split('-').forEach(carNum => logRedCarOrigin(carNum, branch));
     return branch;
   }
-  return redVehicleBranchMemory[v.id] || null;
+
+  if(redVehicleBranchMemory[v.id]) return redVehicleBranchMemory[v.id];
+
+  const carNums = String(v.label).split('-');
+  let bestGuess = null;
+  let bestTs = -1;
+  carNums.forEach(carNum=>{
+    const logged = redOriginLogCache[carNum];
+    if(logged && logged.ts > bestTs){ bestGuess = logged.branch; bestTs = logged.ts; }
+  });
+  if(bestGuess){
+    redVehicleBranchMemory[v.id] = bestGuess;
+    return bestGuess;
+  }
+
+  // No direct signal, no session memory, no persisted log for either car —
+  // every Red Line train should still show as Ashmont or Braintree, never a
+  // generic/unbranded state, so fall back to a deterministic guess (stable
+  // for this vehicle, not saved to the origin log since it's not an actual
+  // observation).
+  let hash = 0;
+  const seed = String(v.id || v.label);
+  for(let i=0;i<seed.length;i++){ hash = (hash * 31 + seed.charCodeAt(i)) >>> 0; }
+  const fallbackGuess = (hash % 2 === 0) ? 'ashmont' : 'braintree';
+  redVehicleBranchMemory[v.id] = fallbackGuess;
+  return fallbackGuess;
 }
 
 function getRedCarType(label){
@@ -1500,7 +1593,7 @@ function useNorthSouthLabels(){
 }
 function dirLabels(){
   return useNorthSouthLabels()
-    ? { west:'Northbound', east:'Southbound', westShort:'NB', eastShort:'SB' }
+    ? { west:'Southbound', east:'Northbound', westShort:'SB', eastShort:'NB' }
     : { west:'Westbound', east:'Eastbound', westShort:'WB', eastShort:'EB' };
 }
 function updateDirectionLabels(){
@@ -1807,8 +1900,13 @@ function renderTrainDots(){
     const side = v.direction === 0 ? 'west' : 'east';
     const dot = ladder.querySelector(`.stop-dot[data-stop-idx="${idx}"][data-side="${side}"]`);
     if(dot){
+      let occupiedHex = getBranchHex(v.branch);
+      if(state.activeLine === 'red'){
+        const branch = getRedLineBranch(v);
+        if(branch) occupiedHex = RED_BRANCH_COLORS[branch];
+      }
       dot.classList.add('stop-dot-occupied');
-      dot.style.setProperty('--occupied-color', getBranchHex(v.branch));
+      dot.style.setProperty('--occupied-color', occupiedHex);
     }
   });
 
@@ -1891,7 +1989,7 @@ function renderTrainDots(){
       bubble.style.width = layout.BUBBLE_W + 'px';
       bubble.style.minHeight = '28px';
       bubble.style.left = bubbleX + 'px';
-      bubble.title = `${getDisplayBranch(entry.v.branch)} \u00b7 Car ${effectiveBubbleLabel} \u2014 tap for details`;
+      bubble.title = `${getDisplayBranch(entry.v.branch)} \u00b7 Car ${formatCarNumberForDisplay(effectiveBubbleLabel)} \u2014 tap for details`;
       const destOverrideEntry = destinationOverrideCache[entry.v.id];
       const hasAlteredDestination = !!destOverrideEntry && (
         (!destOverrideEntry.originalHeadsign || destOverrideEntry.originalHeadsign === entry.v.headsign) &&
@@ -1900,10 +1998,10 @@ function renderTrainDots(){
       const destBadge = hasAlteredDestination ? `<span class="bubble-dest-badge" title="Destination reported as changed">&#9888;</span>` : '';
       if(state.activeLine === 'red'){
         bubble.innerHTML = redBranch
-          ? `<span class="bletter">${bubbleBranch}</span><span class="bnums"><span class="bline bline-first">${carParts[0]}</span></span>${destBadge}`
-          : `<span class="bnums"><span class="bline bline-first">${carParts[0]}</span></span>${destBadge}`;
+          ? `<span class="bletter">${bubbleBranch}</span><span class="bnums"><span class="bline bline-first">${formatCarNumberForDisplay(carParts[0])}</span></span>${destBadge}`
+          : `<span class="bnums"><span class="bline bline-first">${formatCarNumberForDisplay(carParts[0])}</span></span>${destBadge}`;
       }else if(state.activeLine !== 'green'){
-        bubble.innerHTML = `<span class="bnums"><span class="bline bline-first">${carParts[0]}</span></span>${destBadge}`;
+        bubble.innerHTML = `<span class="bnums"><span class="bline bline-first">${formatCarNumberForDisplay(carParts[0])}</span></span>${destBadge}`;
       }else if(carParts.length >= 2){
         bubble.innerHTML = `<span class="bletter">${bubbleBranch}</span><span class="bnums">${carParts.map((p,i) => `<span class="bline${i===0?' bline-first':''}">${p}</span>`).join('')}</span>${destBadge}`;
       }else{
@@ -2047,8 +2145,35 @@ async function clearTripNotes(vehicleId){
   try{ await fbDb.collection('trip_notes').doc(vehicleId).delete(); }catch(e){ console.error(e); }
 }
 
+function ordinalSuffix(n){
+  const s = ["th","st","nd","rd"];
+  const v = n % 100;
+  return n + (s[(v-20)%10] || s[v] || s[0]);
+}
+// Blue Line cars are officially numbered as 4 digits (0700-series), but
+// MBTA's live feed reports them without the leading zero (e.g. "722"). This
+// only affects what's shown to the user — underlying keys/lookups (Firestore
+// doc ids, consist matching, etc.) still use the raw un-padded number.
+function formatCarNumberForDisplay(carNum){
+  if(state.activeLine === 'blue'){
+    const s = String(carNum);
+    if(s.includes('-')){
+      return s.split('-').map(part => /^\d+$/.test(part) && part.length < 4 ? part.padStart(4, '0') : part).join('-');
+    }
+    if(/^\d+$/.test(s) && s.length < 4) return s.padStart(4, '0');
+  }
+  return carNum;
+}
+
+function getCarPositionLabel(i, isGreenLine){
+  if(isGreenLine){
+    return i === 0 ? 'Lead Car' : (i === 1 ? 'Trailer Car' : 'Car ' + (i+1));
+  }
+  return i === 0 ? 'Head Car' : ordinalSuffix(i+1) + ' Car';
+}
+
 async function showCarModal(v){
-  document.getElementById('carModalTitle').textContent = `${getDisplayBranch(v.branch)} \u00b7 Car ${v.label}`;
+  document.getElementById('carModalTitle').textContent = `${getDisplayBranch(v.branch)} \u00b7 Car ${formatCarNumberForDisplay(v.label)}`;
   document.getElementById('carModalBody').innerHTML = `<div class="modal-row"><span>Loading&hellip;</span><strong></strong></div>`;
   document.getElementById('carModalOverlay').classList.add('show');
 
@@ -2073,6 +2198,17 @@ async function showCarModal(v){
   const carParts = String(effectiveLabel).split('-');
   const secondsAgo = Math.max(0, Math.round((Date.now() - new Date(v.updatedAt).getTime())/1000));
 
+  // Red/Orange/Blue run as fixed 6-car trains, but MBTA's live feed usually
+  // only reports the lead car (or lead pair) by number — the other cars'
+  // specific numbers aren't available from live data. Pad the DISPLAY list
+  // out to 6 slots so all cars show up, without fabricating numbers for the
+  // ones we don't actually know; carParts itself (used for editing, operator
+  // info, out-of-service marking, etc.) stays exactly what MBTA reported.
+  const isGreenLine = state.activeLine === 'green';
+  const displayCarParts = (!isGreenLine && carParts.length < 6)
+    ? carParts.concat(Array(6 - carParts.length).fill(null))
+    : carParts;
+
   const [operatorList, tripNotesRaw, oosList] = await Promise.all([
     Promise.all(carParts.map(carNum => loadVehicleOperator(v.id, carNum))),
     loadTripNotes(v.id),
@@ -2094,9 +2230,20 @@ async function showCarModal(v){
     tripNotes = null;
   }
 
-  const isGreenLine = state.activeLine === 'green';
-
-  const carSections = carParts.map((carNum, i)=>{
+  const carSections = displayCarParts.map((carNum, i)=>{
+    if(carNum === null){
+      const fallbackType = isGreenLine ? getCarType(carParts[0]) : lineCarType(carParts[0]);
+      const fallbackInfoMap = lineCarInfoMap();
+      const fallbackInfo = fallbackInfoMap[fallbackType] || fallbackInfoMap['Unknown'];
+      return `
+        <div class="modal-section">
+          <h4>${getCarPositionLabel(i, isGreenLine)}</h4>
+          <div class="signin-note">Car number not reported by MBTA's live feed for this position.</div>
+          <div class="modal-row"><span>Type</span><strong>${fallbackType}</strong></div>
+          <div class="modal-row"><span>Builder</span><strong>${fallbackInfo.builder}</strong></div>
+          <div class="modal-row"><span>Year built</span><strong>${fallbackInfo.year}</strong></div>
+        </div>`;
+    }
     const type = isGreenLine ? getCarType(carNum) : lineCarType(carNum);
     const infoMap = lineCarInfoMap();
     const info = infoMap[type] || infoMap['Unknown'];
@@ -2115,7 +2262,7 @@ async function showCarModal(v){
     if(!isGreenLine){
       return `
         <div class="modal-section">
-          <h4>${i === 0 ? 'Lead Car' : (i === 1 ? 'Trailer Car' : 'Car ' + (i+1))} \u2014 ${carNum}</h4>
+          <h4>${getCarPositionLabel(i, isGreenLine)} \u2014 ${formatCarNumberForDisplay(carNum)}</h4>
           <div class="modal-row"><span>Type</span><strong>${type}</strong></div>
           <div class="modal-row"><span>Builder</span><strong>${info.builder}</strong></div>
           <div class="modal-row"><span>Year built</span><strong>${info.year}</strong></div>
@@ -2158,7 +2305,7 @@ async function showCarModal(v){
 
     return `
       <div class="modal-section">
-        <h4>${i === 0 ? 'Lead Car' : (i === 1 ? 'Trailer Car' : 'Car ' + (i+1))} \u2014 ${carNum}</h4>
+        <h4>${getCarPositionLabel(i, isGreenLine)} \u2014 ${formatCarNumberForDisplay(carNum)}</h4>
         <div class="modal-row"><span>Type</span><strong>${type}</strong></div>
         <div class="modal-row"><span>Builder</span><strong>${info.builder}</strong></div>
         <div class="modal-row"><span>Year built</span><strong>${getBuildYear(type, carNum)}</strong></div>
@@ -2177,11 +2324,11 @@ async function showCarModal(v){
     : '';
 
   const removeCarButtons = carParts.length > 1
-    ? carParts.map(carNum => `<button class="roster-reset-btn" data-remove-car="${carNum}" style="width:auto; display:inline-block; margin-right:6px; margin-top:6px;">Remove ${carNum}</button>`).join('')
+    ? carParts.map(carNum => `<button class="roster-reset-btn" data-remove-car="${carNum}" style="width:auto; display:inline-block; margin-right:6px; margin-top:6px;">Remove ${formatCarNumberForDisplay(carNum)}</button>`).join('')
     : '';
 
   const consistEditForm = state.signedIn
-    ? `<div class="roster-field-label">Current cars: ${effectiveLabel}</div>
+    ? `<div class="roster-field-label">Current cars: ${carParts.map(c => formatCarNumberForDisplay(c)).join('-')}</div>
        ${removeCarButtons}
        <input type="text" class="roster-input" id="consistAddInput" placeholder="Car number to add, e.g. 3868" style="margin-top:6px;">
        <button class="account-btn" id="consistAddBtn" style="margin-top:6px;">Add car</button>
@@ -3103,6 +3250,7 @@ async function fetchRedLineVehicles(){
       direction: v.attributes.direction_id,
       stopName: stopName,
       headsign: headsign,
+      tripId: tripRel ? tripRel.id : null,
       speedMph: speedMph,
       updatedAt: v.attributes.updated_at
     };
@@ -3416,7 +3564,11 @@ function renderVehicleList(){
     relevant = relevant.filter(v => (state.activeLine === 'green' ? getCarType(v.label) : lineCarType(v.label)) === state.filterType);
   }
 
-  document.getElementById('vehicleListTitle').textContent = key === 'SUBWAY' ? 'Subway trunk trains' : (page.isMulti ? page.label + ' trains' : key + ' branch trains');
+  const titlesByKey = {
+    ORANGE: 'Orange Line trains', BLUE: 'Blue Line trains',
+    REDTRUNK: 'Red Line trains', REDASHMONT: 'Ashmont trains', REDBRAINTREE: 'Braintree trains'
+  };
+  document.getElementById('vehicleListTitle').textContent = titlesByKey[key] || (key === 'SUBWAY' ? 'Subway trunk trains' : (page.isMulti ? page.label + ' trains' : key + ' branch trains'));
   document.getElementById('vehicleMeta').textContent = relevant.length + ' shown';
 
   if(relevant.length === 0){
@@ -3435,11 +3587,12 @@ function renderVehicleList(){
     const badgeText = v.direction === 0 ? dirLabels().westShort : dirLabels().eastShort;
     const badgeHex = getBranchHex(v.branch);
     const badgeTextColor = getTextColorFor(badgeHex);
+    const displayLabel = state.activeLine === 'green' ? v.label : formatCarNumberForDisplay(String(v.label).split('-')[0]);
     return `
       <div class="vcard" data-id="${v.id}">
         <div class="dir-badge" style="background:${badgeHex}; color:${badgeTextColor}">${badgeText}</div>
         <div class="mid">
-          <div class="label">${displayBranch} &middot; Car ${v.label}</div>
+          <div class="label">${displayBranch} &middot; Car ${displayLabel}</div>
           <div class="sub">near ${displayName(v.stopName || '—')} <span class="type">&middot; ${type}</span></div>
         </div>
         <div class="status">${statusText(v.status)}<br>${timeAgo(v.updatedAt)}</div>
@@ -4096,6 +4249,7 @@ function revealApp(line){
   applyLineAccent(LINE_ACCENT[line]);
   rebuildTypeFilterOptions();
   updateDirectionLabels();
+  if(line === 'red') refreshRedOriginLogCache();
   const devBanner = document.getElementById('redLineDevBanner');
   if(line === 'green'){
     devBanner.classList.remove('show');
@@ -4525,6 +4679,9 @@ async function init(){
 
   refreshDestinationOverrideCache();
   setInterval(refreshDestinationOverrideCache, 60000);
+
+  refreshRedOriginLogCache();
+  setInterval(refreshRedOriginLogCache, 60000);
 
   routeOnLoad();
 }
