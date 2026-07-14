@@ -1468,7 +1468,7 @@ async function deleteConsistOverride(v){
 
 const DESTINATION_OPTIONS = [
   'East Somerville', 'Lechmere', 'North Station', 'Brattle Loop',
-  'Park St Loop', 'Kenmore Loop', 'Reservoir', 'Brigham Circle'
+  'Park St Loop', 'Kenmore Loop', 'Reservoir', 'Brigham Circle', 'Innerbelt Yard'
 ];
 const DESTINATION_KEY = 'destination_overrides_v1';
 
@@ -3701,7 +3701,29 @@ function generateDemoVehicles(){
 const STALE_VEHICLE_MS = 150000; // drop trains not updated in the last 150 seconds
 
 const VEHICLE_KEEP_ALIVE_MS = 100 * 1000; // keep a vehicle visible for 100s after it stops appearing in the feed
+const DESTINATION_OVERRIDE_STALE_MS = 5 * 60 * 1000; // clear an updated-destination report if its train hasn't been seen in 5 minutes
 let lastKnownVehicles = {}; // vehicleId -> { vehicle, lastSeenTs }
+let vehicleLastSeenTs = {}; // vehicleId -> timestamp last actually seen in the live feed (outlives the 100s keep-alive window)
+
+// A destination override is only meaningful while its train is still
+// actively running — if the train hasn't been seen in the live feed for
+// more than 5 minutes, the trip is over (or MBTA lost track of it), so the
+// override no longer applies and gets cleared.
+function clearStaleDestinationOverrides(now){
+  Object.keys(destinationOverrideCache).forEach(vehicleId=>{
+    const lastSeen = vehicleLastSeenTs[vehicleId];
+    if(lastSeen === undefined || (now - lastSeen) > DESTINATION_OVERRIDE_STALE_MS){
+      deleteDestinationOverride(vehicleId);
+      delete destinationOverrideCache[vehicleId];
+    }
+  });
+  // Prune entries well past the point they'd ever matter for this check,
+  // so the tracker doesn't grow unbounded over a long-running session.
+  const pruneBeforeMs = 30 * 60 * 1000;
+  Object.keys(vehicleLastSeenTs).forEach(id=>{
+    if(now - vehicleLastSeenTs[id] > pruneBeforeMs) delete vehicleLastSeenTs[id];
+  });
+}
 
 function isAtInnerbeltYard(v){
   if(!v.stopName) return false;
@@ -3731,6 +3753,14 @@ async function refreshVehicles(){
   }
 
   const now = Date.now();
+
+  // Update the long-lived last-seen tracker from the actual fresh fetch
+  // (before any keep-alive padding below), then clear any destination
+  // override whose train hasn't been seen in the feed for 5+ minutes.
+  if(state.live){
+    state.vehicles.forEach(v => { vehicleLastSeenTs[v.id] = now; });
+    clearStaleDestinationOverrides(now);
+  }
 
   // Keep a vehicle on screen for a short grace period after MBTA's feed
   // stops reporting it at all (as opposed to just an old updatedAt while
