@@ -550,6 +550,10 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
         <span>Alerts and Notifications</span>
         <span class="menu-link-arrow">&rsaquo;</span>
       </div>
+      <div class="menu-link" data-navto="EDITLOGS" id="editLogsMenuLink" style="display:none;">
+        <span>Edit Logs</span>
+        <span class="menu-link-arrow">&rsaquo;</span>
+      </div>
     </div>
   </div>
 </div>
@@ -700,6 +704,21 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
       <button class="account-btn" id="modNotifSendBtn" style="margin-top:8px;">Confirm &amp; send notification</button>
       <span class="roster-submit-note" id="modNotifNote"></span>
     </div>
+   </div>
+  </div>
+
+  <div class="panel full-bleed" id="editLogsPanel" style="display:none;">
+   <div class="full-bleed-inner">
+    <div class="panel-head">
+      <h2>Edit Logs</h2>
+      <span class="note" id="editLogsMeta">&mdash;</span>
+    </div>
+    <div class="back-link" id="editLogsBackBtn">&lsaquo; Back</div>
+    <div class="roster-field-label">Filter by user</div>
+    <select class="roster-input" id="editLogsUserFilter" style="margin-bottom:10px;">
+      <option value="ALL">All users</option>
+    </select>
+    <div id="editLogsBody"></div>
    </div>
   </div>
 
@@ -903,6 +922,9 @@ const PAGES = {
   },
   MODNOTIFS: {
     hex:'#9D174D', label:'Alerts and Notifications', isModNotifs:true
+  },
+  EDITLOGS: {
+    hex:'#334155', label:'Edit Logs', isEditLogs:true
   },
   POINTS: {
     hex:'#B45309', label:'Points', isPoints:true
@@ -1790,11 +1812,12 @@ function switchPage(key){
   const p = PAGES[key];
   if(p.isMembers && !state.isModerator) key = 'B'; // safety: never land on Admin without moderator rights
   if(p.isModNotifs && !state.isModerator) key = 'B'; // safety: never land on Alerts and Notifications without moderator rights
+  if(p.isEditLogs && !state.isModerator) key = 'B'; // safety: never land on Edit Logs without moderator rights
   state.currentPage = key;
   try{ localStorage.setItem(LAST_PAGE_KEY, key); }catch(e){ /* ignore */ }
   const page = PAGES[key];
-  if(!page.isRoster && !page.isMembers && !page.isModNotifs && !page.isSettings && !page.isPoints && !page.isBugs && !page.isInspectors) state.lastMainPage = key;
-  document.getElementById('pageChip').textContent = key === 'SUBWAY' ? 'S' : (key === 'ROSTER' ? 'R' : (key === 'MEMBERS' ? 'A' : (key === 'MODNOTIFS' ? '\u26a0' : (key === 'MATTAPAN' ? 'MH' : (key === 'POINTS' ? 'P' : (key === 'BUGS' ? '!' : (key === 'INSPECTORS' ? 'GL' : (key === 'REDTRUNK' ? 'RL' : (key === 'REDASHMONT' ? 'A' : (key === 'REDBRAINTREE' ? 'B' : (key === 'BLUE' ? 'BL' : (key === 'ORANGE' ? 'OL' : (key === 'SETTINGS' ? '\u2699' : key)))))))))))));
+  if(!page.isRoster && !page.isMembers && !page.isModNotifs && !page.isEditLogs && !page.isSettings && !page.isPoints && !page.isBugs && !page.isInspectors) state.lastMainPage = key;
+  document.getElementById('pageChip').textContent = key === 'SUBWAY' ? 'S' : (key === 'ROSTER' ? 'R' : (key === 'MEMBERS' ? 'A' : (key === 'MODNOTIFS' ? '\u26a0' : (key === 'EDITLOGS' ? '\u270e' : (key === 'MATTAPAN' ? 'MH' : (key === 'POINTS' ? 'P' : (key === 'BUGS' ? '!' : (key === 'INSPECTORS' ? 'GL' : (key === 'REDTRUNK' ? 'RL' : (key === 'REDASHMONT' ? 'A' : (key === 'REDBRAINTREE' ? 'B' : (key === 'BLUE' ? 'BL' : (key === 'ORANGE' ? 'OL' : (key === 'SETTINGS' ? '\u2699' : key))))))))))))));
   document.getElementById('pageChip').style.background = page.hex;
   document.getElementById('pageChip').style.color = getTextColorFor(page.hex);
   document.getElementById('pageTitle').textContent = displayName(page.label);
@@ -1804,6 +1827,7 @@ function switchPage(key){
   const rosterPanel = document.getElementById('rosterPanel');
   const membersPanel = document.getElementById('membersPanel');
   const modNotifsPanel = document.getElementById('modNotifsPanel');
+  const editLogsPanel = document.getElementById('editLogsPanel');
   const pointsPanel = document.getElementById('pointsPanel');
   const bugsPanel = document.getElementById('bugsPanel');
   const inspectorsPanel = document.getElementById('inspectorsPanel');
@@ -1813,6 +1837,7 @@ function switchPage(key){
   rosterPanel.style.display = 'none';
   membersPanel.style.display = 'none';
   modNotifsPanel.style.display = 'none';
+  editLogsPanel.style.display = 'none';
   pointsPanel.style.display = 'none';
   bugsPanel.style.display = 'none';
   inspectorsPanel.style.display = 'none';
@@ -1830,6 +1855,11 @@ function switchPage(key){
   }
   if(page.isModNotifs){
     modNotifsPanel.style.display = 'block';
+    return;
+  }
+  if(page.isEditLogs){
+    editLogsPanel.style.display = 'block';
+    buildEditLogsPanel();
     return;
   }
   if(page.isPoints){
@@ -4133,6 +4163,128 @@ document.getElementById('rosterTypeFilter').addEventListener('change', (e)=>{
 
 /* ---------------- Admin (moderator tools) ---------------- */
 
+// Formats an edit log timestamp as an absolute date/time, plus a relative
+// "X ago" suffix only when the edit happened within the last 5 hours (older
+// edits just show the plain date/time, no relative clutter).
+function formatEditLogTimestamp(ts){
+  if(!ts) return 'Unknown time';
+  const when = new Date(ts).toLocaleString('en-US', {
+    month:'short', day:'numeric', year:'numeric', hour:'numeric', minute:'2-digit', timeZone:'America/New_York'
+  });
+  const ageMs = Date.now() - ts;
+  const fiveHoursMs = 5 * 60 * 60 * 1000;
+  if(ageMs >= 0 && ageMs <= fiveHoursMs){
+    const mins = Math.floor(ageMs / 60000);
+    let agoText;
+    if(mins < 1) agoText = 'just now';
+    else if(mins < 60) agoText = `${mins}m ago`;
+    else agoText = `${Math.floor(mins/60)}h ${mins%60}m ago`;
+    return `${when} ET (${agoText})`;
+  }
+  return `${when} ET`;
+}
+
+// Every collection that records a community edit, and which of its fields
+// hold the editor's name/uid, timestamp, and a human description of what
+// changed. red_line_car_origins is deliberately excluded — it's an
+// automatic system log with no user attribution, not a community edit.
+const EDIT_LOG_SOURCES = [
+  { collection:'roster', nameField:'editedBy', uidField:'editedByUid', tsField:'ts', describe:(id,d)=>`Edited roster entry for car ${id}` },
+  { collection:'gltps', nameField:'reportedBy', uidField:'reportedByUid', tsField:'ts', describe:(id,d)=>`Reported GLTPS status for car ${id}: ${d.status || 'unknown'}` },
+  { collection:'consist_corrections', nameField:'editedBy', uidField:'editedByUid', tsField:'ts', describe:(id,d)=>`Corrected consist to ${d.label || '?'}` },
+  { collection:'destination_overrides', nameField:'editedBy', uidField:'editedByUid', tsField:'ts', describe:(id,d)=>`Reported destination change to ${d.destination || '?'}` },
+  { collection:'car_out_of_service', nameField:'markedBy', uidField:'markedByUid', tsField:'ts', describe:(id,d)=>`Marked car ${id} out of service` },
+  { collection:'solo_type7_overrides', nameField:'confirmedBy', uidField:'confirmedByUid', tsField:'ts', describe:(id,d)=>`Confirmed solo Type 7 (vehicle ${id}) as in service` },
+  { collection:'vehicle_operators', nameField:'editedBy', uidField:'editedByUid', tsField:'ts', describe:(id,d)=>`Set operator info for ${id}` },
+  { collection:'car_predictions', nameField:'editedBy', uidField:'editedByUid', tsField:'ts', describe:(id,d)=>`Edited car prediction for trip ${id}` },
+  { collection:'mod_alerts', nameField:'postedBy', uidField:'postedByUid', tsField:'ts', describe:(id,d)=>`Posted alert: "${(d.text||'').slice(0,60)}"` },
+  { collection:'mod_notifications', nameField:'postedBy', uidField:'postedByUid', tsField:'ts', describe:(id,d)=>`Posted notification: "${(d.subject||'').slice(0,60)}"` }
+];
+
+async function loadAllEditLogs(){
+  if(!firebaseReady) return [];
+  const entries = [];
+
+  await Promise.all(EDIT_LOG_SOURCES.map(async source=>{
+    try{
+      const snap = await fbDb.collection(source.collection).get();
+      snap.forEach(doc=>{
+        const d = doc.data();
+        const name = d[source.nameField];
+        const ts = d[source.tsField];
+        if(!name || !ts) return; // skip entries with no attributed editor
+        entries.push({
+          editorName: name, editorUid: d[source.uidField] || null,
+          ts, description: source.describe(doc.id, d)
+        });
+      });
+    }catch(e){ console.error('Edit log fetch failed for', source.collection, e); }
+  }));
+
+  // Trip notes are stored as an array of entries per vehicle, so each note
+  // gets flattened into its own log line rather than one line per vehicle.
+  if(firebaseReady){
+    try{
+      const snap = await fbDb.collection('trip_notes').get();
+      snap.forEach(doc=>{
+        const d = doc.data();
+        (d.entries || []).forEach(entry=>{
+          if(!entry.author || !entry.ts) return;
+          entries.push({
+            editorName: entry.author, editorUid: entry.authorUid || null,
+            ts: entry.ts, description: `Added trip note: "${(entry.text||'').slice(0,60)}"`
+          });
+        });
+      });
+    }catch(e){ console.error('Edit log fetch failed for trip_notes', e); }
+  }
+
+  entries.sort((a,b) => b.ts - a.ts);
+  return entries.slice(0, 200);
+}
+
+let editLogsCache = [];
+
+function renderEditLogsList(filterName){
+  const body = document.getElementById('editLogsBody');
+  const meta = document.getElementById('editLogsMeta');
+  const entries = (filterName && filterName !== 'ALL')
+    ? editLogsCache.filter(e => e.editorName === filterName)
+    : editLogsCache;
+
+  meta.textContent = `${entries.length} edit${entries.length === 1 ? '' : 's'}${filterName && filterName !== 'ALL' ? ' by ' + filterName : ''}`;
+  if(entries.length === 0){
+    body.innerHTML = '<div class="signin-note">No community edits found for this filter.</div>';
+    return;
+  }
+  body.innerHTML = entries.map(e => `
+    <div class="modal-row" style="align-items:flex-start; flex-direction:column; gap:2px; padding:10px 0;">
+      <div style="display:flex; justify-content:space-between; width:100%; gap:10px;">
+        <strong>${(e.editorName || 'Unknown').replace(/</g,'&lt;')}</strong>
+        <span class="signin-note" style="margin:0;">${formatEditLogTimestamp(e.ts)}</span>
+      </div>
+      <span>${e.description.replace(/</g,'&lt;')}</span>
+    </div>
+  `).join('');
+}
+
+async function buildEditLogsPanel(){
+  const body = document.getElementById('editLogsBody');
+  const filterSelect = document.getElementById('editLogsUserFilter');
+  body.innerHTML = '<div class="signin-note">Loading edit history\u2026</div>';
+  editLogsCache = await loadAllEditLogs();
+
+  const uniqueNames = Array.from(new Set(editLogsCache.map(e => e.editorName))).sort((a,b) => a.localeCompare(b));
+  filterSelect.innerHTML = '<option value="ALL">All users</option>'
+    + uniqueNames.map(name => `<option value="${name.replace(/"/g,'&quot;')}">${name.replace(/</g,'&lt;')}</option>`).join('');
+  filterSelect.value = 'ALL';
+
+  renderEditLogsList('ALL');
+}
+document.getElementById('editLogsUserFilter').addEventListener('change', (e)=>{
+  renderEditLogsList(e.target.value);
+});
+
 async function buildMembersPanel(){
   const body = document.getElementById('membersBody');
   const meta = document.getElementById('membersMeta');
@@ -4597,6 +4749,7 @@ async function completeSignIn(name, email, uid, photoURL){
   document.getElementById('menuAccountSection').style.display = 'block';
   document.getElementById('membersMenuLink').style.display = state.isModerator ? 'flex' : 'none';
   document.getElementById('modNotifsMenuLink').style.display = state.isModerator ? 'flex' : 'none';
+  document.getElementById('editLogsMenuLink').style.display = state.isModerator ? 'flex' : 'none';
   buildNav();
   if(state.currentPage === 'ROSTER') buildRosterPanel();
   updateDiscordBanner();
@@ -4619,10 +4772,11 @@ function resetSignedOutUI(){
   document.getElementById('menuAccountSection').style.display = 'none';
   document.getElementById('membersMenuLink').style.display = 'none';
   document.getElementById('modNotifsMenuLink').style.display = 'none';
+  document.getElementById('editLogsMenuLink').style.display = 'none';
   document.getElementById('menuDropdown').classList.remove('show');
   buildNav();
   if(state.currentPage === 'ROSTER') buildRosterPanel();
-  if(state.currentPage === 'MEMBERS' || state.currentPage === 'MODNOTIFS') switchPage('B');
+  if(state.currentPage === 'MEMBERS' || state.currentPage === 'MODNOTIFS' || state.currentPage === 'EDITLOGS') switchPage('B');
   updateDiscordBanner();
 }
 
@@ -4738,6 +4892,7 @@ document.getElementById('settingsBackBtn').addEventListener('click', ()=> switch
 document.getElementById('rosterBackBtn').addEventListener('click', ()=> switchPage(state.lastMainPage || 'B'));
 document.getElementById('membersBackBtn').addEventListener('click', ()=> switchPage(state.lastMainPage || 'B'));
 document.getElementById('modNotifsBackBtn').addEventListener('click', ()=> switchPage(state.lastMainPage || 'B'));
+document.getElementById('editLogsBackBtn').addEventListener('click', ()=> switchPage(state.lastMainPage || 'B'));
 
 document.getElementById('modAlertSendBtn').addEventListener('click', async ()=>{
   const textEl = document.getElementById('modAlertText');
