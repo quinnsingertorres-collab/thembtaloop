@@ -575,8 +575,6 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
 
   <div class="banner" id="noTrainsBanner">All trains have gone to sleep for the night &#128564;. If you think this is a mistake, please report it in the Discord server: <a href="https://discord.gg/KmGGY75rn4" target="_blank" rel="noopener" style="color:inherit; text-decoration:underline; font-weight:700;">discord.gg/KmGGY75rn4</a></div>
 
-  <div class="banner" id="redLineDevBanner" style="background:#FA2D27; border-color:#FA2D27; color:#fff;">&#128679; The Red Line tracker is still in heavy development &mdash; expect bugs and missing features.</div>
-
   <div class="banner discord-banner" id="discordBanner">
     <span>To submit bug reports, join the Discord server! <a href="https://discord.gg/RYckv4jz8n" target="_blank" rel="noopener" style="color:#fff; text-decoration:underline; font-weight:700;">discord.gg/RYckv4jz8n</a></span>
     <button id="discordBannerClose" aria-label="Dismiss">&times;</button>
@@ -3670,6 +3668,15 @@ function generateDemoVehicles(){
 
 const STALE_VEHICLE_MS = 150000; // drop trains not updated in the last 150 seconds
 
+const VEHICLE_KEEP_ALIVE_MS = 100 * 1000; // keep a vehicle visible for 100s after it stops appearing in the feed
+let lastKnownVehicles = {}; // vehicleId -> { vehicle, lastSeenTs }
+
+function isAtInnerbeltYard(v){
+  if(!v.stopName) return false;
+  const name = v.stopName.toLowerCase();
+  return name.includes('innerbelt') || name.includes('inner belt');
+}
+
 async function refreshVehicles(){
   try{
     const vehicles = state.activeLine === 'red' ? await fetchRedLineVehicles()
@@ -3692,10 +3699,33 @@ async function refreshVehicles(){
   }
 
   const now = Date.now();
+
+  // Keep a vehicle on screen for a short grace period after MBTA's feed
+  // stops reporting it at all (as opposed to just an old updatedAt while
+  // still present), so trains don't blink out of existence mid-trip due to
+  // a brief feed hiccup.
+  if(state.live){
+    const seenIds = new Set(state.vehicles.map(v => v.id));
+    state.vehicles.forEach(v => { lastKnownVehicles[v.id] = { vehicle: v, lastSeenTs: now }; });
+    Object.keys(lastKnownVehicles).forEach(id=>{
+      const entry = lastKnownVehicles[id];
+      if(now - entry.lastSeenTs > VEHICLE_KEEP_ALIVE_MS){
+        delete lastKnownVehicles[id];
+      }else if(!seenIds.has(id)){
+        state.vehicles.push(entry.vehicle);
+      }
+    });
+  }
+
   state.vehicles = state.vehicles.filter(v => {
     if(!v.updatedAt) return true;
     return (now - new Date(v.updatedAt).getTime()) <= STALE_VEHICLE_MS;
   });
+
+  // Trains confirmed at Innerbelt Yard aren't in active revenue service —
+  // MBTA's feed explicitly reporting that location is already confirmation,
+  // so there's no ambiguity to wait out; remove them right away.
+  state.vehicles = state.vehicles.filter(v => !isAtInnerbeltYard(v));
 
   if(state.live) updateLastSeenTracking(state.vehicles);
   if(state.live) checkTrainNotifications(state.vehicles);
@@ -4479,11 +4509,6 @@ const LINE_PAGE_KEYS = {
   green: ['B','C','D','E','SUBWAY','MATTAPAN']
 };
 const LINE_ACCENT = { red:'#FA2D27', orange:'#ED8B00', blue:'#003DA5', green:null };
-const LINE_DEV_BANNER_TEXT = {
-  red: '&#128679; The Red Line tracker is still in heavy development \u2014 expect bugs and missing features.',
-  orange: '&#128679; The Orange Line tracker is still in heavy development \u2014 expect bugs and missing features.',
-  blue: '&#128679; The Blue Line tracker is still in heavy development \u2014 expect bugs and missing features.'
-};
 
 function revealApp(line){
   hideAllGateScreens();
@@ -4493,13 +4518,6 @@ function revealApp(line){
   rebuildTypeFilterOptions();
   updateDirectionLabels();
   if(line === 'red') refreshRedOriginLogCache();
-  const devBanner = document.getElementById('redLineDevBanner');
-  if(line === 'green'){
-    devBanner.classList.remove('show');
-  }else{
-    devBanner.innerHTML = LINE_DEV_BANNER_TEXT[line];
-    devBanner.classList.add('show');
-  }
   let savedPage = null;
   try{ savedPage = localStorage.getItem(LAST_PAGE_KEY); }catch(e){ /* ignore */ }
   const defaultPage = LINE_DEFAULT_PAGE[line] || 'B';
