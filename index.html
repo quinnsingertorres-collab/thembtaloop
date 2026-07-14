@@ -1101,25 +1101,32 @@ function getRedLineBranch(v){
   else if(RED_BRAINTREE_ONLY_STOPS.includes(v.stopName)) branch = 'braintree';
 
   if(branch){
-    redVehicleBranchMemory[v.id] = branch;
+    redVehicleBranchMemory[v.id] = { branch, confirmed: true };
     String(v.label).split('-').forEach(carNum => logRedCarOrigin(carNum, branch));
     return branch;
   }
 
-  if(redVehicleBranchMemory[v.id]) return redVehicleBranchMemory[v.id];
+  const cached = redVehicleBranchMemory[v.id];
+  if(cached && cached.confirmed) return cached.branch;
 
   // Authoritative: this specific trip's real scheduled stop sequence from
   // MBTA's timetable, not a guess. The lookup is async, so kick it off (it's
   // cached/deduped) and use the result once it's resolved on a later render.
+  // Crucially, this check always runs even if we already have a *guessed*
+  // value cached below — a guess made before this lookup resolved should
+  // get replaced by the real answer the moment it's available, not stick
+  // around for the rest of the trip.
   if(v.tripId){
     const scheduled = tripBranchCache[v.tripId];
     if(scheduled === 'ashmont' || scheduled === 'braintree'){
-      redVehicleBranchMemory[v.id] = scheduled;
+      redVehicleBranchMemory[v.id] = { branch: scheduled, confirmed: true };
       String(v.label).split('-').forEach(carNum => logRedCarOrigin(carNum, scheduled));
       return scheduled;
     }
     ensureTripBranchLookup(v.tripId);
   }
+
+  if(cached) return cached.branch; // an existing guess, while we wait on the lookup above
 
   const carNums = String(v.label).split('-');
   let bestGuess = null;
@@ -1129,7 +1136,7 @@ function getRedLineBranch(v){
     if(logged && logged.ts > bestTs){ bestGuess = logged.branch; bestTs = logged.ts; }
   });
   if(bestGuess){
-    redVehicleBranchMemory[v.id] = bestGuess;
+    redVehicleBranchMemory[v.id] = { branch: bestGuess, confirmed: false };
     return bestGuess;
   }
 
@@ -1142,7 +1149,7 @@ function getRedLineBranch(v){
   const seed = String(v.id || v.label);
   for(let i=0;i<seed.length;i++){ hash = (hash * 31 + seed.charCodeAt(i)) >>> 0; }
   const fallbackGuess = (hash % 2 === 0) ? 'ashmont' : 'braintree';
-  redVehicleBranchMemory[v.id] = fallbackGuess;
+  redVehicleBranchMemory[v.id] = { branch: fallbackGuess, confirmed: false };
   return fallbackGuess;
 }
 
