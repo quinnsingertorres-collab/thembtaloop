@@ -227,6 +227,7 @@ body.dark .discord-banner{background:#5865F2; border-color:#5865F2; color:#fff;}
 .panel-head{display:flex; align-items:baseline; justify-content:space-between; flex-wrap:wrap; gap:6px; margin-bottom:12px;}
 .panel-head h2{font-family:'Space Grotesk', sans-serif; font-size:14px; letter-spacing:0.02em; margin:0; color:var(--text);}
 .panel-head .note{font-size:11px; color:var(--text-faint); font-family:'IBM Plex Mono', monospace;}
+#editLogsPanel .panel-head{flex-direction:column; align-items:center; text-align:center; gap:4px;}
 
 .track-col-labels{
   display:flex; justify-content:space-between;
@@ -714,10 +715,15 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
       <span class="note" id="editLogsMeta">&mdash;</span>
     </div>
     <div class="back-link" id="editLogsBackBtn">&lsaquo; Back</div>
-    <div class="roster-field-label">Filter by user</div>
-    <select class="roster-input" id="editLogsUserFilter" style="margin-bottom:10px;">
-      <option value="ALL">All users</option>
-    </select>
+    <div style="display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap; margin-bottom:10px;">
+      <div style="flex:1; min-width:160px;">
+        <div class="roster-field-label">Filter by user</div>
+        <select class="roster-input" id="editLogsUserFilter">
+          <option value="ALL">All users</option>
+        </select>
+      </div>
+      <button class="account-btn" id="editLogsRefreshBtn" style="width:auto; padding:0 16px; height:38px;">Refresh</button>
+    </div>
     <div id="editLogsBody"></div>
    </div>
   </div>
@@ -1199,7 +1205,12 @@ async function markSoloType7InService(vehicleId){
       confirmedBy: state.userName, confirmedByUid: state.uid || null, ts: Date.now()
     });
     soloType7OverrideCache[vehicleId] = true;
+    logEdit(state.userName, state.uid, `Confirmed a solo Type 7 train as in service`);
   }catch(e){ console.error(e); }
+}
+
+function lineDisplayName(line){
+  return { green:'Green', red:'Red', orange:'Orange', blue:'Blue' }[line] || line;
 }
 
 function isSoloType7(v){
@@ -1362,6 +1373,7 @@ async function saveGltpsEntry(carNum, status){
   const payload = { status, ts: Date.now(), reportedBy: state.userName, reportedByUid: state.uid || null };
   if(firebaseReady){
     try{ await fbDb.collection('gltps').doc(carNum).set(payload, { merge:true }); }catch(e){ console.error(e); }
+    logEdit(state.userName, state.uid, `Reported GLTPS status for car ${carNum}: ${status}`);
     return payload;
   }
   const data = await loadGltps();
@@ -1442,6 +1454,7 @@ async function saveConsistOverride(v, label){
   };
   if(firebaseReady){
     try{ await fbDb.collection('consist_corrections').doc(key).set(payload); }catch(e){ console.error(e); }
+    logEdit(state.userName, state.uid, `Corrected consist to ${label}`);
     return payload;
   }
   try{
@@ -1492,6 +1505,7 @@ async function saveDestinationOverride(v, destination){
   };
   if(firebaseReady){
     try{ await fbDb.collection('destination_overrides').doc(v.id).set(payload); }catch(e){ console.error(e); }
+    logEdit(state.userName, state.uid, `Reported destination change from ${v.headsign || 'Unknown'} to ${destination} for car ${formatCarNumberForDisplay(v.label)} on the ${lineDisplayName(state.activeLine)} Line`);
     return payload;
   }
   try{
@@ -1581,6 +1595,7 @@ async function saveRosterEntry(carNum, patch){
   });
   if(firebaseReady){
     try{ await fbDb.collection('roster').doc(carNum).set(payload, { merge:true }); }catch(e){ console.error(e); }
+    logEdit(state.userName, state.uid, `Edited roster entry for car ${carNum}`);
     return payload;
   }
   const data = await loadRoster();
@@ -2260,6 +2275,7 @@ async function markCarOutOfService(carNum){
       ts: Date.now(), date: todayDateString()
     });
     outOfServiceCarsCache[carNum] = true;
+    logEdit(state.userName, state.uid, `Marked car ${carNum} out of service`);
   }catch(e){ console.error(e); }
 }
 async function clearCarOutOfService(carNum){
@@ -2281,6 +2297,7 @@ async function saveVehicleOperator(vehicleId, carNum, operator){
     await fbDb.collection('vehicle_operators').doc(operatorDocId(vehicleId, carNum)).set({
       operator, setBy: state.userName, setByUid: state.uid || null, ts: Date.now()
     });
+    logEdit(state.userName, state.uid, `Set operator info for car ${carNum}`);
   }catch(e){ console.error(e); }
 }
 async function deleteVehicleOperator(vehicleId, carNum){
@@ -2308,6 +2325,7 @@ async function addTripNoteEntry(vehicleId, text, headsign){
     }else{
       await ref.set({ headsign, entries: [entry] });
     }
+    logEdit(state.userName, state.uid, `Added trip note: "${text.slice(0,60)}"`);
   }catch(e){ console.error(e); }
 }
 async function clearTripNotes(vehicleId){
@@ -2908,6 +2926,7 @@ async function saveCarPrediction(tripId, carNumber){
     await fbDb.collection('car_predictions').doc(tripId).set({
       carNumber, editedBy: state.userName, editedByUid: state.uid || null, ts: Date.now()
     }, { merge:true });
+    logEdit(state.userName, state.uid, `Edited car prediction for a trip: ${carNumber}`);
   }catch(e){ console.error(e); }
 }
 async function saveTripCarOperator(tripId, position, operator){
@@ -4216,63 +4235,39 @@ function formatEditLogTimestamp(ts){
   return `${when} ET`;
 }
 
-// Every collection that records a community edit, and which of its fields
-// hold the editor's name/uid, timestamp, and a human description of what
-// changed. red_line_car_origins is deliberately excluded — it's an
-// automatic system log with no user attribution, not a community edit.
-const EDIT_LOG_SOURCES = [
-  { collection:'roster', nameField:'editedBy', uidField:'editedByUid', tsField:'ts', describe:(id,d)=>`Edited roster entry for car ${id}` },
-  { collection:'gltps', nameField:'reportedBy', uidField:'reportedByUid', tsField:'ts', describe:(id,d)=>`Reported GLTPS status for car ${id}: ${d.status || 'unknown'}` },
-  { collection:'consist_corrections', nameField:'editedBy', uidField:'editedByUid', tsField:'ts', describe:(id,d)=>`Corrected consist to ${d.label || '?'}` },
-  { collection:'destination_overrides', nameField:'editedBy', uidField:'editedByUid', tsField:'ts', describe:(id,d)=>`Reported destination change to ${d.destination || '?'}` },
-  { collection:'car_out_of_service', nameField:'markedBy', uidField:'markedByUid', tsField:'ts', describe:(id,d)=>`Marked car ${id} out of service` },
-  { collection:'solo_type7_overrides', nameField:'confirmedBy', uidField:'confirmedByUid', tsField:'ts', describe:(id,d)=>`Confirmed solo Type 7 (vehicle ${id}) as in service` },
-  { collection:'vehicle_operators', nameField:'editedBy', uidField:'editedByUid', tsField:'ts', describe:(id,d)=>`Set operator info for ${id}` },
-  { collection:'car_predictions', nameField:'editedBy', uidField:'editedByUid', tsField:'ts', describe:(id,d)=>`Edited car prediction for trip ${id}` },
-  { collection:'mod_alerts', nameField:'postedBy', uidField:'postedByUid', tsField:'ts', describe:(id,d)=>`Posted alert: "${(d.text||'').slice(0,60)}"` },
-  { collection:'mod_notifications', nameField:'postedBy', uidField:'postedByUid', tsField:'ts', describe:(id,d)=>`Posted notification: "${(d.subject||'').slice(0,60)}"` }
-];
+// Dedicated append-only audit log, separate from the actual current-state
+// collections (roster, gltps, out-of-service flags, etc). Those collections
+// hold live data that's still in effect — trimming THEM to "the last 100
+// edits" would silently revert real, active reports. This collection exists
+// purely as a history feed, so it's safe to cap at 100 entries.
+const EDIT_LOG_MAX_ENTRIES = 100;
+
+async function logEdit(editorName, editorUid, description){
+  if(!firebaseReady || !editorName) return;
+  try{
+    await fbDb.collection('edit_log_entries').add({
+      editorName, editorUid: editorUid || null, ts: Date.now(), description
+    });
+    // Trim down to the most recent 100 whenever we add a new one, so the
+    // collection never grows without bound.
+    const snap = await fbDb.collection('edit_log_entries').orderBy('ts', 'desc').get();
+    const docs = snap.docs;
+    if(docs.length > EDIT_LOG_MAX_ENTRIES){
+      const toDelete = docs.slice(EDIT_LOG_MAX_ENTRIES);
+      await Promise.all(toDelete.map(doc => doc.ref.delete().catch(e => console.error(e))));
+    }
+  }catch(e){ console.error('logEdit failed:', e); }
+}
 
 async function loadAllEditLogs(){
   if(!firebaseReady) return [];
-  const entries = [];
-
-  await Promise.all(EDIT_LOG_SOURCES.map(async source=>{
-    try{
-      const snap = await fbDb.collection(source.collection).get();
-      snap.forEach(doc=>{
-        const d = doc.data();
-        const name = d[source.nameField];
-        const ts = d[source.tsField];
-        if(!name || !ts) return; // skip entries with no attributed editor
-        entries.push({
-          editorName: name, editorUid: d[source.uidField] || null,
-          ts, description: source.describe(doc.id, d)
-        });
-      });
-    }catch(e){ console.error('Edit log fetch failed for', source.collection, e); }
-  }));
-
-  // Trip notes are stored as an array of entries per vehicle, so each note
-  // gets flattened into its own log line rather than one line per vehicle.
-  if(firebaseReady){
-    try{
-      const snap = await fbDb.collection('trip_notes').get();
-      snap.forEach(doc=>{
-        const d = doc.data();
-        (d.entries || []).forEach(entry=>{
-          if(!entry.author || !entry.ts) return;
-          entries.push({
-            editorName: entry.author, editorUid: entry.authorUid || null,
-            ts: entry.ts, description: `Added trip note: "${(entry.text||'').slice(0,60)}"`
-          });
-        });
-      });
-    }catch(e){ console.error('Edit log fetch failed for trip_notes', e); }
-  }
-
-  entries.sort((a,b) => b.ts - a.ts);
-  return entries.slice(0, 200);
+  try{
+    const snap = await fbDb.collection('edit_log_entries').orderBy('ts', 'desc').limit(EDIT_LOG_MAX_ENTRIES).get();
+    return snap.docs.map(doc=>{
+      const d = doc.data();
+      return { editorName: d.editorName, editorUid: d.editorUid || null, ts: d.ts, description: d.description };
+    });
+  }catch(e){ console.error('Edit log fetch failed:', e); return []; }
 }
 
 let editLogsCache = [];
@@ -4303,19 +4298,30 @@ function renderEditLogsList(filterName){
 async function buildEditLogsPanel(){
   const body = document.getElementById('editLogsBody');
   const filterSelect = document.getElementById('editLogsUserFilter');
+  const previousSelection = filterSelect.value || 'ALL';
   body.innerHTML = '<div class="signin-note">Loading edit history\u2026</div>';
   editLogsCache = await loadAllEditLogs();
 
   const uniqueNames = Array.from(new Set(editLogsCache.map(e => e.editorName))).sort((a,b) => a.localeCompare(b));
   filterSelect.innerHTML = '<option value="ALL">All users</option>'
     + uniqueNames.map(name => `<option value="${name.replace(/"/g,'&quot;')}">${name.replace(/</g,'&lt;')}</option>`).join('');
-  filterSelect.value = 'ALL';
+  // Keep whatever filter was selected before this refresh, as long as that
+  // user still has entries; otherwise fall back to showing everyone.
+  filterSelect.value = uniqueNames.includes(previousSelection) ? previousSelection : 'ALL';
 
-  renderEditLogsList('ALL');
+  renderEditLogsList(filterSelect.value);
 }
 document.getElementById('editLogsUserFilter').addEventListener('change', (e)=>{
   renderEditLogsList(e.target.value);
 });
+document.getElementById('editLogsRefreshBtn').addEventListener('click', ()=>{
+  if(state.currentPage === 'EDITLOGS') buildEditLogsPanel();
+});
+// Auto-refresh the Edit Logs feed every minute, but only while it's
+// actually the page being viewed (no point fetching in the background).
+setInterval(()=>{
+  if(state.currentPage === 'EDITLOGS') buildEditLogsPanel();
+}, 60000);
 
 async function buildMembersPanel(){
   const body = document.getElementById('membersBody');
@@ -4696,6 +4702,15 @@ const LINE_ACCENT = { red:'#FA2D27', orange:'#ED8B00', blue:'#003DA5', green:nul
 
 function revealApp(line){
   hideAllGateScreens();
+  if(state.activeLine !== line){
+    // These caches key entries by vehicle id and persist across refresh
+    // cycles — without clearing them on a line switch, a train from the
+    // previously-viewed line (kept "alive" for its 100s grace period, or
+    // still tracked in the longer-lived last-seen map) could otherwise
+    // bleed into the newly-selected line's vehicle list.
+    lastKnownVehicles = {};
+    vehicleLastSeenTs = {};
+  }
   state.activeLine = line;
   applyLineAccent(LINE_ACCENT[line]);
   updateLogoForLine(line);
@@ -4940,6 +4955,7 @@ document.getElementById('modAlertSendBtn').addEventListener('click', async ()=>{
     await fbDb.collection('mod_alerts').add({
       text, ts: Date.now(), postedBy: state.userName, postedByUid: state.uid || null, expiresAt
     });
+    logEdit(state.userName, state.uid, `Posted alert: "${text.slice(0,60)}"`);
     textEl.value = '';
     note.textContent = 'Alert sent!';
     setTimeout(()=>{ note.textContent=''; }, 3000);
@@ -4962,6 +4978,7 @@ document.getElementById('modNotifSendBtn').addEventListener('click', async ()=>{
     await fbDb.collection('mod_notifications').add({
       subject, body, ts: Date.now(), postedBy: state.userName, postedByUid: state.uid || null, expiresAt
     });
+    logEdit(state.userName, state.uid, `Posted notification: "${subject.slice(0,60)}"`);
     subjectEl.value = '';
     bodyEl.value = '';
     note.textContent = 'Notification sent!';
