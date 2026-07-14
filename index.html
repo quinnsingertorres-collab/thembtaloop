@@ -281,8 +281,8 @@ body.dark .stop-dot{background:#ffffff;}
 .bubble-dest-badge{
   display:inline-flex; align-items:center; justify-content:center;
   width:22px; height:22px; border-radius:50%;
-  background:#fff; color:#D64545; font-weight:900; font-size:16px;
-  margin-left:5px; line-height:1; box-shadow:0 0 0 2px #D64545, 0 1px 3px rgba(0,0,0,0.4);
+  background:#fff; color:#D64545;
+  margin-left:5px; box-shadow:0 0 0 2.5px #D64545, 0 1px 3px rgba(0,0,0,0.4);
   flex:0 0 auto;
 }
 .train-bubble .bline-first{font-weight:800;}
@@ -2141,7 +2141,9 @@ function renderTrainDots(){
         (!destOverrideEntry.originalHeadsign || destOverrideEntry.originalHeadsign === entry.v.headsign) &&
         (destOverrideEntry.originalDirection === undefined || destOverrideEntry.originalDirection === entry.v.direction)
       );
-      const destBadge = hasAlteredDestination ? `<span class="bubble-dest-badge" title="Destination reported as changed">&#9888;</span>` : '';
+      const destBadge = hasAlteredDestination
+        ? `<span class="bubble-dest-badge" title="Destination reported as changed"><svg viewBox="0 0 24 24" width="15" height="15" fill="none"><path d="M12 3.5L2 20.5h20L12 3.5z" fill="currentColor"/><rect x="10.8" y="8.8" width="2.4" height="5.6" rx="1.2" fill="#fff"/><circle cx="12" cy="17.2" r="1.35" fill="#fff"/></svg></span>`
+        : '';
       if(state.activeLine === 'red'){
         bubble.innerHTML = redBranch
           ? `<span class="bletter">${bubbleBranch}</span><span class="bnums"><span class="bline bline-first">${formatCarNumberForDisplay(carParts[0])}</span></span>${destBadge}`
