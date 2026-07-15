@@ -176,8 +176,8 @@ header{display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap
 .status-cluster{display:flex; flex-direction:column; align-items:flex-end; gap:5px; font-family:'IBM Plex Mono', monospace; font-size:12px; color:var(--text-dim); text-align:right; grid-column:3; justify-self:end;}
 .live-pill{display:flex; align-items:center; gap:6px; padding:5px 11px; border-radius:20px; border:1px solid var(--border); background:var(--panel);}
 .dot{width:7px; height:7px; border-radius:50%; background:var(--text-faint);}
-.dot.live{background:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); animation:pulse 1.8s ease-in-out infinite;}
-.dot.demo{background:#C97A12; box-shadow:0 0 0 3px #FBEEDC;}
+.dot.live{background:#2FBE72; box-shadow:0 0 0 3px rgba(47,190,114,0.25); animation:pulse 1.8s ease-in-out infinite;}
+.dot.demo{background:#8A93A6; box-shadow:0 0 0 3px rgba(138,147,166,0.25);}
 @keyframes pulse{0%,100%{opacity:1;} 50%{opacity:0.4;}}
 .weather-line{font-size:11px; color:var(--text-faint); justify-self:end; text-align:right;}
 
@@ -366,11 +366,12 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
 /* ---------- Modal ---------- */
 .modal-overlay{position:fixed; inset:0; background:rgba(0,0,0,0.45); display:none; align-items:center; justify-content:center; z-index:100; padding:16px;}
 .modal-overlay.show{display:flex;}
-.modal-card{background:var(--panel); border-radius:14px; padding:20px; width:300px; max-width:100%; box-shadow:0 12px 40px rgba(0,0,0,0.35); max-height:80vh; overflow-y:auto;}
+.modal-card{background:var(--panel); border-radius:14px; padding:20px; width:300px; max-width:100%; box-shadow:0 12px 40px rgba(0,0,0,0.35); max-height:80vh; overflow-y:auto; overflow-x:hidden;}
 .modal-card h3{margin:0 0 12px; font-family:'Space Grotesk', sans-serif; font-size:16px; color:var(--text);}
-.modal-row{display:flex; justify-content:space-between; gap:12px; padding:7px 0; border-bottom:1px solid var(--border); font-size:13px; color:var(--text);}
+.modal-row{display:flex; justify-content:space-between; gap:12px; padding:7px 0; border-bottom:1px solid var(--border); font-size:13px; color:var(--text); flex-wrap:wrap; min-width:0;}
+.modal-row > *{min-width:0; overflow-wrap:break-word;}
 .modal-row:last-child{border-bottom:none;}
-.modal-row span{color:var(--text-dim); flex:0 0 auto;}
+.modal-row span{color:var(--text-dim); flex:1 1 auto; white-space:normal;}
 .modal-row strong{text-align:right;}
 .modal-close{margin-top:14px; width:100%; padding:9px; border-radius:8px; border:none; background:var(--accent); color:#fff; font-weight:700; cursor:pointer; font-family:'Space Grotesk', sans-serif;}
 
@@ -576,7 +577,7 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
     </div>
   </header>
 
-  <div class="banner" id="demoBanner">Demo mode — the live MBTA feed isn't reachable from this environment, so this is showing simulated Green Line traffic.</div>
+  <div class="banner" id="demoBanner">Please check your internet connection. If it is on and working, that means the MBTA's live data feed is currently unreachable due to an outage on their end. This is not an issue with In the Loop.</div>
 
   <div class="banner" id="noTrainsBanner">All trains have gone to sleep for the night &#128564;. If you think this is a mistake, please report it in the Discord server: <a href="https://discord.gg/KmGGY75rn4" target="_blank" rel="noopener" style="color:inherit; text-decoration:underline; font-weight:700;">discord.gg/KmGGY75rn4</a></div>
 
@@ -2368,6 +2369,7 @@ function getCarPositionLabel(i, isGreenLine){
 }
 
 async function showCarModal(v){
+  terminusScheduleRefreshToken++;
   document.getElementById('carModalTitle').textContent = `${getDisplayBranch(v.branch)} \u00b7 Car ${formatCarNumberForDisplay(v.label)}`;
   document.getElementById('carModalBody').innerHTML = `<div class="modal-row"><span>Loading&hellip;</span><strong></strong></div>`;
   document.getElementById('carModalOverlay').classList.add('show');
@@ -2399,10 +2401,26 @@ async function showCarModal(v){
   // out to 6 slots so all cars show up, without fabricating numbers for the
   // ones we don't actually know; carParts itself (used for editing, operator
   // info, out-of-service marking, etc.) stays exactly what MBTA reported.
+  //
+  // MBTA's `carriages` field (already fetched for crowding data on Orange
+  // and newer Red Line cars) includes a real car number per physical car,
+  // covering the FULL consist — not just the lead car that `vehicle.label`
+  // reports. That's strictly more complete real data, so prefer it here.
   const isGreenLine = state.activeLine === 'green';
-  const displayCarParts = (!isGreenLine && carParts.length < 6)
-    ? carParts.concat(Array(6 - carParts.length).fill(null))
-    : carParts;
+  const carriageLabels = (v.carriages || []).map(c => c.label).filter(Boolean);
+  let displayCarParts;
+  if(!isGreenLine && carriageLabels.length > carParts.length){
+    // MBTA's carriages data reports one entry per actual physical car, so
+    // its length IS the real train length — a 4-car train shows exactly 4
+    // slots, not padded out to 6 like the "we have no idea" case below.
+    displayCarParts = carriageLabels;
+  }else if(!isGreenLine && carParts.length < 6){
+    // No carriages data to tell us the real length — heavy rail trains are
+    // typically 6 cars, so assume that as a placeholder-filled default.
+    displayCarParts = carParts.concat(Array(6 - carParts.length).fill(null));
+  }else{
+    displayCarParts = carParts;
+  }
 
   const [operatorList, tripNotesRaw, oosList] = await Promise.all([
     Promise.all(carParts.map(carNum => loadVehicleOperator(v.id, carNum))),
@@ -2974,7 +2992,10 @@ function operatorFieldHtml(tripId, position, pred, userInfoMap){
   return `${viewLine}${editForm}`;
 }
 
+let terminusScheduleRefreshToken = 0;
+
 async function showTerminusSchedule(branchKey, stopName, directionId){
+  const myToken = ++terminusScheduleRefreshToken;
   document.getElementById('carModalTitle').textContent = `${displayName(stopName)} \u2014 Scheduled Departures`;
   document.getElementById('carModalBody').innerHTML = '<div class="modal-row"><span>Loading schedule&hellip;</span><strong></strong></div>';
   document.getElementById('carModalOverlay').classList.add('show');
@@ -2987,6 +3008,7 @@ async function showTerminusSchedule(branchKey, stopName, directionId){
     document.getElementById('carModalBody').innerHTML = '<div class="modal-row"><span>Could not load the schedule right now.</span><strong></strong></div>';
     return;
   }
+  if(terminusScheduleRefreshToken !== myToken) return; // superseded while we were fetching
 
   if(trips.length === 0){
     document.getElementById('carModalBody').innerHTML = '<div class="modal-row"><span>No more scheduled departures from here today.</span><strong></strong></div>';
@@ -2996,10 +3018,24 @@ async function showTerminusSchedule(branchKey, stopName, directionId){
   const [predictions, candidatePool, userInfoMap] = await Promise.all([
     loadCarPredictions(), getCarsRecentlyAtTerminus(stopName), getUserInfoMap()
   ]);
+  if(terminusScheduleRefreshToken !== myToken) return;
+
+  const PREDICTION_WINDOW_MS = 5 * 60 * 1000;
+  const now = Date.now();
 
   const rows = trips.map(trip=>{
     const dep = new Date(trip.departureTime);
     const timeStr = dep.toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' });
+    const withinPredictionWindow = (dep.getTime() - now) <= PREDICTION_WINDOW_MS;
+
+    if(!withinPredictionWindow){
+      return `
+        <div class="modal-section">
+          <div class="modal-row"><span>${timeStr}</span><strong>to ${trip.headsign || 'Unknown'}</strong></div>
+          <span class="signin-note">Car prediction available within 5 minutes of departure</span>
+        </div>`;
+    }
+
     const pred = predictions[trip.tripId];
     const carNumber = pred && pred.carNumber ? pred.carNumber : predictCarsForTrip(trip.tripId, branchKey, candidatePool);
     const predictedTag = (pred && pred.carNumber)
@@ -3023,7 +3059,7 @@ async function showTerminusSchedule(branchKey, stopName, directionId){
   }).join('');
 
   document.getElementById('carModalBody').innerHTML =
-    `<div class="modal-row"><span style="color:var(--text-faint); font-size:11px;">Departure times are from MBTA's published schedule. Car numbers are predicted from cars recently tracked at this station, not official MBTA data.</span><strong></strong></div>` + rows;
+    `<div class="modal-row"><span style="color:var(--text-faint); font-size:11px;">Departure times are from MBTA's published schedule. Car numbers are predicted from cars recently tracked at this station, not official MBTA data, and only shown within 5 minutes of departure.</span><strong></strong></div>` + rows;
 
   document.querySelectorAll('[data-save-predict]').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
@@ -3054,9 +3090,17 @@ async function showTerminusSchedule(branchKey, stopName, directionId){
       showTerminusSchedule(branchKey, stopName, directionId);
     });
   });
+
+  // Keep checking for a more suitable/likely car prediction as departure
+  // time approaches and more real tracking data becomes available, as long
+  // as this same schedule view is still what's open.
+  setTimeout(()=>{
+    if(terminusScheduleRefreshToken === myToken) showTerminusSchedule(branchKey, stopName, directionId);
+  }, 30000);
 }
 
 function showBypassNotice(stopName){
+  terminusScheduleRefreshToken++;
   document.getElementById('carModalTitle').textContent = displayName(stopName);
   document.getElementById('carModalBody').innerHTML = `
     <div class="modal-section">
@@ -3068,6 +3112,7 @@ function showBypassNotice(stopName){
 }
 
 function showStationModal(pageKey, idx, stopName, side){
+  terminusScheduleRefreshToken++;
   const direction = side === 'west' ? 0 : 1;
   const upcoming = getUpcoming(pageKey, idx, direction);
   const dirLabel = side === 'west' ? dirLabels().west : dirLabels().east;
@@ -3091,9 +3136,10 @@ function showStationModal(pageKey, idx, stopName, side){
 
 document.getElementById('carModalClose').addEventListener('click', ()=>{
   document.getElementById('carModalOverlay').classList.remove('show');
+  terminusScheduleRefreshToken++;
 });
 document.getElementById('carModalOverlay').addEventListener('click', (e)=>{
-  if(e.target.id === 'carModalOverlay') e.currentTarget.classList.remove('show');
+  if(e.target.id === 'carModalOverlay'){ e.currentTarget.classList.remove('show'); terminusScheduleRefreshToken++; }
 });
 
 /* ---------------- Station departures lookup by name (for alert links) ---------------- */
@@ -3751,6 +3797,19 @@ function clearStaleDestinationOverrides(now){
   });
 }
 
+// Real MBTA car numbers are unique per line — a Green Line fleet number
+// (Type 7/8/9/10 or a PCC) should never legitimately appear on Red, Orange,
+// or Blue. If MBTA's feed ever reports one there, it's a data glitch, not a
+// real train, so those vehicles get filtered out rather than displayed.
+function isGreenLineFleetNumber(carNum){
+  const n = parseInt(carNum, 10);
+  if(PCC_CAR_NUMBERS.includes(String(carNum))) return true;
+  return ROSTER_RANGES.some(r => n >= r.start && n <= r.end);
+}
+function hasGreenLineFleetNumber(v){
+  return String(v.label).split('-').some(carNum => isGreenLineFleetNumber(carNum));
+}
+
 function isAtInnerbeltYard(v){
   if(!v.stopName) return false;
   const name = v.stopName.toLowerCase();
@@ -3770,11 +3829,8 @@ async function refreshVehicles(){
     state.vehicles = vehicles;
     setLiveStatus(true);
   }catch(err){
-    console.error('Live vehicle feed failed, falling back to demo mode:', err);
-    state.vehicles = state.activeLine === 'red' ? generateDemoRedVehicles()
-      : state.activeLine === 'orange' ? generateDemoOrangeVehicles()
-      : state.activeLine === 'blue' ? generateDemoBlueVehicles()
-      : generateDemoVehicles();
+    console.error('Live vehicle feed failed:', err);
+    state.vehicles = [];
     setLiveStatus(false);
   }
 
@@ -3815,6 +3871,13 @@ async function refreshVehicles(){
   // so there's no ambiguity to wait out; remove them right away.
   state.vehicles = state.vehicles.filter(v => !isAtInnerbeltYard(v));
 
+  // A Green Line fleet number (Type 7/8/9/10, PCC) showing up on Red,
+  // Orange, or Blue is a data error, not a real train — car numbers don't
+  // overlap between lines in reality.
+  if(state.activeLine !== 'green'){
+    state.vehicles = state.vehicles.filter(v => !hasGreenLineFleetNumber(v));
+  }
+
   if(state.live) updateLastSeenTracking(state.vehicles);
   if(state.live) checkTrainNotifications(state.vehicles);
 
@@ -3839,7 +3902,7 @@ function setLiveStatus(isLive){
     dot.className = 'dot live'; label.textContent = 'Live';
     banner.classList.remove('show');
   }else{
-    dot.className = 'dot demo'; label.textContent = 'Demo mode';
+    dot.className = 'dot demo'; label.textContent = 'Offline';
     banner.classList.add('show');
   }
 }
