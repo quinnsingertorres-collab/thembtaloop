@@ -2616,6 +2616,26 @@ async function showCarModal(v){
        ${state.signedIn ? `<button class="account-btn" id="soloType7InServiceBtn" style="margin-top:6px; background:#0F8A4B;">Mark this car in service</button>` : `<div class="signin-note">Sign in to mark this car in service.</div>`}`
     : '';
 
+  const existingReassignment = lineReassignmentCache[v.id];
+  const otherLines = ['green','red','orange','blue'].filter(l => l !== state.activeLine);
+  const lineReassignSection = existingReassignment
+    ? `<div class="modal-section">
+        <h4>Line assignment</h4>
+        <div class="modal-row"><span>Reassigned to</span><strong>${lineDisplayName(existingReassignment.correctLine)} Line</strong></div>
+        <div class="signin-note">By ${existingReassignment.reassignedBy || 'Unknown'} \u2014 hidden from the ${lineDisplayName(existingReassignment.originalLine)} Line, shown here instead.</div>
+        ${state.signedIn ? `<button class="account-btn" id="undoLineReassignBtn" style="margin-top:6px; background:#0F8A4B;">Undo \u2014 this is correct as-is</button>` : ''}
+      </div>`
+    : `<div class="modal-section">
+        <h4>Line assignment</h4>
+        <div class="signin-note">If MBTA has this train mistagged (wrong line), you can reassign it. It'll be hidden from ${lineDisplayName(state.activeLine)} and shown on the correct line instead.</div>
+        ${state.signedIn ? `
+          <select class="roster-input" id="lineReassignSelect" style="margin-top:6px;">
+            ${otherLines.map(l => `<option value="${l}">${lineDisplayName(l)} Line</option>`).join('')}
+          </select>
+          <button class="account-btn" id="lineReassignBtn" style="margin-top:6px;">This is actually a different line's train</button>`
+          : `<div class="signin-note">Sign in to reassign this train's line.</div>`}
+      </div>`;
+
   document.getElementById('carModalBody').innerHTML = `
     <div class="modal-section">
       ${soloType7Notice}
@@ -2624,6 +2644,7 @@ async function showCarModal(v){
       <div class="modal-row"><span>Last reported speed</span><strong>${v.speedMph !== null && v.speedMph !== undefined ? v.speedMph + ' mph' : 'Not reported'}</strong></div>
       <div class="modal-row"><span>Last update</span><strong>${secondsAgo}s ago</strong></div>
     </div>
+    ${lineReassignSection}
     ${crowdingStrip}
     ${carSections}
     <div class="modal-section">
@@ -2764,6 +2785,23 @@ async function showCarModal(v){
     });
   }
 
+  const lineReassignBtn = document.getElementById('lineReassignBtn');
+  if(lineReassignBtn){
+    lineReassignBtn.addEventListener('click', async ()=>{
+      const correctLine = document.getElementById('lineReassignSelect').value;
+      if(!window.confirm(`Reassign this train to the ${lineDisplayName(correctLine)} Line? It will be hidden from the ${lineDisplayName(state.activeLine)} Line and shown on the ${lineDisplayName(correctLine)} Line instead.`)) return;
+      await reassignVehicleLine(v.id, state.activeLine, correctLine);
+      showCarModal(v);
+    });
+  }
+  const undoLineReassignBtn = document.getElementById('undoLineReassignBtn');
+  if(undoLineReassignBtn){
+    undoLineReassignBtn.addEventListener('click', async ()=>{
+      await clearLineReassignment(v.id);
+      showCarModal(v);
+    });
+  }
+
   document.querySelectorAll('[data-oos-toggle]').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
       const carNum = btn.dataset.oosToggle;
@@ -2897,29 +2935,35 @@ function guessCarNumber(tripId, branchKey, salt){
 // (about to terminate here) plus cars our own "last tracked" roster data has
 // recently seen actually arriving at this stop. Falls back to a plain guess
 // only when we have no real data to go on.
+// Real candidates: cars currently active and heading toward this terminus
+// (haven't arrived yet), plus recently-tracked arrivals from the roster.
+// Ordered oldest-arrival-first — a car that arrived earlier has been
+// sitting there longer and should be predicted to turn back and depart
+// sooner than one that arrived after it (first in, first out).
 async function getCarsRecentlyAtTerminus(stopName){
-  const candidates = [];
-
-  state.vehicles.forEach(v=>{
-    if(v.headsign && normName(v.headsign) === normName(stopName)){
-      String(v.label).split('-').forEach(c => candidates.push(c));
-    }
-  });
+  const arrived = []; // { car, ts } — already tracked arriving here
 
   if(firebaseReady){
     try{
       const snap = await fbDb.collection('roster').where('lastSeenStop', '==', stopName).get();
-      const recent = [];
       snap.forEach(doc=>{
         const d = doc.data();
-        if(d.lastSeenAt) recent.push({ car: doc.id, ts: d.lastSeenAt });
+        if(d.lastSeenAt) arrived.push({ car: doc.id, ts: d.lastSeenAt });
       });
-      recent.sort((a,b) => b.ts - a.ts);
-      recent.forEach(r => candidates.push(r.car));
     }catch(e){ console.error(e); }
   }
+  arrived.sort((a,b) => a.ts - b.ts); // oldest arrival first
 
-  return Array.from(new Set(candidates));
+  const enRoute = []; // still heading toward the terminus, haven't arrived yet
+  state.vehicles.forEach(v=>{
+    if(v.headsign && normName(v.headsign) === normName(stopName)){
+      String(v.label).split('-').forEach(c => enRoute.push(c));
+    }
+  });
+
+  // Already-arrived cars depart before ones still on their way in.
+  const ordered = arrived.map(r => r.car).concat(enRoute);
+  return Array.from(new Set(ordered));
 }
 
 function predictCarsForTrip(tripId, branchKey, pool){
@@ -3023,6 +3067,12 @@ async function showTerminusSchedule(branchKey, stopName, directionId){
   const PREDICTION_WINDOW_MS = 5 * 60 * 1000;
   const now = Date.now();
 
+  // Assign real candidates in strict FIFO order across trips: the
+  // earliest-arrived car(s) are predicted for the earliest departure, the
+  // next-earliest for the next departure, and so on — matching how trains
+  // actually queue up and turn back at a terminus.
+  let poolCursor = 0;
+
   const rows = trips.map(trip=>{
     const dep = new Date(trip.departureTime);
     const timeStr = dep.toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' });
@@ -3037,7 +3087,21 @@ async function showTerminusSchedule(branchKey, stopName, directionId){
     }
 
     const pred = predictions[trip.tripId];
-    const carNumber = pred && pred.carNumber ? pred.carNumber : predictCarsForTrip(trip.tripId, branchKey, candidatePool);
+    let carNumber;
+    if(pred && pred.carNumber){
+      carNumber = pred.carNumber;
+    }else if(poolCursor < candidatePool.length){
+      // One real, arrival-ordered candidate per trip — the earliest-arrived
+      // train is predicted for the earliest departure, and so on. Its
+      // partner car isn't independently trackable from arrival data alone,
+      // so that half is still a guess.
+      const lead = candidatePool[poolCursor];
+      const trailer = guessCarNumber(trip.tripId, branchKey, 'partner');
+      carNumber = `${lead}-${trailer}`;
+      poolCursor += 1;
+    }else{
+      carNumber = predictCarsForTrip(trip.tripId, branchKey, []); // pool exhausted — pure guess for this one
+    }
     const predictedTag = (pred && pred.carNumber)
       ? `<span class="signin-note">Edited by ${liveName(pred.editedBy, pred.editedByUid, userInfoMap)}</span>`
       : `<span class="signin-note">Predicted from recent activity at this station \u2014 not official</span>`;
@@ -3493,7 +3557,71 @@ function checkTrainNotifications(vehicles){
 
 /* ---------------- Data fetch ---------------- */
 
+// Fetches a single vehicle's live data directly by id, regardless of which
+// route MBTA currently has it tagged under — used to pull a reassigned
+// train's real position/status so it can be shown on the line the
+// community says it actually belongs to.
+async function fetchVehicleById(vehicleId){
+  const url = withMbtaKey(`https://api-v3.mbta.com/vehicles/${vehicleId}?include=stop,trip,route&fields[vehicle]=current_status,current_stop_sequence,direction_id,label,latitude,longitude,updated_at,speed,carriages&fields[stop]=name&fields[trip]=headsign`);
+  try{
+    const res = await fetch(url, { headers: MBTA_HEADERS });
+    if(!res.ok) return null;
+    const json = await res.json();
+    const v = json.data;
+    if(!v) return null;
+    const included = {};
+    (json.included || []).forEach(item => { included[item.type + ':' + item.id] = item.attributes; });
+    const stopRel = v.relationships && v.relationships.stop && v.relationships.stop.data;
+    const tripRel = v.relationships && v.relationships.trip && v.relationships.trip.data;
+    const routeRel = v.relationships && v.relationships.route && v.relationships.route.data;
+    const stopName = stopRel ? (included['stop:'+stopRel.id] || {}).name : null;
+    const headsign = tripRel ? (included['trip:'+tripRel.id] || {}).headsign : null;
+    const speedMph = (typeof v.attributes.speed === 'number') ? Math.round(v.attributes.speed * 2.23694) : null;
+    return {
+      id: v.id,
+      branch: routeRel ? routeRel.id : null,
+      label: v.attributes.label || v.id,
+      status: v.attributes.current_status,
+      direction: v.attributes.direction_id,
+      stopName, headsign,
+      tripId: tripRel ? tripRel.id : null,
+      carriages: v.attributes.carriages || null,
+      speedMph, updatedAt: v.attributes.updated_at,
+      isReassigned: true
+    };
+  }catch(e){ console.error(e); return null; }
+}
+
+// Community line-reassignment overrides: hides a train from the line MBTA
+// tagged it under, and (best-effort) surfaces it on the line the community
+// says it actually belongs to.
+let lineReassignmentCache = {}; // vehicleId -> { originalLine, correctLine, reassignedBy, reassignedByUid, ts }
+async function refreshLineReassignmentCache(){
+  if(!firebaseReady) return;
+  try{
+    const snap = await fbDb.collection('line_reassignments').get();
+    const map = {};
+    snap.forEach(doc => { map[doc.id] = doc.data(); });
+    lineReassignmentCache = map;
+  }catch(e){ console.error(e); }
+}
+async function reassignVehicleLine(vehicleId, originalLine, correctLine){
+  if(!firebaseReady) return;
+  const payload = { originalLine, correctLine, reassignedBy: state.userName, reassignedByUid: state.uid || null, ts: Date.now() };
+  try{
+    await fbDb.collection('line_reassignments').doc(vehicleId).set(payload);
+    lineReassignmentCache[vehicleId] = payload;
+    logEdit(state.userName, state.uid, `Reassigned a train from the ${lineDisplayName(originalLine)} Line to the ${lineDisplayName(correctLine)} Line`);
+  }catch(e){ console.error(e); }
+}
+async function clearLineReassignment(vehicleId){
+  if(!firebaseReady) return;
+  try{ await fbDb.collection('line_reassignments').doc(vehicleId).delete(); }catch(e){ console.error(e); }
+  delete lineReassignmentCache[vehicleId];
+}
+
 async function fetchLiveVehicles(){
+
   const url = withMbtaKey("https://api-v3.mbta.com/vehicles?filter[route]=Green-B,Green-C,Green-D,Green-E,Mattapan&include=stop,trip&fields[vehicle]=current_status,current_stop_sequence,direction_id,label,latitude,longitude,updated_at,speed&fields[stop]=name&fields[trip]=headsign");
   const controller = new AbortController();
   const timeout = setTimeout(()=>controller.abort(), 6000);
@@ -3789,6 +3917,17 @@ function clearStaleDestinationOverrides(now){
       delete destinationOverrideCache[vehicleId];
     }
   });
+  // A line reassignment should only last for the trip it was made during —
+  // once its vehicle hasn't been seen anywhere (on any line) in 5+ minutes,
+  // the trip has ended, so clear it. This check works even if nobody
+  // revisits the target line to trigger the "vehicle not found" cleanup in
+  // refreshVehicles.
+  Object.keys(lineReassignmentCache).forEach(vehicleId=>{
+    const lastSeen = vehicleLastSeenTs[vehicleId];
+    if(lastSeen === undefined || (now - lastSeen) > DESTINATION_OVERRIDE_STALE_MS){
+      clearLineReassignment(vehicleId);
+    }
+  });
   // Prune entries well past the point they'd ever matter for this check,
   // so the tracker doesn't grow unbounded over a long-running session.
   const pruneBeforeMs = 30 * 60 * 1000;
@@ -3835,6 +3974,36 @@ async function refreshVehicles(){
   }
 
   const now = Date.now();
+
+  if(state.live){
+    // Hide any vehicle the community has reassigned AWAY from this line.
+    state.vehicles = state.vehicles.filter(v=>{
+      const reassignment = lineReassignmentCache[v.id];
+      return !(reassignment && reassignment.correctLine !== state.activeLine);
+    });
+
+    // Fetch and inject any vehicle reassigned TO this line from wherever
+    // MBTA actually has it tagged. Its stop name will be relative to its
+    // original line, so it likely won't line up with a stop on THIS line's
+    // track map — it's surfaced in the vehicle list regardless, but may not
+    // get a bubble placed on the ladder.
+    const incomingIds = Object.keys(lineReassignmentCache).filter(id=>{
+      const r = lineReassignmentCache[id];
+      return r.correctLine === state.activeLine && r.originalLine !== state.activeLine;
+    });
+    const alreadyPresent = new Set(state.vehicles.map(v => v.id));
+    const idsToFetch = incomingIds.filter(id => !alreadyPresent.has(id));
+    const incomingResults = await Promise.all(idsToFetch.map(id => fetchVehicleById(id)));
+    incomingResults.forEach((v, i)=>{
+      if(v){
+        state.vehicles.push(v);
+      }else{
+        // MBTA no longer has any record of this vehicle at all — its trip
+        // has ended, so the reassignment no longer applies.
+        clearLineReassignment(idsToFetch[i]);
+      }
+    });
+  }
 
   // Update the long-lived last-seen tracker from the actual fresh fetch
   // (before any keep-alive padding below), then clear any destination
@@ -3945,6 +4114,14 @@ function renderVehicleList(){
     relevant = relevant.filter(v => getRedLineBranch(v) === 'braintree');
   }
 
+  // Reassigned-in vehicles don't correspond to a specific stop/branch on
+  // this line (their position data comes from wherever MBTA actually has
+  // them tagged), so surface them regardless of the normal matching above.
+  const alreadyListed = new Set(relevant.map(v => v.id));
+  state.vehicles.forEach(v=>{
+    if(v.isReassigned && !alreadyListed.has(v.id)){ relevant.push(v); alreadyListed.add(v.id); }
+  });
+
   if(state.filterDirection !== 'ALL'){
     relevant = relevant.filter(v => String(v.direction) === state.filterDirection);
   }
@@ -3976,12 +4153,16 @@ function renderVehicleList(){
     const badgeHex = getBranchHex(v.branch);
     const badgeTextColor = getTextColorFor(badgeHex);
     const displayLabel = state.activeLine === 'green' ? v.label : formatCarNumberForDisplay(String(v.label).split('-')[0]);
+    const reassignedNote = v.isReassigned
+      ? `<div class="signin-note" style="margin:2px 0 0;">Reassigned here by the community \u2014 position shown is from its original line</div>`
+      : '';
     return `
       <div class="vcard" data-id="${v.id}">
         <div class="dir-badge" style="background:${badgeHex}; color:${badgeTextColor}">${badgeText}</div>
         <div class="mid">
           <div class="label">${displayBranch} &middot; Car ${displayLabel}</div>
           <div class="sub">near ${displayName(v.stopName || '—')} <span class="type">&middot; ${type}</span></div>
+          ${reassignedNote}
         </div>
         <div class="status">${statusText(v.status)}<br>${timeAgo(v.updatedAt)}</div>
       </div>`;
@@ -5223,6 +5404,9 @@ async function init(){
 
   refreshSoloType7OverrideCache();
   setInterval(refreshSoloType7OverrideCache, 60000);
+
+  refreshLineReassignmentCache();
+  setInterval(refreshLineReassignmentCache, 60000);
 
   routeOnLoad();
 }
