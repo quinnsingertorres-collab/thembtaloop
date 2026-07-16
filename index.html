@@ -1095,6 +1095,9 @@ function logRedCarOrigin(carNum, branch){
 // freshly loaded with no in-session memory yet), fall back to the most
 // recently logged origin for any car in this train's consist.
 function getRedLineBranch(v){
+  const manualOverride = branchReassignmentCache[v.id];
+  if(manualOverride && manualOverride.line === 'red') return manualOverride.correctBranch;
+
   let branch = null;
   if(v.headsign === 'Ashmont') branch = 'ashmont';
   else if(v.headsign === 'Braintree') branch = 'braintree';
@@ -1252,7 +1255,7 @@ function getCrowdingForCar(v, carNum){
   if(!v || !v.carriages) return null;
   if(outOfServiceCarsCache[carNum]) return null;
   const match = v.carriages.find(c => String(c.label) === String(carNum));
-  if(!match || !match.occupancy_status) return null;
+  if(!match || !match.occupancy_status || match.occupancy_status === 'NO_DATA_AVAILABLE') return null;
   return match.occupancy_status;
 }
 function getCapacityPercentForCar(v, carNum){
@@ -2453,7 +2456,7 @@ async function showCarModal(v){
         ${displayCarParts.map(carNum=>{
           const isCarOOS = carNum !== null && !!outOfServiceCarsCache[carNum];
           const status = carNum !== null ? getCrowdingForCar(v, carNum) : null;
-          const label = isCarOOS ? 'Out of Service' : (status ? (CROWDING_LABELS[status] || status) : 'No data');
+          const label = isCarOOS ? 'Out of Service' : (status ? (CROWDING_LABELS[status] || status) : 'Crowding data is not available for this car');
           const color = isCarOOS ? '#6B7280' : (status ? (CROWDING_COLORS[status] || 'inherit') : 'var(--text-faint)');
           const carLabel = carNum !== null ? formatCarNumberForDisplay(carNum) : 'Unknown';
           return `<div class="modal-row"><span>Car ${carLabel}</span><strong style="color:${color};">${label}</strong></div>`;
@@ -2616,25 +2619,50 @@ async function showCarModal(v){
        ${state.signedIn ? `<button class="account-btn" id="soloType7InServiceBtn" style="margin-top:6px; background:#0F8A4B;">Mark this car in service</button>` : `<div class="signin-note">Sign in to mark this car in service.</div>`}`
     : '';
 
-  const existingReassignment = lineReassignmentCache[v.id];
-  const otherLines = ['green','red','orange','blue'].filter(l => l !== state.activeLine);
-  const lineReassignSection = existingReassignment
-    ? `<div class="modal-section">
-        <h4>Line assignment</h4>
-        <div class="modal-row"><span>Reassigned to</span><strong>${lineDisplayName(existingReassignment.correctLine)} Line</strong></div>
-        <div class="signin-note">By ${existingReassignment.reassignedBy || 'Unknown'} \u2014 hidden from the ${lineDisplayName(existingReassignment.originalLine)} Line, shown here instead.</div>
-        ${state.signedIn ? `<button class="account-btn" id="undoLineReassignBtn" style="margin-top:6px; background:#0F8A4B;">Undo \u2014 this is correct as-is</button>` : ''}
-      </div>`
-    : `<div class="modal-section">
-        <h4>Line assignment</h4>
-        <div class="signin-note">If MBTA has this train mistagged (wrong line), you can reassign it. It'll be hidden from ${lineDisplayName(state.activeLine)} and shown on the correct line instead.</div>
-        ${state.signedIn ? `
-          <select class="roster-input" id="lineReassignSelect" style="margin-top:6px;">
-            ${otherLines.map(l => `<option value="${l}">${lineDisplayName(l)} Line</option>`).join('')}
-          </select>
-          <button class="account-btn" id="lineReassignBtn" style="margin-top:6px;">This is actually a different line's train</button>`
-          : `<div class="signin-note">Sign in to reassign this train's line.</div>`}
-      </div>`;
+  const GREEN_BRANCH_NAMES = { B:'Boston College', C:'Cleveland Circle', D:'Riverside', E:'Heath Street' };
+  const RED_BRANCH_NAMES = { ashmont:'Ashmont', braintree:'Braintree' };
+  const existingBranchReassignment = branchReassignmentCache[v.id];
+  const isGreenBranchEligible = isGreenLine && ['B','C','D','E'].includes(v.branch);
+  const isRedBranchEligible = state.activeLine === 'red';
+
+  let branchAssignSection = '';
+  if(isGreenBranchEligible){
+    const otherBranches = ['B','C','D','E'].filter(b => b !== v.branch);
+    branchAssignSection = existingBranchReassignment
+      ? `<div class="modal-section">
+          <h4>Branch assignment</h4>
+          <div class="modal-row"><span>Reassigned to</span><strong>${existingBranchReassignment.correctBranch} \u2014 ${GREEN_BRANCH_NAMES[existingBranchReassignment.correctBranch]}</strong></div>
+          <div class="signin-note">By ${existingBranchReassignment.reassignedBy || 'Unknown'}</div>
+          ${state.signedIn ? `<button class="account-btn" id="undoBranchReassignBtn" style="margin-top:6px; background:#0F8A4B;">Undo \u2014 this is correct as-is</button>` : ''}
+        </div>`
+      : `<div class="modal-section">
+          <h4>Branch assignment</h4>
+          <div class="signin-note">If MBTA has this train's branch wrong, reassign it here.</div>
+          ${state.signedIn ? `
+            <select class="roster-input" id="greenBranchReassignSelect" style="margin-top:6px;">
+              ${otherBranches.map(b => `<option value="${b}">${b} \u2014 ${GREEN_BRANCH_NAMES[b]}</option>`).join('')}
+            </select>
+            <button class="account-btn" id="greenBranchReassignBtn" style="margin-top:6px;">This is actually a different branch's train</button>`
+            : `<div class="signin-note">Sign in to reassign this train's branch.</div>`}
+        </div>`;
+  }else if(isRedBranchEligible){
+    const currentBranch = getRedLineBranch(v);
+    const otherBranch = currentBranch === 'ashmont' ? 'braintree' : 'ashmont';
+    branchAssignSection = existingBranchReassignment
+      ? `<div class="modal-section">
+          <h4>Branch assignment</h4>
+          <div class="modal-row"><span>Reassigned to</span><strong>${RED_BRANCH_NAMES[existingBranchReassignment.correctBranch]}</strong></div>
+          <div class="signin-note">By ${existingBranchReassignment.reassignedBy || 'Unknown'}</div>
+          ${state.signedIn ? `<button class="account-btn" id="undoBranchReassignBtn" style="margin-top:6px; background:#0F8A4B;">Undo \u2014 this is correct as-is</button>` : ''}
+        </div>`
+      : `<div class="modal-section">
+          <h4>Branch assignment</h4>
+          <div class="signin-note">Currently determined as ${RED_BRANCH_NAMES[currentBranch]}. If that's wrong, reassign it here.</div>
+          ${state.signedIn
+            ? `<button class="account-btn" id="redBranchReassignBtn" data-branch-target="${otherBranch}" style="margin-top:6px;">This is actually ${RED_BRANCH_NAMES[otherBranch]=== 'Ashmont' ? 'an' : 'a'} ${RED_BRANCH_NAMES[otherBranch]} train</button>`
+            : `<div class="signin-note">Sign in to reassign this train's branch.</div>`}
+        </div>`;
+  }
 
   document.getElementById('carModalBody').innerHTML = `
     <div class="modal-section">
@@ -2644,7 +2672,7 @@ async function showCarModal(v){
       <div class="modal-row"><span>Last reported speed</span><strong>${v.speedMph !== null && v.speedMph !== undefined ? v.speedMph + ' mph' : 'Not reported'}</strong></div>
       <div class="modal-row"><span>Last update</span><strong>${secondsAgo}s ago</strong></div>
     </div>
-    ${lineReassignSection}
+    ${branchAssignSection}
     ${crowdingStrip}
     ${carSections}
     <div class="modal-section">
@@ -2785,19 +2813,28 @@ async function showCarModal(v){
     });
   }
 
-  const lineReassignBtn = document.getElementById('lineReassignBtn');
-  if(lineReassignBtn){
-    lineReassignBtn.addEventListener('click', async ()=>{
-      const correctLine = document.getElementById('lineReassignSelect').value;
-      if(!window.confirm(`Reassign this train to the ${lineDisplayName(correctLine)} Line? It will be hidden from the ${lineDisplayName(state.activeLine)} Line and shown on the ${lineDisplayName(correctLine)} Line instead.`)) return;
-      await reassignVehicleLine(v.id, state.activeLine, correctLine);
+  const greenBranchReassignBtn = document.getElementById('greenBranchReassignBtn');
+  if(greenBranchReassignBtn){
+    greenBranchReassignBtn.addEventListener('click', async ()=>{
+      const correctBranch = document.getElementById('greenBranchReassignSelect').value;
+      if(!window.confirm(`Reassign this train to the ${correctBranch} \u2014 ${GREEN_BRANCH_NAMES[correctBranch]} branch?`)) return;
+      await reassignVehicleBranch(v.id, 'green', correctBranch);
       showCarModal(v);
     });
   }
-  const undoLineReassignBtn = document.getElementById('undoLineReassignBtn');
-  if(undoLineReassignBtn){
-    undoLineReassignBtn.addEventListener('click', async ()=>{
-      await clearLineReassignment(v.id);
+  const redBranchReassignBtn = document.getElementById('redBranchReassignBtn');
+  if(redBranchReassignBtn){
+    redBranchReassignBtn.addEventListener('click', async ()=>{
+      const correctBranch = redBranchReassignBtn.dataset.branchTarget;
+      if(!window.confirm(`Reassign this train to the ${RED_BRANCH_NAMES[correctBranch]} branch?`)) return;
+      await reassignVehicleBranch(v.id, 'red', correctBranch);
+      showCarModal(v);
+    });
+  }
+  const undoBranchReassignBtn = document.getElementById('undoBranchReassignBtn');
+  if(undoBranchReassignBtn){
+    undoBranchReassignBtn.addEventListener('click', async ()=>{
+      await clearBranchReassignment(v.id);
       showCarModal(v);
     });
   }
@@ -3557,67 +3594,36 @@ function checkTrainNotifications(vehicles){
 
 /* ---------------- Data fetch ---------------- */
 
-// Fetches a single vehicle's live data directly by id, regardless of which
-// route MBTA currently has it tagged under — used to pull a reassigned
-// train's real position/status so it can be shown on the line the
-// community says it actually belongs to.
-async function fetchVehicleById(vehicleId){
-  const url = withMbtaKey(`https://api-v3.mbta.com/vehicles/${vehicleId}?include=stop,trip,route&fields[vehicle]=current_status,current_stop_sequence,direction_id,label,latitude,longitude,updated_at,speed,carriages&fields[stop]=name&fields[trip]=headsign`);
-  try{
-    const res = await fetch(url, { headers: MBTA_HEADERS });
-    if(!res.ok) return null;
-    const json = await res.json();
-    const v = json.data;
-    if(!v) return null;
-    const included = {};
-    (json.included || []).forEach(item => { included[item.type + ':' + item.id] = item.attributes; });
-    const stopRel = v.relationships && v.relationships.stop && v.relationships.stop.data;
-    const tripRel = v.relationships && v.relationships.trip && v.relationships.trip.data;
-    const routeRel = v.relationships && v.relationships.route && v.relationships.route.data;
-    const stopName = stopRel ? (included['stop:'+stopRel.id] || {}).name : null;
-    const headsign = tripRel ? (included['trip:'+tripRel.id] || {}).headsign : null;
-    const speedMph = (typeof v.attributes.speed === 'number') ? Math.round(v.attributes.speed * 2.23694) : null;
-    return {
-      id: v.id,
-      branch: routeRel ? routeRel.id : null,
-      label: v.attributes.label || v.id,
-      status: v.attributes.current_status,
-      direction: v.attributes.direction_id,
-      stopName, headsign,
-      tripId: tripRel ? tripRel.id : null,
-      carriages: v.attributes.carriages || null,
-      speedMph, updatedAt: v.attributes.updated_at,
-      isReassigned: true
-    };
-  }catch(e){ console.error(e); return null; }
-}
-
-// Community line-reassignment overrides: hides a train from the line MBTA
-// tagged it under, and (best-effort) surfaces it on the line the community
-// says it actually belongs to.
-let lineReassignmentCache = {}; // vehicleId -> { originalLine, correctLine, reassignedBy, reassignedByUid, ts }
-async function refreshLineReassignmentCache(){
+// Community branch-assignment overrides. Scoped narrowly on purpose:
+// Green Line trains can be reassigned among its four real branches
+// (B/C/D/E), and Red Line trains between Ashmont/Braintree — both are
+// genuine cases where MBTA's own data can be ambiguous or wrong about
+// which branch a train belongs to. Orange, Blue, and Mattapan don't
+// branch, so there's nothing to reassign there.
+let branchReassignmentCache = {}; // vehicleId -> { line, correctBranch, reassignedBy, reassignedByUid, ts }
+async function refreshBranchReassignmentCache(){
   if(!firebaseReady) return;
   try{
-    const snap = await fbDb.collection('line_reassignments').get();
+    const snap = await fbDb.collection('branch_reassignments').get();
     const map = {};
     snap.forEach(doc => { map[doc.id] = doc.data(); });
-    lineReassignmentCache = map;
+    branchReassignmentCache = map;
   }catch(e){ console.error(e); }
 }
-async function reassignVehicleLine(vehicleId, originalLine, correctLine){
+async function reassignVehicleBranch(vehicleId, line, correctBranch){
   if(!firebaseReady) return;
-  const payload = { originalLine, correctLine, reassignedBy: state.userName, reassignedByUid: state.uid || null, ts: Date.now() };
+  const payload = { line, correctBranch, reassignedBy: state.userName, reassignedByUid: state.uid || null, ts: Date.now() };
   try{
-    await fbDb.collection('line_reassignments').doc(vehicleId).set(payload);
-    lineReassignmentCache[vehicleId] = payload;
-    logEdit(state.userName, state.uid, `Reassigned a train from the ${lineDisplayName(originalLine)} Line to the ${lineDisplayName(correctLine)} Line`);
+    await fbDb.collection('branch_reassignments').doc(vehicleId).set(payload);
+    branchReassignmentCache[vehicleId] = payload;
+    const branchLabel = line === 'green' ? correctBranch : (correctBranch === 'ashmont' ? 'Ashmont' : 'Braintree');
+    logEdit(state.userName, state.uid, `Reassigned a train to the ${branchLabel} branch on the ${lineDisplayName(line)} Line`);
   }catch(e){ console.error(e); }
 }
-async function clearLineReassignment(vehicleId){
+async function clearBranchReassignment(vehicleId){
   if(!firebaseReady) return;
-  try{ await fbDb.collection('line_reassignments').doc(vehicleId).delete(); }catch(e){ console.error(e); }
-  delete lineReassignmentCache[vehicleId];
+  try{ await fbDb.collection('branch_reassignments').doc(vehicleId).delete(); }catch(e){ console.error(e); }
+  delete branchReassignmentCache[vehicleId];
 }
 
 async function fetchLiveVehicles(){
@@ -3917,15 +3923,13 @@ function clearStaleDestinationOverrides(now){
       delete destinationOverrideCache[vehicleId];
     }
   });
-  // A line reassignment should only last for the trip it was made during —
-  // once its vehicle hasn't been seen anywhere (on any line) in 5+ minutes,
-  // the trip has ended, so clear it. This check works even if nobody
-  // revisits the target line to trigger the "vehicle not found" cleanup in
-  // refreshVehicles.
-  Object.keys(lineReassignmentCache).forEach(vehicleId=>{
+  // A branch reassignment should only last for the trip it was made
+  // during — once its vehicle hasn't been seen in 5+ minutes, the trip has
+  // ended, so clear it.
+  Object.keys(branchReassignmentCache).forEach(vehicleId=>{
     const lastSeen = vehicleLastSeenTs[vehicleId];
     if(lastSeen === undefined || (now - lastSeen) > DESTINATION_OVERRIDE_STALE_MS){
-      clearLineReassignment(vehicleId);
+      clearBranchReassignment(vehicleId);
     }
   });
   // Prune entries well past the point they'd ever matter for this check,
@@ -3975,33 +3979,16 @@ async function refreshVehicles(){
 
   const now = Date.now();
 
-  if(state.live){
-    // Hide any vehicle the community has reassigned AWAY from this line.
-    state.vehicles = state.vehicles.filter(v=>{
-      const reassignment = lineReassignmentCache[v.id];
-      return !(reassignment && reassignment.correctLine !== state.activeLine);
-    });
-
-    // Fetch and inject any vehicle reassigned TO this line from wherever
-    // MBTA actually has it tagged. Its stop name will be relative to its
-    // original line, so it likely won't line up with a stop on THIS line's
-    // track map — it's surfaced in the vehicle list regardless, but may not
-    // get a bubble placed on the ladder.
-    const incomingIds = Object.keys(lineReassignmentCache).filter(id=>{
-      const r = lineReassignmentCache[id];
-      return r.correctLine === state.activeLine && r.originalLine !== state.activeLine;
-    });
-    const alreadyPresent = new Set(state.vehicles.map(v => v.id));
-    const idsToFetch = incomingIds.filter(id => !alreadyPresent.has(id));
-    const incomingResults = await Promise.all(idsToFetch.map(id => fetchVehicleById(id)));
-    incomingResults.forEach((v, i)=>{
-      if(v){
-        state.vehicles.push(v);
-      }else{
-        // MBTA no longer has any record of this vehicle at all — its trip
-        // has ended, so the reassignment no longer applies.
-        clearLineReassignment(idsToFetch[i]);
-      }
+  if(state.live && state.activeLine === 'green'){
+    // Apply any community branch correction directly to the vehicle's
+    // branch field — everything downstream (which page it shows up on,
+    // its bubble letter/color) already keys off v.branch, so overriding it
+    // here is all that's needed. Never applies to Mattapan, which doesn't
+    // have branches to reassign between.
+    state.vehicles.forEach(v=>{
+      if(v.branch === 'MATTAPAN') return;
+      const r = branchReassignmentCache[v.id];
+      if(r && r.line === 'green') v.branch = r.correctBranch;
     });
   }
 
@@ -4114,14 +4101,6 @@ function renderVehicleList(){
     relevant = relevant.filter(v => getRedLineBranch(v) === 'braintree');
   }
 
-  // Reassigned-in vehicles don't correspond to a specific stop/branch on
-  // this line (their position data comes from wherever MBTA actually has
-  // them tagged), so surface them regardless of the normal matching above.
-  const alreadyListed = new Set(relevant.map(v => v.id));
-  state.vehicles.forEach(v=>{
-    if(v.isReassigned && !alreadyListed.has(v.id)){ relevant.push(v); alreadyListed.add(v.id); }
-  });
-
   if(state.filterDirection !== 'ALL'){
     relevant = relevant.filter(v => String(v.direction) === state.filterDirection);
   }
@@ -4153,16 +4132,12 @@ function renderVehicleList(){
     const badgeHex = getBranchHex(v.branch);
     const badgeTextColor = getTextColorFor(badgeHex);
     const displayLabel = state.activeLine === 'green' ? v.label : formatCarNumberForDisplay(String(v.label).split('-')[0]);
-    const reassignedNote = v.isReassigned
-      ? `<div class="signin-note" style="margin:2px 0 0;">Reassigned here by the community \u2014 position shown is from its original line</div>`
-      : '';
     return `
       <div class="vcard" data-id="${v.id}">
         <div class="dir-badge" style="background:${badgeHex}; color:${badgeTextColor}">${badgeText}</div>
         <div class="mid">
           <div class="label">${displayBranch} &middot; Car ${displayLabel}</div>
           <div class="sub">near ${displayName(v.stopName || '—')} <span class="type">&middot; ${type}</span></div>
-          ${reassignedNote}
         </div>
         <div class="status">${statusText(v.status)}<br>${timeAgo(v.updatedAt)}</div>
       </div>`;
@@ -5405,8 +5380,8 @@ async function init(){
   refreshSoloType7OverrideCache();
   setInterval(refreshSoloType7OverrideCache, 60000);
 
-  refreshLineReassignmentCache();
-  setInterval(refreshLineReassignmentCache, 60000);
+  refreshBranchReassignmentCache();
+  setInterval(refreshBranchReassignmentCache, 60000);
 
   routeOnLoad();
 }
