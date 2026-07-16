@@ -2636,7 +2636,7 @@ async function showCarModal(v){
 
   let branchAssignSection = '';
   if(isGreenBranchEligible){
-    const otherBranches = ['B','C','D','E'].filter(b => b !== v.branch);
+    const ALL_GREEN_BRANCHES = ['B','C','D','E'];
     branchAssignSection = existingBranchReassignment
       ? `<div class="modal-section">
           <h4>Branch assignment</h4>
@@ -2649,7 +2649,7 @@ async function showCarModal(v){
           <div class="signin-note">If MBTA has this train's branch wrong, reassign it here.</div>
           ${state.signedIn ? `
             <select class="roster-input" id="greenBranchReassignSelect" style="margin-top:6px;">
-              ${otherBranches.map(b => `<option value="${b}">${b} \u2014 ${GREEN_BRANCH_NAMES[b]}</option>`).join('')}
+              ${ALL_GREEN_BRANCHES.map(b => `<option value="${b}" ${b === v.branch ? 'selected' : ''}>${b} \u2014 ${GREEN_BRANCH_NAMES[b]}</option>`).join('')}
             </select>
             <button class="account-btn" id="greenBranchReassignBtn" style="margin-top:6px;">This is actually a different branch's train</button>`
             : `<div class="signin-note">Sign in to reassign this train's branch.</div>`}
@@ -2831,6 +2831,10 @@ async function showCarModal(v){
   if(greenBranchReassignBtn){
     greenBranchReassignBtn.addEventListener('click', async ()=>{
       const correctBranch = document.getElementById('greenBranchReassignSelect').value;
+      if(correctBranch === v.branch){
+        window.alert('Pick a different branch than the one already shown to reassign it.');
+        return;
+      }
       if(!window.confirm(`Reassign this train to the ${correctBranch} \u2014 ${GREEN_BRANCH_NAMES[correctBranch]} branch?`)) return;
       await reassignVehicleBranch(v.id, 'green', correctBranch);
       showCarModal(v);
