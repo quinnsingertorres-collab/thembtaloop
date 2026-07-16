@@ -2651,7 +2651,7 @@ async function showCarModal(v){
             <select class="roster-input" id="greenBranchReassignSelect" style="margin-top:6px;">
               ${ALL_GREEN_BRANCHES.map(b => `<option value="${b}" ${b === v.branch ? 'selected' : ''}>${b} \u2014 ${GREEN_BRANCH_NAMES[b]}</option>`).join('')}
             </select>
-            <button class="account-btn" id="greenBranchReassignBtn" style="margin-top:6px;">This is actually a different branch's train</button>`
+            <button class="account-btn" id="greenBranchReassignBtn" style="margin-top:6px;">Confirm branch reassignment</button>`
             : `<div class="signin-note">Sign in to reassign this train's branch.</div>`}
         </div>`;
   }else if(isRedBranchEligible){
