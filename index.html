@@ -443,6 +443,7 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
 .roster-input, .roster-textarea{
   width:100%; padding:7px 9px; border-radius:7px; border:1px solid var(--border);
   background:var(--panel); color:var(--text); font-size:12.5px; font-family:'IBM Plex Sans', sans-serif;
+  margin-top:8px;
 }
 .roster-textarea{min-height:48px; resize:vertical;}
 .roster-readonly{
@@ -2918,14 +2919,103 @@ function getUpcoming(pageKey, idx, direction){
   return filtered.map(x => ({ v: x.v, stopsAway: Math.abs(x.vIdx - idx) }));
 }
 
-/* Rough arrival estimate: a couple of minutes per intervening stop, since
-   we only have vehicle positions, not official predictions. */
+/* Rough arrival estimate: a couple of minutes per intervening stop — used
+   only as a fallback when MBTA hasn't published a real prediction yet for
+   a given vehicle, since we only have vehicle positions in that case, not
+   an official prediction. */
 function estimateArrival(stopsAway, status){
   if(stopsAway === 0){
     if(status === 'STOPPED_AT' || status === 'INCOMING_AT') return 'Arriving now';
     return '~1 min';
   }
   return `~${stopsAway * 2} min`;
+}
+
+// Trains running unusually close together ("bunching") is a real, common
+// occurrence — a following train that's caught up to the one ahead can't
+// actually arrive as soon as raw stop-count math would suggest, since
+// transit systems hold/slow a train to keep it from overtaking the one in
+// front. This adjusts our OWN fallback estimates to respect a minimum
+// realistic following gap, and flags any pair (even ones using MBTA's real
+// predictions) as bunched for display — it never overrides a real MBTA
+// prediction's number, only the estimates this app makes up itself.
+const BUNCHING_MIN_GAP_MIN = 1.5;
+function applyBunchingAdjustment(entries){
+  // entries: [{ etaMinutes, isRealPrediction, ... }], must already be sorted soonest-first
+  let previousEta = null;
+  return entries.map(entry=>{
+    let etaMinutes = entry.etaMinutes;
+    let bunched = false;
+    if(previousEta !== null && (etaMinutes - previousEta) < BUNCHING_MIN_GAP_MIN){
+      bunched = true;
+      if(!entry.isRealPrediction){
+        etaMinutes = previousEta + BUNCHING_MIN_GAP_MIN;
+      }
+    }
+    previousEta = etaMinutes;
+    return { ...entry, etaMinutes, bunched };
+  });
+}
+
+// Real MBTA predictions show as a plain "X min" (already precise); our own
+// stop-count-based estimates keep the "~" prefix to signal they're rougher.
+function formatEtaMinutesDisplay(etaMinutes, isRealPrediction){
+  const rounded = Math.round(etaMinutes);
+  if(rounded <= 0) return 'Arriving now';
+  return isRealPrediction ? `${rounded} min` : `~${rounded} min`;
+}
+
+// MBTA's own /predictions endpoint gives real, algorithmically-computed
+// arrival times per stop (using live GPS, historical running times, etc.),
+// which is far more accurate than estimating from stop-count alone. Stop
+// IDs are looked up dynamically via /stops rather than hardcoded, since
+// hand-typing MBTA's internal stop IDs for every station across four lines
+// would risk silent, hard-to-catch mistakes.
+let stopNameToIdCache = {}; // line -> { normalizedStopName: stopId }
+async function ensureStopIdMap(line){
+  if(stopNameToIdCache[line]) return stopNameToIdCache[line];
+  const routeIds = line === 'green' ? ['Green-B','Green-C','Green-D','Green-E','Mattapan']
+    : line === 'red' ? ['Red'] : line === 'orange' ? ['Orange'] : ['Blue'];
+  try{
+    const url = withMbtaKey(`https://api-v3.mbta.com/stops?filter[route]=${routeIds.join(',')}&fields[stop]=name`);
+    const res = await fetch(url, { headers: MBTA_HEADERS });
+    if(!res.ok) throw new Error('bad status ' + res.status);
+    const json = await res.json();
+    const map = {};
+    (json.data || []).forEach(s => { map[normName(s.attributes.name)] = s.id; });
+    stopNameToIdCache[line] = map;
+    return map;
+  }catch(e){ console.error(e); return {}; }
+}
+
+async function fetchStopPredictions(stopId, directionId){
+  try{
+    const url = withMbtaKey(`https://api-v3.mbta.com/predictions?filter[stop]=${stopId}&filter[direction_id]=${directionId}&sort=arrival_time&fields[prediction]=arrival_time,departure_time,status&include=vehicle&fields[vehicle]=label`);
+    const res = await fetch(url, { headers: MBTA_HEADERS });
+    if(!res.ok) throw new Error('bad status ' + res.status);
+    const json = await res.json();
+    const included = {};
+    (json.included || []).forEach(item => { included[item.type + ':' + item.id] = item; });
+    const byVehicleId = {};
+    (json.data || []).forEach(p=>{
+      const vehicleRel = p.relationships && p.relationships.vehicle && p.relationships.vehicle.data;
+      if(!vehicleRel) return;
+      const when = p.attributes.arrival_time || p.attributes.departure_time;
+      if(!when) return;
+      byVehicleId[vehicleRel.id] = { when, status: p.attributes.status };
+    });
+    return byVehicleId;
+  }catch(e){ console.error(e); return {}; }
+}
+
+// Formats a real MBTA prediction timestamp as a friendly countdown, the
+// same way transit apps typically show it.
+function formatPredictionCountdown(whenIso){
+  const ms = new Date(whenIso).getTime() - Date.now();
+  const mins = Math.round(ms / 60000);
+  if(mins <= 0) return 'Arriving now';
+  if(mins === 1) return '1 min';
+  return `${mins} min`;
 }
 
 /* ---------------- Scheduled departures + predicted car numbers (terminus stops) ----------------
@@ -3351,8 +3441,8 @@ function showBypassNotice(stopName){
   document.getElementById('carModalOverlay').classList.add('show');
 }
 
-function showStationModal(pageKey, idx, stopName, side){
-  modalRefreshToken++;
+async function showStationModal(pageKey, idx, stopName, side){
+  const myToken = ++modalRefreshToken;
   const direction = side === 'west' ? 0 : 1;
   const upcoming = getUpcoming(pageKey, idx, direction);
   const dirLabel = side === 'west' ? dirLabels().west : dirLabels().east;
@@ -3362,16 +3452,47 @@ function showStationModal(pageKey, idx, stopName, side){
   if(upcoming.length === 0){
     document.getElementById('carModalBody').innerHTML = `
       <div class="modal-row"><span>No upcoming trains</span><strong>&mdash;</strong></div>`;
-  }else{
-    document.getElementById('carModalBody').innerHTML = `
-      <div class="modal-row"><span style="color:var(--text-faint); font-size:11px;">Estimated from stop count, not live predictions</span><strong></strong></div>` +
-      upcoming.map(({v, stopsAway})=>{
-        const eta = estimateArrival(stopsAway, v.status);
-        const displayCarLabel = state.activeLine === 'green' ? v.label : formatCarNumberForDisplay(String(v.label).split('-')[0]);
-        return `<div class="modal-row"><span>Car ${displayCarLabel} (${getDisplayBranch(v.branch)})</span><strong>${eta}</strong></div>`;
-      }).join('');
+    document.getElementById('carModalOverlay').classList.add('show');
+    return;
+  }
+
+  const alreadyOpen = document.getElementById('carModalOverlay').classList.contains('show');
+  if(!alreadyOpen){
+    document.getElementById('carModalBody').innerHTML = '<div class="modal-row"><span>Loading&hellip;</span><strong></strong></div>';
   }
   document.getElementById('carModalOverlay').classList.add('show');
+
+  // Look up this stop's real MBTA id and fetch real, live-computed
+  // predictions for it — falls back to the rough stop-count estimate for
+  // any vehicle MBTA hasn't published a prediction for yet.
+  let predictionsByVehicle = {};
+  try{
+    const stopIdMap = await ensureStopIdMap(state.activeLine);
+    const stopId = stopIdMap[normName(stopName)];
+    if(stopId) predictionsByVehicle = await fetchStopPredictions(stopId, direction);
+  }catch(e){ console.error(e); }
+  if(modalRefreshToken !== myToken) return;
+
+  const anyRealPredictions = Object.keys(predictionsByVehicle).length > 0;
+
+  const withEta = upcoming.map(({v, stopsAway})=>{
+    const realPred = predictionsByVehicle[v.id];
+    const etaMinutes = realPred
+      ? Math.max(0, (new Date(realPred.when).getTime() - Date.now()) / 60000)
+      : stopsAway * 2;
+    return { v, stopsAway, isRealPrediction: !!realPred, etaMinutes };
+  }).sort((a,b) => a.etaMinutes - b.etaMinutes);
+
+  const bunchAdjusted = applyBunchingAdjustment(withEta);
+
+  document.getElementById('carModalBody').innerHTML =
+    `<div class="modal-row"><span style="color:var(--text-faint); font-size:11px;">${anyRealPredictions ? 'Real-time predictions from MBTA where available; estimated from stop count otherwise.' : 'Estimated from stop count, not live predictions'}</span><strong></strong></div>` +
+    bunchAdjusted.map(({v, isRealPrediction, etaMinutes, bunched})=>{
+      const eta = formatEtaMinutesDisplay(etaMinutes, isRealPrediction);
+      const displayCarLabel = state.activeLine === 'green' ? v.label : formatCarNumberForDisplay(String(v.label).split('-')[0]);
+      const bunchedTag = bunched ? `<span class="signin-note" style="color:#B45309;">Running close behind the train ahead</span>` : '';
+      return `<div class="modal-row" style="flex-wrap:wrap;"><span>Car ${displayCarLabel} (${getDisplayBranch(v.branch)})${bunchedTag}</span><strong>${eta}</strong></div>`;
+    }).join('');
 }
 
 document.getElementById('carModalClose').addEventListener('click', ()=>{
@@ -3386,7 +3507,8 @@ document.getElementById('carModalOverlay').addEventListener('click', (e)=>{
 
 const DEPARTURE_LOOKUP_PAGES = ['B','C','D','E','SUBWAY','MATTAPAN'];
 
-function showStationDeparturesByName(stopName){
+async function showStationDeparturesByName(stopName){
+  const myToken = ++modalRefreshToken;
   let found = null;
   for(const key of DEPARTURE_LOOKUP_PAGES){
     const idx = findStopIndex(key, stopName);
@@ -3403,21 +3525,45 @@ function showStationDeparturesByName(stopName){
   const east = getUpcoming(key, idx, 1);
 
   document.getElementById('carModalTitle').textContent = displayName(stopName);
+  const alreadyOpen = document.getElementById('carModalOverlay').classList.contains('show');
+  if(!alreadyOpen){
+    document.getElementById('carModalBody').innerHTML = '<div class="modal-row"><span>Loading&hellip;</span><strong></strong></div>';
+  }
+  document.getElementById('carModalOverlay').classList.add('show');
 
-  const renderSide = (label, list) => {
+  let predWest = {}, predEast = {};
+  try{
+    const stopIdMap = await ensureStopIdMap('green');
+    const stopId = stopIdMap[normName(stopName)];
+    if(stopId){
+      [predWest, predEast] = await Promise.all([fetchStopPredictions(stopId, 0), fetchStopPredictions(stopId, 1)]);
+    }
+  }catch(e){ console.error(e); }
+  if(modalRefreshToken !== myToken) return;
+
+  const renderSide = (label, list, predByVehicle) => {
     if(list.length === 0) return `<div class="modal-row"><span>${label}</span><strong>No trains</strong></div>`;
+    const withEta = list.map(({v, stopsAway})=>{
+      const realPred = predByVehicle[v.id];
+      const etaMinutes = realPred
+        ? Math.max(0, (new Date(realPred.when).getTime() - Date.now()) / 60000)
+        : stopsAway * 2;
+      return { v, isRealPrediction: !!realPred, etaMinutes };
+    }).sort((a,b) => a.etaMinutes - b.etaMinutes);
+    const bunchAdjusted = applyBunchingAdjustment(withEta);
     return `<div class="modal-row"><span style="font-weight:700;">${label}</span><strong></strong></div>` +
-      list.map(({v, stopsAway})=>{
-        const eta = estimateArrival(stopsAway, v.status);
+      bunchAdjusted.map(({v, isRealPrediction, etaMinutes, bunched})=>{
+        const eta = formatEtaMinutesDisplay(etaMinutes, isRealPrediction);
         const displayCarLabel = state.activeLine === 'green' ? v.label : formatCarNumberForDisplay(String(v.label).split('-')[0]);
-        return `<div class="modal-row"><span>Car ${displayCarLabel} (${getDisplayBranch(v.branch)})</span><strong>${eta}</strong></div>`;
+        const bunchedTag = bunched ? `<span class="signin-note" style="color:#B45309;">Running close behind the train ahead</span>` : '';
+        return `<div class="modal-row" style="flex-wrap:wrap;"><span>Car ${displayCarLabel} (${getDisplayBranch(v.branch)})${bunchedTag}</span><strong>${eta}</strong></div>`;
       }).join('');
   };
 
+  const anyRealPredictions = Object.keys(predWest).length + Object.keys(predEast).length > 0;
   document.getElementById('carModalBody').innerHTML =
-    `<div class="modal-row"><span style="color:var(--text-faint); font-size:11px;">Estimated from stop count, not live predictions</span><strong></strong></div>` +
-    renderSide(dirLabels().west, west) + renderSide(dirLabels().east, east);
-  document.getElementById('carModalOverlay').classList.add('show');
+    `<div class="modal-row"><span style="color:var(--text-faint); font-size:11px;">${anyRealPredictions ? 'Real-time predictions from MBTA where available; estimated from stop count otherwise.' : 'Estimated from stop count, not live predictions'}</span><strong></strong></div>` +
+    renderSide(dirLabels().west, west, predWest) + renderSide(dirLabels().east, east, predEast);
 }
 
 /* ---------------- T-Alerts ---------------- */
