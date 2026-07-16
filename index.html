@@ -2372,7 +2372,7 @@ function getCarPositionLabel(i, isGreenLine){
 }
 
 async function showCarModal(v){
-  terminusScheduleRefreshToken++;
+  const myModalToken = ++modalRefreshToken;
   document.getElementById('carModalTitle').textContent = `${getDisplayBranch(v.branch)} \u00b7 Car ${formatCarNumberForDisplay(v.label)}`;
   document.getElementById('carModalBody').innerHTML = `<div class="modal-row"><span>Loading&hellip;</span><strong></strong></div>`;
   document.getElementById('carModalOverlay').classList.add('show');
@@ -2430,6 +2430,7 @@ async function showCarModal(v){
     loadTripNotes(v.id),
     Promise.all(carParts.map(carNum => loadCarOutOfService(carNum)))
   ]);
+  if(modalRefreshToken !== myModalToken) return; // superseded (modal closed or different content opened) while fetching
   const operatorByCar = {};
   const oosByCar = {};
   carParts.forEach((carNum, i) => {
@@ -2867,6 +2868,15 @@ async function showCarModal(v){
       showCarModal(v);
     });
   });
+
+  // Keep this panel's data current while the person is looking at it,
+  // using whatever fresh data the app's own live poll has by then — same
+  // cadence as the main track map/list refresh.
+  setTimeout(()=>{
+    if(modalRefreshToken !== myModalToken) return; // modal closed or different content opened since
+    const fresh = state.vehicles.find(fv => fv.id === v.id);
+    if(fresh) showCarModal(fresh); // if not found, the trip likely ended — stop refreshing rather than show stale data
+  }, 15000);
 }
 
 /* Returns vehicles heading toward (but not yet past) the given stop, in the
@@ -3073,10 +3083,10 @@ function operatorFieldHtml(tripId, position, pred, userInfoMap){
   return `${viewLine}${editForm}`;
 }
 
-let terminusScheduleRefreshToken = 0;
+let modalRefreshToken = 0;
 
 async function showTerminusSchedule(branchKey, stopName, directionId){
-  const myToken = ++terminusScheduleRefreshToken;
+  const myToken = ++modalRefreshToken;
   document.getElementById('carModalTitle').textContent = `${displayName(stopName)} \u2014 Scheduled Departures`;
   document.getElementById('carModalBody').innerHTML = '<div class="modal-row"><span>Loading schedule&hellip;</span><strong></strong></div>';
   document.getElementById('carModalOverlay').classList.add('show');
@@ -3089,7 +3099,7 @@ async function showTerminusSchedule(branchKey, stopName, directionId){
     document.getElementById('carModalBody').innerHTML = '<div class="modal-row"><span>Could not load the schedule right now.</span><strong></strong></div>';
     return;
   }
-  if(terminusScheduleRefreshToken !== myToken) return; // superseded while we were fetching
+  if(modalRefreshToken !== myToken) return; // superseded while we were fetching
 
   if(trips.length === 0){
     document.getElementById('carModalBody').innerHTML = '<div class="modal-row"><span>No more scheduled departures from here today.</span><strong></strong></div>';
@@ -3099,7 +3109,7 @@ async function showTerminusSchedule(branchKey, stopName, directionId){
   const [predictions, candidatePool, userInfoMap] = await Promise.all([
     loadCarPredictions(), getCarsRecentlyAtTerminus(stopName), getUserInfoMap()
   ]);
-  if(terminusScheduleRefreshToken !== myToken) return;
+  if(modalRefreshToken !== myToken) return;
 
   const PREDICTION_WINDOW_MS = 5 * 60 * 1000;
   const now = Date.now();
@@ -3196,12 +3206,12 @@ async function showTerminusSchedule(branchKey, stopName, directionId){
   // time approaches and more real tracking data becomes available, as long
   // as this same schedule view is still what's open.
   setTimeout(()=>{
-    if(terminusScheduleRefreshToken === myToken) showTerminusSchedule(branchKey, stopName, directionId);
+    if(modalRefreshToken === myToken) showTerminusSchedule(branchKey, stopName, directionId);
   }, 30000);
 }
 
 function showBypassNotice(stopName){
-  terminusScheduleRefreshToken++;
+  modalRefreshToken++;
   document.getElementById('carModalTitle').textContent = displayName(stopName);
   document.getElementById('carModalBody').innerHTML = `
     <div class="modal-section">
@@ -3213,7 +3223,7 @@ function showBypassNotice(stopName){
 }
 
 function showStationModal(pageKey, idx, stopName, side){
-  terminusScheduleRefreshToken++;
+  modalRefreshToken++;
   const direction = side === 'west' ? 0 : 1;
   const upcoming = getUpcoming(pageKey, idx, direction);
   const dirLabel = side === 'west' ? dirLabels().west : dirLabels().east;
@@ -3237,10 +3247,10 @@ function showStationModal(pageKey, idx, stopName, side){
 
 document.getElementById('carModalClose').addEventListener('click', ()=>{
   document.getElementById('carModalOverlay').classList.remove('show');
-  terminusScheduleRefreshToken++;
+  modalRefreshToken++;
 });
 document.getElementById('carModalOverlay').addEventListener('click', (e)=>{
-  if(e.target.id === 'carModalOverlay'){ e.currentTarget.classList.remove('show'); terminusScheduleRefreshToken++; }
+  if(e.target.id === 'carModalOverlay'){ e.currentTarget.classList.remove('show'); modalRefreshToken++; }
 });
 
 /* ---------------- Station departures lookup by name (for alert links) ---------------- */
