@@ -2373,12 +2373,20 @@ function getCarPositionLabel(i, isGreenLine){
 
 async function showCarModal(v){
   const myModalToken = ++modalRefreshToken;
+  const alreadyOpen = document.getElementById('carModalOverlay').classList.contains('show');
   document.getElementById('carModalTitle').textContent = `${getDisplayBranch(v.branch)} \u00b7 Car ${formatCarNumberForDisplay(v.label)}`;
-  document.getElementById('carModalBody').innerHTML = `<div class="modal-row"><span>Loading&hellip;</span><strong></strong></div>`;
+  if(!alreadyOpen){
+    // Only show the loading flash when this is a genuinely fresh open (the
+    // modal wasn't already showing something) — a refresh of already-open
+    // content (auto-refresh, or right after saving an edit) swaps content
+    // in once ready instead of blanking the panel first.
+    document.getElementById('carModalBody').innerHTML = `<div class="modal-row"><span>Loading&hellip;</span><strong></strong></div>`;
+  }
   document.getElementById('carModalOverlay').classList.add('show');
 
-  const [gltpsMap, rosterData, consistOverride, destinationOverrideRaw, userInfoMap] = await Promise.all([
-    loadGltps(), loadRoster(), loadConsistOverride(v), loadDestinationOverride(v.id), getUserInfoMap()
+  const [gltpsMap, rosterData, consistOverride, destinationOverrideRaw, userInfoMap, originDepartureTime] = await Promise.all([
+    loadGltps(), loadRoster(), loadConsistOverride(v), loadDestinationOverride(v.id), getUserInfoMap(),
+    v.tripId ? getTripOriginDepartureTime(v.tripId) : Promise.resolve(null)
   ]);
 
   // A destination override is tied to the specific trip it was reported on —
@@ -2665,11 +2673,16 @@ async function showCarModal(v){
         </div>`;
   }
 
+  const originTimeStr = originDepartureTime
+    ? new Date(originDepartureTime).toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' })
+    : null;
+
   document.getElementById('carModalBody').innerHTML = `
     <div class="modal-section">
       ${soloType7Notice}
       <div class="modal-row"><span>Status</span><strong>${statusPhrase(v.status, v.stopName)}</strong></div>
       <div class="modal-row"><span>Destination</span><strong>${effectiveDestination}</strong></div>
+      ${originTimeStr ? `<div class="modal-row"><span>Left origin at</span><strong>${originTimeStr}</strong></div>` : ''}
       <div class="modal-row"><span>Last reported speed</span><strong>${v.speedMph !== null && v.speedMph !== undefined ? v.speedMph + ' mph' : 'Not reported'}</strong></div>
       <div class="modal-row"><span>Last update</span><strong>${secondsAgo}s ago</strong></div>
     </div>
@@ -2920,6 +2933,26 @@ function estimateArrival(stopsAway, status){
    picked from that fleet's known number ranges) unless the community has
    submitted their own prediction for that specific trip. */
 
+// Fetches the scheduled departure time from this trip's very first stop —
+// shown in the car info modal as "when did this train leave its origin."
+let tripOriginTimeCache = {};
+async function getTripOriginDepartureTime(tripId){
+  if(tripOriginTimeCache[tripId] !== undefined) return tripOriginTimeCache[tripId];
+  try{
+    const url = withMbtaKey(`https://api-v3.mbta.com/schedules?filter[trip]=${tripId}&filter[stop_sequence]=first&fields[schedule]=departure_time`);
+    const res = await fetch(url, { headers: MBTA_HEADERS });
+    if(!res.ok) throw new Error('bad status ' + res.status);
+    const json = await res.json();
+    const entry = (json.data || [])[0];
+    const result = entry && entry.attributes.departure_time ? entry.attributes.departure_time : null;
+    tripOriginTimeCache[tripId] = result;
+    return result;
+  }catch(e){
+    console.error(e);
+    return null;
+  }
+}
+
 function terminusRouteId(branchKey){
   if(['REDTRUNK','REDASHMONT','REDBRAINTREE'].includes(branchKey)) return 'Red';
   if(branchKey === 'ORANGE') return 'Orange';
@@ -3045,6 +3078,48 @@ async function saveCarPrediction(tripId, carNumber){
     logEdit(state.userName, state.uid, `Edited car prediction for a trip: ${carNumber}`);
   }catch(e){ console.error(e); }
 }
+
+async function saveDepartureTimeOverride(tripId, departureTimeIso){
+  if(!firebaseReady) return;
+  try{
+    await fbDb.collection('car_predictions').doc(tripId).set({
+      departureTimeOverride: departureTimeIso,
+      timeEditedBy: state.userName, timeEditedByUid: state.uid || null, timeEditedTs: Date.now()
+    }, { merge:true });
+    const timeStr = new Date(departureTimeIso).toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' });
+    logEdit(state.userName, state.uid, `Corrected a departure time to ${timeStr}`);
+  }catch(e){ console.error(e); }
+}
+
+// User-added departures — for cases where MBTA's published schedule is
+// missing a real departure entirely, rather than just having the wrong car
+// or time for one that's already listed.
+async function loadManualDepartures(branchKey, directionId){
+  if(!firebaseReady) return [];
+  try{
+    const snap = await fbDb.collection('manual_departures')
+      .where('branchKey', '==', branchKey).where('directionId', '==', directionId).get();
+    const now = Date.now() - 60000;
+    return snap.docs
+      .map(doc => ({ tripId: 'manual_' + doc.id, manualDocId: doc.id, ...doc.data() }))
+      .filter(d => d.departureTime && new Date(d.departureTime).getTime() >= now);
+  }catch(e){ console.error(e); return []; }
+}
+async function addManualDeparture(branchKey, directionId, departureTimeIso, headsign){
+  if(!firebaseReady) return;
+  try{
+    await fbDb.collection('manual_departures').add({
+      branchKey, directionId, departureTime: departureTimeIso, headsign,
+      addedBy: state.userName, addedByUid: state.uid || null, ts: Date.now()
+    });
+    const timeStr = new Date(departureTimeIso).toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' });
+    logEdit(state.userName, state.uid, `Added a departure at ${timeStr} to ${headsign}`);
+  }catch(e){ console.error(e); }
+}
+async function deleteManualDeparture(manualDocId){
+  if(!firebaseReady) return;
+  try{ await fbDb.collection('manual_departures').doc(manualDocId).delete(); }catch(e){ console.error(e); }
+}
 async function saveTripCarOperator(tripId, position, operator){
   if(!firebaseReady) return;
   const patch = {};
@@ -3087,13 +3162,20 @@ let modalRefreshToken = 0;
 
 async function showTerminusSchedule(branchKey, stopName, directionId){
   const myToken = ++modalRefreshToken;
+  const alreadyOpen = document.getElementById('carModalOverlay').classList.contains('show');
   document.getElementById('carModalTitle').textContent = `${displayName(stopName)} \u2014 Scheduled Departures`;
-  document.getElementById('carModalBody').innerHTML = '<div class="modal-row"><span>Loading schedule&hellip;</span><strong></strong></div>';
+  if(!alreadyOpen){
+    document.getElementById('carModalBody').innerHTML = '<div class="modal-row"><span>Loading schedule&hellip;</span><strong></strong></div>';
+  }
   document.getElementById('carModalOverlay').classList.add('show');
 
   let trips;
   try{
-    trips = await fetchTerminusSchedule(branchKey, directionId);
+    const [scheduled, manual] = await Promise.all([
+      fetchTerminusSchedule(branchKey, directionId),
+      loadManualDepartures(branchKey, directionId)
+    ]);
+    trips = scheduled.concat(manual).sort((a,b) => new Date(a.departureTime) - new Date(b.departureTime));
   }catch(e){
     console.error(e);
     document.getElementById('carModalBody').innerHTML = '<div class="modal-row"><span>Could not load the schedule right now.</span><strong></strong></div>';
@@ -3106,54 +3188,49 @@ async function showTerminusSchedule(branchKey, stopName, directionId){
     return;
   }
 
-  const [predictions, candidatePool, userInfoMap] = await Promise.all([
-    loadCarPredictions(), getCarsRecentlyAtTerminus(stopName), getUserInfoMap()
+  const [predictions, userInfoMap] = await Promise.all([
+    loadCarPredictions(), getUserInfoMap()
   ]);
   if(modalRefreshToken !== myToken) return;
 
-  const PREDICTION_WINDOW_MS = 5 * 60 * 1000;
+  const PREDICTION_WINDOW_MS = 90 * 60 * 1000; // 1.5 hours
   const now = Date.now();
 
-  // Assign real candidates in strict FIFO order across trips: the
-  // earliest-arrived car(s) are predicted for the earliest departure, the
-  // next-earliest for the next departure, and so on — matching how trains
-  // actually queue up and turn back at a terminus.
-  let poolCursor = 0;
-
   const rows = trips.map(trip=>{
-    const dep = new Date(trip.departureTime);
+    const pred = predictions[trip.tripId];
+    const effectiveDepartureIso = (pred && pred.departureTimeOverride) ? pred.departureTimeOverride : trip.departureTime;
+    const dep = new Date(effectiveDepartureIso);
     const timeStr = dep.toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' });
     const withinPredictionWindow = (dep.getTime() - now) <= PREDICTION_WINDOW_MS;
+
+    const timeCorrectionNote = (pred && pred.departureTimeOverride)
+      ? `<span class="signin-note">Time corrected by ${liveName(pred.timeEditedBy, pred.timeEditedByUid, userInfoMap)}</span>`
+      : '';
+    const timeEditControl = state.signedIn
+      ? `<input type="time" class="roster-input" data-time-trip="${trip.tripId}" value="${dep.toTimeString().slice(0,5)}" style="width:110px; display:inline-block;">
+         <button class="account-btn" data-save-time="${trip.tripId}" style="width:auto; display:inline-block; padding:6px 10px; margin-top:0; margin-left:6px;">Correct time</button>`
+      : '';
+    const removeManualBtn = (trip.isManual || trip.manualDocId)
+      ? `<button class="roster-reset-btn" data-remove-manual="${trip.manualDocId}" style="width:auto; display:inline-block; margin-top:6px;">Remove this added departure</button>`
+      : '';
 
     if(!withinPredictionWindow){
       return `
         <div class="modal-section">
           <div class="modal-row"><span>${timeStr}</span><strong>to ${trip.headsign || 'Unknown'}</strong></div>
-          <span class="signin-note">Car prediction available within 5 minutes of departure</span>
+          <span class="signin-note">Car prediction available within 1.5 hours of departure</span>
+          ${timeCorrectionNote}
+          ${timeEditControl}
+          ${removeManualBtn}
         </div>`;
     }
 
-    const pred = predictions[trip.tripId];
-    let carNumber;
-    if(pred && pred.carNumber){
-      carNumber = pred.carNumber;
-    }else if(poolCursor < candidatePool.length){
-      // One real, arrival-ordered candidate per trip — the earliest-arrived
-      // train is predicted for the earliest departure, and so on. Its
-      // partner car isn't independently trackable from arrival data alone,
-      // so that half is still a guess.
-      const lead = candidatePool[poolCursor];
-      const trailer = guessCarNumber(trip.tripId, branchKey, 'partner');
-      carNumber = `${lead}-${trailer}`;
-      poolCursor += 1;
-    }else{
-      carNumber = predictCarsForTrip(trip.tripId, branchKey, []); // pool exhausted — pure guess for this one
-    }
+    const carNumber = (pred && pred.carNumber) ? pred.carNumber : '';
     const predictedTag = (pred && pred.carNumber)
-      ? `<span class="signin-note">Edited by ${liveName(pred.editedBy, pred.editedByUid, userInfoMap)}</span>`
-      : `<span class="signin-note">Predicted from recent activity at this station \u2014 not official</span>`;
+      ? `<span class="signin-note">By ${liveName(pred.editedBy, pred.editedByUid, userInfoMap)} \u2014 ${formatEditLogTimestamp(pred.ts)}</span>`
+      : `<span class="signin-note">No prediction yet \u2014 be the first to add one</span>`;
     const editControl = state.signedIn
-      ? `<input type="text" class="roster-input" data-predict-trip="${trip.tripId}" data-old-value="${carNumber}" value="${carNumber}" style="width:130px; display:inline-block;">
+      ? `<input type="text" class="roster-input" data-predict-trip="${trip.tripId}" data-old-value="${carNumber}" value="${carNumber}" placeholder="e.g. 3838-3868" style="width:130px; display:inline-block;">
          <button class="account-btn" data-save-predict="${trip.tripId}" style="width:auto; display:inline-block; padding:6px 10px; margin-top:0; margin-left:6px;">Save</button>`
       : '';
 
@@ -3162,15 +3239,28 @@ async function showTerminusSchedule(branchKey, stopName, directionId){
     return `
       <div class="modal-section">
         <div class="modal-row"><span>${timeStr}</span><strong>to ${trip.headsign || 'Unknown'}</strong></div>
-        <div class="modal-row"><span>Predicted cars (lead-trailer)</span><strong>${carNumber}</strong></div>
+        <div class="modal-row"><span>Predicted cars (lead-trailer)</span><strong>${carNumber || '\u2014'}</strong></div>
         ${predictedTag}
         ${editControl}
+        ${timeCorrectionNote}
+        ${timeEditControl}
+        ${removeManualBtn}
         ${operatorsHtml}
       </div>`;
   }).join('');
 
+  const addDepartureForm = state.signedIn
+    ? `<div class="modal-section">
+        <h4>Add a departure MBTA's schedule is missing</h4>
+        <input type="time" class="roster-input" id="addDepartureTime" style="width:110px; display:inline-block;">
+        <input type="text" class="roster-input" id="addDepartureHeadsign" placeholder="Destination" style="width:150px; display:inline-block; margin-left:6px;">
+        <button class="account-btn" id="addDepartureBtn" style="margin-top:6px;">Add departure</button>
+      </div>`
+    : '';
+
   document.getElementById('carModalBody').innerHTML =
-    `<div class="modal-row"><span style="color:var(--text-faint); font-size:11px;">Departure times are from MBTA's published schedule. Car numbers are predicted from cars recently tracked at this station, not official MBTA data, and only shown within 5 minutes of departure.</span><strong></strong></div>` + rows;
+    `<div class="modal-row"><span style="color:var(--text-faint); font-size:11px;">Departure times are from MBTA's published schedule unless corrected below. Car numbers are entirely community-submitted, not automatic or official MBTA data, and only shown within 1.5 hours of departure.</span><strong></strong></div>`
+    + rows + addDepartureForm;
 
   document.querySelectorAll('[data-save-predict]').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
@@ -3179,9 +3269,45 @@ async function showTerminusSchedule(branchKey, stopName, directionId){
       const value = input.value.trim();
       if(!value) return;
       await saveCarPrediction(tripId, value);
-      showTerminusSchedule(branchKey, stopName, directionId);
+      showTerminusSchedule(branchKey, stopName, directionId, true);
     });
   });
+
+  document.querySelectorAll('[data-save-time]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const tripId = btn.dataset.saveTime;
+      const input = document.querySelector(`[data-time-trip="${tripId}"]`);
+      const [h, m] = input.value.split(':').map(Number);
+      if(Number.isNaN(h) || Number.isNaN(m)) return;
+      const newDate = new Date();
+      newDate.setHours(h, m, 0, 0);
+      await saveDepartureTimeOverride(tripId, newDate.toISOString());
+      showTerminusSchedule(branchKey, stopName, directionId, true);
+    });
+  });
+
+  document.querySelectorAll('[data-remove-manual]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      if(!window.confirm('Remove this community-added departure?')) return;
+      await deleteManualDeparture(btn.dataset.removeManual);
+      showTerminusSchedule(branchKey, stopName, directionId, true);
+    });
+  });
+
+  const addDepartureBtn = document.getElementById('addDepartureBtn');
+  if(addDepartureBtn){
+    addDepartureBtn.addEventListener('click', async ()=>{
+      const timeInput = document.getElementById('addDepartureTime');
+      const headsignInput = document.getElementById('addDepartureHeadsign');
+      const [h, m] = timeInput.value.split(':').map(Number);
+      const headsign = headsignInput.value.trim();
+      if(Number.isNaN(h) || Number.isNaN(m) || !headsign) return;
+      const newDate = new Date();
+      newDate.setHours(h, m, 0, 0);
+      await addManualDeparture(branchKey, directionId, newDate.toISOString(), headsign);
+      showTerminusSchedule(branchKey, stopName, directionId, true);
+    });
+  }
 
   document.querySelectorAll('[data-save-op]').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
@@ -3189,7 +3315,7 @@ async function showTerminusSchedule(branchKey, stopName, directionId){
       const position = btn.dataset.saveOpPos;
       const input = document.querySelector(`[data-op-trip="${tripId}"][data-op-pos="${position}"]`);
       await saveTripCarOperator(tripId, position, input.value.trim());
-      showTerminusSchedule(branchKey, stopName, directionId);
+      showTerminusSchedule(branchKey, stopName, directionId, true);
     });
   });
 
@@ -3198,15 +3324,14 @@ async function showTerminusSchedule(branchKey, stopName, directionId){
       const tripId = btn.dataset.removeOp;
       const position = btn.dataset.removeOpPos;
       await deleteTripCarOperator(tripId, position);
-      showTerminusSchedule(branchKey, stopName, directionId);
+      showTerminusSchedule(branchKey, stopName, directionId, true);
     });
   });
 
-  // Keep checking for a more suitable/likely car prediction as departure
-  // time approaches and more real tracking data becomes available, as long
-  // as this same schedule view is still what's open.
+  // Keep checking for a newer community prediction/correction as departure
+  // time approaches, as long as this same schedule view is still open.
   setTimeout(()=>{
-    if(modalRefreshToken === myToken) showTerminusSchedule(branchKey, stopName, directionId);
+    if(modalRefreshToken === myToken) showTerminusSchedule(branchKey, stopName, directionId, true);
   }, 30000);
 }
 
@@ -3293,7 +3418,12 @@ function showStationDeparturesByName(stopName){
 
 /* ---------------- T-Alerts ---------------- */
 
-const ALERT_ROUTE_IDS = ['Green-B','Green-C','Green-D','Green-E','Mattapan'];
+function getAlertRouteIds(){
+  if(state.activeLine === 'red') return ['Red'];
+  if(state.activeLine === 'orange') return ['Orange'];
+  if(state.activeLine === 'blue') return ['Blue'];
+  return ['Green-B','Green-C','Green-D','Green-E','Mattapan'];
+}
 
 function allKnownStopNames(){
   const names = new Set();
@@ -3315,7 +3445,7 @@ function linkifyStationNames(text){
 }
 
 async function fetchAlerts(){
-  const url = withMbtaKey('https://api-v3.mbta.com/alerts?filter[route]=' + ALERT_ROUTE_IDS.join(',') +
+  const url = withMbtaKey('https://api-v3.mbta.com/alerts?filter[route]=' + getAlertRouteIds().join(',') +
     '&filter[activity]=BOARD,EXIT,RIDE&filter[datetime]=NOW&fields[alert]=header,description,effect,severity,updated_at,created_at');
   const res = await fetch(url, { headers: MBTA_HEADERS });
   if(!res.ok) throw new Error('bad status ' + res.status);
@@ -3345,7 +3475,9 @@ function timeSincePosted(iso){
 }
 
 async function showAlertsModal(){
-  document.getElementById('carModalTitle').textContent = 'Service Alerts \u2014 Green Line & Mattapan';
+  const lineTitle = state.activeLine === 'green' ? 'Green Line & Mattapan'
+    : `${lineDisplayName(state.activeLine)} Line`;
+  document.getElementById('carModalTitle').textContent = `Service Alerts \u2014 ${lineTitle}`;
   document.getElementById('carModalBody').innerHTML = '<div class="modal-row"><span>Loading&hellip;</span><strong></strong></div>';
   document.getElementById('carModalOverlay').classList.add('show');
 
@@ -4953,6 +5085,7 @@ function revealApp(line){
   rebuildTypeFilterOptions();
   updateDirectionLabels();
   if(line === 'red') refreshRedOriginLogCache();
+  checkForAlerts();
   let savedPage = null;
   try{ savedPage = localStorage.getItem(LAST_PAGE_KEY); }catch(e){ /* ignore */ }
   const defaultPage = LINE_DEFAULT_PAGE[line] || 'B';
