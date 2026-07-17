@@ -603,6 +603,7 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
         <h2 id="vehicleListTitle">On this branch</h2>
         <span class="note" id="vehicleMeta">&mdash;</span>
       </div>
+      <div id="otherBranchesToggleRow" style="display:none;"></div>
       <div class="car-search-row">
         <input type="text" id="carSearchInput" placeholder="Find a car number&hellip;" inputmode="numeric">
         <button id="carSearchBtn">Find</button>
@@ -1337,7 +1338,7 @@ function buildRosterCarList(){
 }
 const ROSTER_CARS = buildRosterCarList();
 
-let state = { vehicles: [], currentPage: 'B', lastMainPage: 'B', live: null, abbreviate: false, signedIn: false, userName: '', photoURL: '', isModerator: false, filterDirection: 'ALL', filterType: 'ALL', rosterSearch: '', rosterTypeFilter: 'ALL', notifMaster: true, notifDoubleType8: false, notifPride: false, notifType9: false, activeLine: 'green' };
+let state = { vehicles: [], currentPage: 'B', lastMainPage: 'B', live: null, abbreviate: false, signedIn: false, userName: '', photoURL: '', isModerator: false, filterDirection: 'ALL', filterType: 'ALL', rosterSearch: '', rosterTypeFilter: 'ALL', notifMaster: true, notifDoubleType8: false, notifPride: false, notifType9: false, activeLine: 'green', otherBranchesVisible: { B:false, C:false, D:false, E:false } };
 let layout = null; // computed pixel layout for the current ladder
 
 /* ---------------- Community-reported data ----------------
@@ -1697,7 +1698,8 @@ async function savePrefs(){
       notifMaster: state.notifMaster,
       notifDoubleType8: state.notifDoubleType8,
       notifPride: state.notifPride,
-      notifType9: state.notifType9
+      notifType9: state.notifType9,
+      otherBranchesVisible: state.otherBranchesVisible
     }));
   }catch(e){ console.error(e); }
 }
@@ -1781,11 +1783,22 @@ function findStopIndex(pageKey, stopName){
 // Centralizes "which vehicles belong on this page" so Red Line's Ashmont and
 // Braintree tabs can filter by actual determined branch (not just whether a
 // train happens to be sitting on a shared-trunk stop that both pages list).
+// When a given other branch's toggle is on, its trains show up on THIS
+// single-branch page too, but only while they're on a stop that's also in
+// this page's own list (i.e. the shared trunk) — same idea as the Subway
+// trunk page, just opt-in per branch instead of its own dedicated page.
+function isRelevantForBranchPage(key, v){
+  if(v.branch === key) return true;
+  if(state.activeLine !== 'green' || !['B','C','D','E'].includes(key)) return false;
+  if(!state.otherBranchesVisible[v.branch]) return false;
+  return findStopIndex(key, v.stopName) !== null;
+}
+
 function getRelevantVehiclesForPage(key){
   const page = PAGES[key];
   let relevant = page.isMulti
     ? state.vehicles.filter(v => findStopIndex(key, v.stopName) !== null)
-    : state.vehicles.filter(v => v.branch === key);
+    : state.vehicles.filter(v => isRelevantForBranchPage(key, v));
   if(key === 'REDASHMONT'){
     relevant = relevant.filter(v => getRedLineBranch(v) === 'ashmont');
   }else if(key === 'REDBRAINTREE'){
@@ -1837,6 +1850,40 @@ function buildNav(){
   });
 }
 
+function renderOtherBranchesToggles(){
+  const container = document.getElementById('otherBranchesToggleRow');
+  const key = state.currentPage;
+  const isEligible = state.activeLine === 'green' && ['B','C','D','E'].includes(key);
+  if(!isEligible){
+    container.style.display = 'none';
+    container.innerHTML = '';
+    return;
+  }
+  const otherBranches = ['B','C','D','E'].filter(b => b !== key);
+  container.style.display = 'block';
+  container.innerHTML = `
+    <div class="roster-field-label">Also show at shared stations</div>
+    <div style="display:flex; flex-wrap:wrap; gap:12px; margin-bottom:10px;">
+      ${otherBranches.map(b => `
+        <label style="display:flex; align-items:center; gap:6px; font-size:12.5px; cursor:pointer;">
+          <input type="checkbox" data-other-branch-toggle="${b}" ${state.otherBranchesVisible[b] ? 'checked' : ''}>
+          <span class="swatch" style="background:${PAGES[b].hex};"></span>
+          ${b}
+        </label>
+      `).join('')}
+    </div>
+  `;
+  container.querySelectorAll('[data-other-branch-toggle]').forEach(input=>{
+    input.addEventListener('change', ()=>{
+      const branch = input.dataset.otherBranchToggle;
+      state.otherBranchesVisible[branch] = input.checked;
+      renderTrainDots();
+      renderVehicleList();
+      savePrefs();
+    });
+  });
+}
+
 function switchPage(key){
   const p = PAGES[key];
   if(p.isMembers && !state.isModerator) key = 'B'; // safety: never land on Admin without moderator rights
@@ -1851,6 +1898,7 @@ function switchPage(key){
   document.getElementById('pageChip').style.color = getTextColorFor(page.hex);
   document.getElementById('pageTitle').textContent = displayName(page.label);
   buildNav();
+  renderOtherBranchesToggles();
 
   const mainGrid = document.querySelector('.main-grid');
   const rosterPanel = document.getElementById('rosterPanel');
@@ -2083,7 +2131,7 @@ function renderTrainDots(){
     el.style.removeProperty('--occupied-color');
   });
 
-  const candidates = page.isMulti ? state.vehicles : state.vehicles.filter(v => v.branch === key);
+  const candidates = page.isMulti ? state.vehicles : state.vehicles.filter(v => isRelevantForBranchPage(key, v));
 
   let relevant = candidates
     .map(v => {
@@ -4228,7 +4276,7 @@ function renderVehicleList(){
 
   let relevant = page.isMulti
     ? state.vehicles.filter(v => findStopIndex(key, v.stopName) !== null)
-    : state.vehicles.filter(v => v.branch === key);
+    : state.vehicles.filter(v => isRelevantForBranchPage(key, v));
 
   if(key === 'REDASHMONT'){
     relevant = relevant.filter(v => getRedLineBranch(v) === 'ashmont');
@@ -5501,6 +5549,8 @@ async function init(){
   document.getElementById('notifDoubleType8Switch').classList.toggle('on', state.notifDoubleType8);
   document.getElementById('notifPrideSwitch').classList.toggle('on', state.notifPride);
   document.getElementById('notifType9Switch').classList.toggle('on', state.notifType9);
+
+  state.otherBranchesVisible = Object.assign({ B:false, C:false, D:false, E:false }, prefs.otherBranchesVisible || {});
 
   buildNav();
   buildLadder();
