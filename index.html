@@ -3984,6 +3984,7 @@ async function fetchLiveVehicles(){
       headsign: headsign,
       lat: v.attributes.latitude,
       lon: v.attributes.longitude,
+      tripId: tripRel ? tripRel.id : null,
       speedMph: speedMph,
       updatedAt: v.attributes.updated_at
     };
