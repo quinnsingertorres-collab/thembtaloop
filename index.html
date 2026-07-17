@@ -3322,12 +3322,20 @@ async function showTerminusSchedule(branchKey, stopName, directionId){
   const PREDICTION_WINDOW_MS = 90 * 60 * 1000; // 1.5 hours
   const now = Date.now();
 
+  // If a currently-tracked train's own tripId exactly matches one of these
+  // scheduled departures, that's a confirmed real match (e.g. it's the
+  // train literally sitting at this terminus right now, about to leave on
+  // this trip) — not a guess, so it takes priority over any manual entry.
+  const liveVehicleByTripId = {};
+  state.vehicles.forEach(v => { if(v.tripId) liveVehicleByTripId[v.tripId] = v; });
+
   const rows = trips.map(trip=>{
     const pred = predictions[trip.tripId];
+    const liveMatch = liveVehicleByTripId[trip.tripId];
     const effectiveDepartureIso = (pred && pred.departureTimeOverride) ? pred.departureTimeOverride : trip.departureTime;
     const dep = new Date(effectiveDepartureIso);
     const timeStr = dep.toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' });
-    const withinPredictionWindow = (dep.getTime() - now) <= PREDICTION_WINDOW_MS;
+    const withinPredictionWindow = (dep.getTime() - now) <= PREDICTION_WINDOW_MS || !!liveMatch;
 
     const timeCorrectionNote = (pred && pred.departureTimeOverride)
       ? `<span class="signin-note">Time corrected by ${liveName(pred.timeEditedBy, pred.timeEditedByUid, userInfoMap)}</span>`
@@ -3351,10 +3359,12 @@ async function showTerminusSchedule(branchKey, stopName, directionId){
         </div>`;
     }
 
-    const carNumber = (pred && pred.carNumber) ? pred.carNumber : '';
-    const predictedTag = (pred && pred.carNumber)
-      ? `<span class="signin-note">By ${liveName(pred.editedBy, pred.editedByUid, userInfoMap)} \u2014 ${formatEditLogTimestamp(pred.ts)}</span>`
-      : `<span class="signin-note">No prediction yet \u2014 be the first to add one</span>`;
+    const carNumber = liveMatch ? liveMatch.label : ((pred && pred.carNumber) ? pred.carNumber : '');
+    const predictedTag = liveMatch
+      ? `<span class="signin-note" style="color:#0F8A4B;">Confirmed \u2014 this train is currently tracked and assigned to this exact trip</span>`
+      : (pred && pred.carNumber)
+        ? `<span class="signin-note">By ${liveName(pred.editedBy, pred.editedByUid, userInfoMap)} \u2014 ${formatEditLogTimestamp(pred.ts)}</span>`
+        : `<span class="signin-note">No prediction yet \u2014 be the first to add one</span>`;
     const editControl = state.signedIn
       ? `<input type="text" class="roster-input" data-predict-trip="${trip.tripId}" data-old-value="${carNumber}" value="${carNumber}" placeholder="e.g. 3838-3868" style="width:130px; display:inline-block;">
          <button class="account-btn" data-save-predict="${trip.tripId}" style="width:auto; display:inline-block; padding:6px 10px; margin-top:0; margin-left:6px;">Save</button>`
