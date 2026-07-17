@@ -1862,8 +1862,8 @@ function renderOtherBranchesToggles(){
   const otherBranches = ['B','C','D','E'].filter(b => b !== key);
   container.style.display = 'block';
   container.innerHTML = `
-    <div class="roster-field-label">Show:</div>
-    <div style="display:flex; flex-wrap:wrap; gap:14px; margin-bottom:10px; align-items:center;">
+    <div class="roster-field-label" style="text-align:center;">Show:</div>
+    <div style="display:flex; flex-wrap:wrap; justify-content:center; gap:14px; margin-bottom:10px; align-items:center;">
       ${otherBranches.map(b => `
         <label style="display:flex; align-items:center; gap:8px; font-size:12.5px; cursor:pointer;">
           <div class="switch${state.otherBranchesVisible[b] ? ' on' : ''}" data-other-branch-toggle="${b}" style="${state.otherBranchesVisible[b] ? `background:${PAGES[b].hex};` : ''}"><div class="knob"></div></div>
