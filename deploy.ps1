@@ -39,7 +39,7 @@ Write-Step "Checking Downloads for updated project files"
 # Known project files this script knows how to sync in automatically.
 # Add filenames here if new ones come up.
 $filesToSync = @(
-    "green-line-tracker.html",
+    "index.html",
     "sw.js",
     "manifest.json",
     "icon-192.png",

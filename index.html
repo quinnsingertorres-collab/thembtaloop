@@ -269,6 +269,8 @@ body.dark .stop-dot{background:#ffffff;}
   box-shadow:0 1px 3px rgba(0,0,0,0.25); z-index:3; cursor:pointer;
   transition:top 1s ease, left 1s ease;
 }
+.train-leader-line{transition:x1 1s ease, y1 1s ease, x2 1s ease, y2 1s ease;}
+.train-leader-dot{transition:cx 1s ease, cy 1s ease;}
 .train-bubble.bubble-search-highlight{
   outline:2px solid #3B82F6; outline-offset:2px;
 }
@@ -601,6 +603,7 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
         <h2 id="vehicleListTitle">On this branch</h2>
         <span class="note" id="vehicleMeta">&mdash;</span>
       </div>
+      <div id="otherBranchesToggleRow" style="display:none;"></div>
       <div class="car-search-row">
         <input type="text" id="carSearchInput" placeholder="Find a car number&hellip;" inputmode="numeric">
         <button id="carSearchBtn">Find</button>
@@ -1335,7 +1338,7 @@ function buildRosterCarList(){
 }
 const ROSTER_CARS = buildRosterCarList();
 
-let state = { vehicles: [], currentPage: 'B', lastMainPage: 'B', live: null, abbreviate: false, signedIn: false, userName: '', photoURL: '', isModerator: false, filterDirection: 'ALL', filterType: 'ALL', rosterSearch: '', rosterTypeFilter: 'ALL', notifMaster: true, notifDoubleType8: false, notifPride: false, notifType9: false, activeLine: 'green' };
+let state = { vehicles: [], currentPage: 'B', lastMainPage: 'B', live: null, abbreviate: false, signedIn: false, userName: '', photoURL: '', isModerator: false, filterDirection: 'ALL', filterType: 'ALL', rosterSearch: '', rosterTypeFilter: 'ALL', notifMaster: true, notifDoubleType8: false, notifPride: false, notifType9: false, activeLine: 'green', otherBranchesVisible: { B:false, C:false, D:false, E:false } };
 let layout = null; // computed pixel layout for the current ladder
 
 /* ---------------- Community-reported data ----------------
@@ -1695,7 +1698,8 @@ async function savePrefs(){
       notifMaster: state.notifMaster,
       notifDoubleType8: state.notifDoubleType8,
       notifPride: state.notifPride,
-      notifType9: state.notifType9
+      notifType9: state.notifType9,
+      otherBranchesVisible: state.otherBranchesVisible
     }));
   }catch(e){ console.error(e); }
 }
@@ -1779,11 +1783,22 @@ function findStopIndex(pageKey, stopName){
 // Centralizes "which vehicles belong on this page" so Red Line's Ashmont and
 // Braintree tabs can filter by actual determined branch (not just whether a
 // train happens to be sitting on a shared-trunk stop that both pages list).
+// When a given other branch's toggle is on, its trains show up on THIS
+// single-branch page too, but only while they're on a stop that's also in
+// this page's own list (i.e. the shared trunk) — same idea as the Subway
+// trunk page, just opt-in per branch instead of its own dedicated page.
+function isRelevantForBranchPage(key, v){
+  if(v.branch === key) return true;
+  if(state.activeLine !== 'green' || !['B','C','D','E'].includes(key)) return false;
+  if(!state.otherBranchesVisible[v.branch]) return false;
+  return findStopIndex(key, v.stopName) !== null;
+}
+
 function getRelevantVehiclesForPage(key){
   const page = PAGES[key];
   let relevant = page.isMulti
     ? state.vehicles.filter(v => findStopIndex(key, v.stopName) !== null)
-    : state.vehicles.filter(v => v.branch === key);
+    : state.vehicles.filter(v => isRelevantForBranchPage(key, v));
   if(key === 'REDASHMONT'){
     relevant = relevant.filter(v => getRedLineBranch(v) === 'ashmont');
   }else if(key === 'REDBRAINTREE'){
@@ -1835,6 +1850,40 @@ function buildNav(){
   });
 }
 
+function renderOtherBranchesToggles(){
+  const container = document.getElementById('otherBranchesToggleRow');
+  const key = state.currentPage;
+  const isEligible = state.activeLine === 'green' && ['B','C','D','E'].includes(key);
+  if(!isEligible){
+    container.style.display = 'none';
+    container.innerHTML = '';
+    return;
+  }
+  const otherBranches = ['B','C','D','E'].filter(b => b !== key);
+  container.style.display = 'block';
+  container.innerHTML = `
+    <div class="roster-field-label">Also show at shared stations</div>
+    <div style="display:flex; flex-wrap:wrap; gap:12px; margin-bottom:10px;">
+      ${otherBranches.map(b => `
+        <label style="display:flex; align-items:center; gap:6px; font-size:12.5px; cursor:pointer;">
+          <input type="checkbox" data-other-branch-toggle="${b}" ${state.otherBranchesVisible[b] ? 'checked' : ''}>
+          <span class="swatch" style="background:${PAGES[b].hex};"></span>
+          ${b}
+        </label>
+      `).join('')}
+    </div>
+  `;
+  container.querySelectorAll('[data-other-branch-toggle]').forEach(input=>{
+    input.addEventListener('change', ()=>{
+      const branch = input.dataset.otherBranchToggle;
+      state.otherBranchesVisible[branch] = input.checked;
+      renderTrainDots();
+      renderVehicleList();
+      savePrefs();
+    });
+  });
+}
+
 function switchPage(key){
   const p = PAGES[key];
   if(p.isMembers && !state.isModerator) key = 'B'; // safety: never land on Admin without moderator rights
@@ -1849,6 +1898,7 @@ function switchPage(key){
   document.getElementById('pageChip').style.color = getTextColorFor(page.hex);
   document.getElementById('pageTitle').textContent = displayName(page.label);
   buildNav();
+  renderOtherBranchesToggles();
 
   const mainGrid = document.querySelector('.main-grid');
   const rosterPanel = document.getElementById('rosterPanel');
@@ -2062,8 +2112,17 @@ function renderTrainDots(){
   const existingBubbles = {};
   ladder.querySelectorAll('.train-bubble').forEach(el => { existingBubbles[el.dataset.vehicleId] = el; });
 
+  // Same reasoning for the leader lines connecting each bubble back to the
+  // track, and their end dots — reuse by vehicle id instead of wiping the
+  // whole SVG and recreating everything from scratch every render, so they
+  // can glide too instead of snapping to the new position.
+  const existingLines = {};
+  const existingEndDots = {};
   const svg = document.getElementById('ladderLines');
-  if(svg) svg.innerHTML = '';
+  if(svg){
+    svg.querySelectorAll('.train-leader-line').forEach(el => { existingLines[el.dataset.vehicleId] = el; });
+    svg.querySelectorAll('.train-leader-dot').forEach(el => { existingEndDots[el.dataset.vehicleId] = el; });
+  }
 
   // Clear any "occupied" fill from stop dots before recomputing which ones
   // currently have a train stopped at them.
@@ -2072,7 +2131,7 @@ function renderTrainDots(){
     el.style.removeProperty('--occupied-color');
   });
 
-  const candidates = page.isMulti ? state.vehicles : state.vehicles.filter(v => v.branch === key);
+  const candidates = page.isMulti ? state.vehicles : state.vehicles.filter(v => isRelevantForBranchPage(key, v));
 
   let relevant = candidates
     .map(v => {
@@ -2214,7 +2273,13 @@ function renderTrainDots(){
       }
 
       const anchorX = side === 'west' ? (bubbleX + layout.BUBBLE_W) : bubbleX;
-      const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      let line = existingLines[entry.v.id];
+      if(!line){
+        line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        line.setAttribute('class', 'train-leader-line');
+        line.dataset.vehicleId = entry.v.id;
+        if(svg) svg.appendChild(line);
+      }
       line.setAttribute('x1', anchorX);
       line.setAttribute('y1', bubbleY);
       line.setAttribute('x2', trackX);
@@ -2222,17 +2287,30 @@ function renderTrainDots(){
       line.setAttribute('stroke', branchHex);
       line.setAttribute('stroke-width', '2.5');
       line.setAttribute('opacity', '0.65');
-      if(svg) svg.appendChild(line);
 
-      const endDot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      let endDot = existingEndDots[entry.v.id];
+      if(!endDot){
+        endDot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        endDot.setAttribute('class', 'train-leader-dot');
+        endDot.dataset.vehicleId = entry.v.id;
+        endDot.setAttribute('r', 4);
+        endDot.setAttribute('stroke', '#fff');
+        endDot.setAttribute('stroke-width', '1');
+        if(svg) svg.appendChild(endDot);
+      }
       endDot.setAttribute('cx', trackX);
       endDot.setAttribute('cy', displayY);
-      endDot.setAttribute('r', 4);
       endDot.setAttribute('fill', branchHex);
-      endDot.setAttribute('stroke', '#fff');
-      endDot.setAttribute('stroke-width', '1');
-      if(svg) svg.appendChild(endDot);
     });
+  });
+
+  // Remove leader lines/dots for vehicles that are no longer relevant,
+  // mirroring the bubble cleanup below.
+  Object.keys(existingLines).forEach(vid=>{
+    if(!seenVehicleIds.has(vid)) existingLines[vid].remove();
+  });
+  Object.keys(existingEndDots).forEach(vid=>{
+    if(!seenVehicleIds.has(vid)) existingEndDots[vid].remove();
   });
 
   // Remove bubbles for vehicles that are no longer relevant (left the branch,
@@ -2949,18 +3027,6 @@ function getUpcoming(pageKey, idx, direction){
   return filtered.map(x => ({ v: x.v, stopsAway: Math.abs(x.vIdx - idx) }));
 }
 
-/* Rough arrival estimate: a couple of minutes per intervening stop — used
-   only as a fallback when MBTA hasn't published a real prediction yet for
-   a given vehicle, since we only have vehicle positions in that case, not
-   an official prediction. */
-function estimateArrival(stopsAway, status){
-  if(stopsAway === 0){
-    if(status === 'STOPPED_AT' || status === 'INCOMING_AT') return 'Arriving now';
-    return '~1 min';
-  }
-  return `~${stopsAway * 2} min`;
-}
-
 // Trains running unusually close together ("bunching") is a real, common
 // occurrence — a following train that's caught up to the one ahead can't
 // actually arrive as soon as raw stop-count math would suggest, since
@@ -2970,10 +3036,26 @@ function estimateArrival(stopsAway, status){
 // predictions) as bunched for display — it never overrides a real MBTA
 // prediction's number, only the estimates this app makes up itself.
 const BUNCHING_MIN_GAP_MIN = 1.5;
+// A train sitting at either end of a branch's own stop list is dwelling at
+// a terminus before its next trip — that's normal, expected proximity to
+// other queued trains, not service bunching.
+function isVehicleAtTerminus(pageKey, v){
+  const stops = PAGES[pageKey] && PAGES[pageKey].stops;
+  if(!stops || !v.stopName) return false;
+  return normName(v.stopName) === normName(stops[0]) || normName(v.stopName) === normName(stops[stops.length - 1]);
+}
+
 function applyBunchingAdjustment(entries){
-  // entries: [{ etaMinutes, isRealPrediction, ... }], must already be sorted soonest-first
+  // entries: [{ etaMinutes, isRealPrediction, atTerminus, ... }], must already be sorted soonest-first
   let previousEta = null;
   return entries.map(entry=>{
+    if(entry.atTerminus){
+      // A train dwelling at a terminus before its next trip is expected to
+      // sit close to (or behind) others there — that's normal queuing, not
+      // service bunching, so it's excluded entirely: not flagged itself,
+      // and not used as the reference point for judging the next train.
+      return { ...entry, bunched: false };
+    }
     let etaMinutes = entry.etaMinutes;
     let bunched = false;
     if(previousEta !== null && (etaMinutes - previousEta) < BUNCHING_MIN_GAP_MIN){
@@ -3040,16 +3122,6 @@ async function fetchStopPredictions(stopId, directionId){
   }catch(e){ console.error(e); return {}; }
 }
 
-// Formats a real MBTA prediction timestamp as a friendly countdown, the
-// same way transit apps typically show it.
-function formatPredictionCountdown(whenIso){
-  const ms = new Date(whenIso).getTime() - Date.now();
-  const mins = Math.round(ms / 60000);
-  if(mins <= 0) return 'Arriving now';
-  if(mins === 1) return '1 min';
-  return `${mins} min`;
-}
-
 /* ---------------- Scheduled departures + predicted car numbers (terminus stops) ----------------
    Uses MBTA's real published schedule (not the live vehicle feed) via the V3
    API's /schedules endpoint, filtered to each trip's first stop in the given
@@ -3107,83 +3179,6 @@ async function fetchTerminusSchedule(branchKey, directionId){
     .filter(s => s.departureTime && new Date(s.departureTime).getTime() >= now)
     .sort((a,b) => new Date(a.departureTime) - new Date(b.departureTime))
     .slice(0, 15);
-}
-
-function hashString(str){
-  let hash = 0;
-  const s = String(str);
-  for(let i=0;i<s.length;i++){ hash = (hash * 31 + s.charCodeAt(i)) >>> 0; }
-  return hash;
-}
-
-// Fallback guess when we don't have any real recently-seen data for this
-// terminus yet — same spirit as before, just renamed for clarity.
-function guessCarNumber(tripId, branchKey, salt){
-  const hash = hashString(tripId + ':' + salt);
-  let pools;
-  if(['REDTRUNK','REDASHMONT','REDBRAINTREE'].includes(branchKey)){
-    pools = [[1500,1699],[1700,1799],[1800,1899],[1900,1999]];
-  }else if(branchKey === 'ORANGE'){
-    pools = [[1400,1599]];
-  }else if(branchKey === 'BLUE'){
-    pools = [[700,799]];
-  }else if(branchKey === 'E'){
-    pools = [[3900,3923],[3800,3899]];
-  }else{
-    pools = [[3600,3719],[3800,3899],[3900,3923]];
-  }
-  const pool = pools[hash % pools.length];
-  const range = pool[1] - pool[0] + 1;
-  return String(pool[0] + (hash % range));
-}
-
-// Real candidates: cars currently active and heading toward this terminus
-// (about to terminate here) plus cars our own "last tracked" roster data has
-// recently seen actually arriving at this stop. Falls back to a plain guess
-// only when we have no real data to go on.
-// Real candidates: cars currently active and heading toward this terminus
-// (haven't arrived yet), plus recently-tracked arrivals from the roster.
-// Ordered oldest-arrival-first — a car that arrived earlier has been
-// sitting there longer and should be predicted to turn back and depart
-// sooner than one that arrived after it (first in, first out).
-async function getCarsRecentlyAtTerminus(stopName){
-  const arrived = []; // { car, ts } — already tracked arriving here
-
-  if(firebaseReady){
-    try{
-      const snap = await fbDb.collection('roster').where('lastSeenStop', '==', stopName).get();
-      snap.forEach(doc=>{
-        const d = doc.data();
-        if(d.lastSeenAt) arrived.push({ car: doc.id, ts: d.lastSeenAt });
-      });
-    }catch(e){ console.error(e); }
-  }
-  arrived.sort((a,b) => a.ts - b.ts); // oldest arrival first
-
-  const enRoute = []; // still heading toward the terminus, haven't arrived yet
-  state.vehicles.forEach(v=>{
-    if(v.headsign && normName(v.headsign) === normName(stopName)){
-      String(v.label).split('-').forEach(c => enRoute.push(c));
-    }
-  });
-
-  // Already-arrived cars depart before ones still on their way in.
-  const ordered = arrived.map(r => r.car).concat(enRoute);
-  return Array.from(new Set(ordered));
-}
-
-function predictCarsForTrip(tripId, branchKey, pool){
-  if(pool.length >= 2){
-    const h = hashString(tripId);
-    const leadIdx = h % pool.length;
-    let trailerIdx = Math.floor(h / pool.length) % pool.length;
-    if(trailerIdx === leadIdx) trailerIdx = (trailerIdx + 1) % pool.length;
-    return `${pool[leadIdx]}-${pool[trailerIdx]}`;
-  }
-  if(pool.length === 1){
-    return `${pool[0]}-${guessCarNumber(tripId, branchKey, 'partner')}`;
-  }
-  return `${guessCarNumber(tripId, branchKey, 'lead')}-${guessCarNumber(tripId, branchKey, 'trailer')}`;
 }
 
 async function loadCarPredictions(){
@@ -3486,7 +3481,7 @@ function showBypassNotice(stopName){
 async function showStationModal(pageKey, idx, stopName, side){
   const myToken = ++modalRefreshToken;
   const direction = side === 'west' ? 0 : 1;
-  const upcoming = getUpcoming(pageKey, idx, direction);
+  const upcoming = getUpcoming(pageKey, idx, direction).filter(({v}) => !isVehicleAtTerminus(pageKey, v));
   const dirLabel = side === 'west' ? dirLabels().west : dirLabels().east;
 
   document.getElementById('carModalTitle').textContent = `${dirLabel} \u2014 ${displayName(stopName)}`;
@@ -3522,7 +3517,7 @@ async function showStationModal(pageKey, idx, stopName, side){
     const etaMinutes = realPred
       ? Math.max(0, (new Date(realPred.when).getTime() - Date.now()) / 60000)
       : stopsAway * 2;
-    return { v, stopsAway, isRealPrediction: !!realPred, etaMinutes };
+    return { v, stopsAway, isRealPrediction: !!realPred, etaMinutes, atTerminus: isVehicleAtTerminus(pageKey, v) };
   }).sort((a,b) => a.etaMinutes - b.etaMinutes);
 
   const bunchAdjusted = applyBunchingAdjustment(withEta);
@@ -3532,7 +3527,7 @@ async function showStationModal(pageKey, idx, stopName, side){
     bunchAdjusted.map(({v, isRealPrediction, etaMinutes, bunched})=>{
       const eta = formatEtaMinutesDisplay(etaMinutes, isRealPrediction);
       const displayCarLabel = state.activeLine === 'green' ? v.label : formatCarNumberForDisplay(String(v.label).split('-')[0]);
-      const bunchedTag = bunched ? `<span class="signin-note" style="color:#B45309;">Running close behind the train ahead</span>` : '';
+      const bunchedTag = bunched ? `<span class="signin-note" style="color:#B45309;">Bunched with train ahead</span>` : '';
       return `<div class="modal-row" style="flex-wrap:wrap;"><span>Car ${displayCarLabel} (${getDisplayBranch(v.branch)})${bunchedTag}</span><strong>${eta}</strong></div>`;
     }).join('');
 }
@@ -3563,8 +3558,8 @@ async function showStationDeparturesByName(stopName){
     return;
   }
   const { key, idx } = found;
-  const west = getUpcoming(key, idx, 0);
-  const east = getUpcoming(key, idx, 1);
+  const west = getUpcoming(key, idx, 0).filter(({v}) => !isVehicleAtTerminus(key, v));
+  const east = getUpcoming(key, idx, 1).filter(({v}) => !isVehicleAtTerminus(key, v));
 
   document.getElementById('carModalTitle').textContent = displayName(stopName);
   const alreadyOpen = document.getElementById('carModalOverlay').classList.contains('show');
@@ -3590,14 +3585,14 @@ async function showStationDeparturesByName(stopName){
       const etaMinutes = realPred
         ? Math.max(0, (new Date(realPred.when).getTime() - Date.now()) / 60000)
         : stopsAway * 2;
-      return { v, isRealPrediction: !!realPred, etaMinutes };
+      return { v, isRealPrediction: !!realPred, etaMinutes, atTerminus: isVehicleAtTerminus(key, v) };
     }).sort((a,b) => a.etaMinutes - b.etaMinutes);
     const bunchAdjusted = applyBunchingAdjustment(withEta);
     return `<div class="modal-row"><span style="font-weight:700;">${label}</span><strong></strong></div>` +
       bunchAdjusted.map(({v, isRealPrediction, etaMinutes, bunched})=>{
         const eta = formatEtaMinutesDisplay(etaMinutes, isRealPrediction);
         const displayCarLabel = state.activeLine === 'green' ? v.label : formatCarNumberForDisplay(String(v.label).split('-')[0]);
-        const bunchedTag = bunched ? `<span class="signin-note" style="color:#B45309;">Running close behind the train ahead</span>` : '';
+        const bunchedTag = bunched ? `<span class="signin-note" style="color:#B45309;">Bunched with train ahead</span>` : '';
         return `<div class="modal-row" style="flex-wrap:wrap;"><span>Car ${displayCarLabel} (${getDisplayBranch(v.branch)})${bunchedTag}</span><strong>${eta}</strong></div>`;
       }).join('');
   };
@@ -4092,162 +4087,6 @@ async function fetchBlueLineVehicles(){
   }).filter(v => v.stopName);
 }
 
-function generateDemoRedVehicles(){
-  const demo = [];
-  const statuses = ['IN_TRANSIT_TO','STOPPED_AT','INCOMING_AT'];
-  const branchStops = { REDASHMONT: PAGES.REDASHMONT.stops, REDBRAINTREE: PAGES.REDBRAINTREE.stops };
-  const carRanges = [[1500,1699],[1700,1799],[1800,1899],[1900,1923]];
-  const makeRedLabel = ()=>{
-    const range = carRanges[Math.floor(Math.random()*carRanges.length)];
-    const a = range[0] + Math.floor(Math.random()*(range[1]-range[0]));
-    return `${a}-${a+1}`;
-  };
-  ['REDASHMONT','REDBRAINTREE'].forEach(key=>{
-    const stops = branchStops[key];
-    const count = 3 + Math.floor(Math.random()*3);
-    for(let i=0;i<count;i++){
-      const idx = Math.floor(Math.random() * stops.length);
-      const dir = Math.round(Math.random());
-      const status = statuses[Math.floor(Math.random()*statuses.length)];
-      demo.push({
-        id: key + '-demo-' + i,
-        branch: 'RED',
-        label: makeRedLabel(),
-        status,
-        direction: dir,
-        stopName: stops[idx],
-        headsign: dir === 0 ? stops[stops.length-1] : stops[0],
-        speedMph: status === 'STOPPED_AT' ? 0 : (5 + Math.floor(Math.random()*45)),
-        updatedAt: new Date(Date.now() - Math.floor(Math.random()*90000)).toISOString()
-      });
-    }
-  });
-  return demo;
-}
-
-function generateDemoOrangeVehicles(){
-  const demo = [];
-  const statuses = ['IN_TRANSIT_TO','STOPPED_AT','INCOMING_AT'];
-  const stops = PAGES.ORANGE.stops;
-  const count = 4 + Math.floor(Math.random()*3);
-  for(let i=0;i<count;i++){
-    const idx = Math.floor(Math.random() * stops.length);
-    const dir = Math.round(Math.random());
-    const status = statuses[Math.floor(Math.random()*statuses.length)];
-    const a = 1400 + Math.floor(Math.random()*198);
-    demo.push({
-      id: 'ORANGE-demo-' + i,
-      branch: 'ORANGE',
-      label: `${a}-${a+1}`,
-      status, direction: dir,
-      stopName: stops[idx],
-      headsign: dir === 0 ? stops[stops.length-1] : stops[0],
-      speedMph: status === 'STOPPED_AT' ? 0 : (5 + Math.floor(Math.random()*45)),
-      updatedAt: new Date(Date.now() - Math.floor(Math.random()*90000)).toISOString()
-    });
-  }
-  return demo;
-}
-
-function generateDemoBlueVehicles(){
-  const demo = [];
-  const statuses = ['IN_TRANSIT_TO','STOPPED_AT','INCOMING_AT'];
-  const stops = PAGES.BLUE.stops;
-  const count = 3 + Math.floor(Math.random()*3);
-  for(let i=0;i<count;i++){
-    const idx = Math.floor(Math.random() * stops.length);
-    const dir = Math.round(Math.random());
-    const status = statuses[Math.floor(Math.random()*statuses.length)];
-    const a = 700 + Math.floor(Math.random()*92);
-    demo.push({
-      id: 'BLUE-demo-' + i,
-      branch: 'BLUE',
-      label: `${a}-${a+1}`,
-      status, direction: dir,
-      stopName: stops[idx],
-      headsign: dir === 0 ? stops[stops.length-1] : stops[0],
-      speedMph: status === 'STOPPED_AT' ? 0 : (5 + Math.floor(Math.random()*45)),
-      updatedAt: new Date(Date.now() - Math.floor(Math.random()*90000)).toISOString()
-    });
-  }
-  return demo;
-}
-
-function generateDemoVehicles(){
-  const demo = [];
-  const statuses = ['IN_TRANSIT_TO','STOPPED_AT','INCOMING_AT'];
-  const carPools = {
-    'Type 7': ()=> 3600 + Math.floor(Math.random()*120),
-    'Type 8': ()=> 3800 + Math.floor(Math.random()*90),
-    'Type 9': ()=> 3900 + Math.floor(Math.random()*24)
-  };
-  const typeKeys = Object.keys(carPools);
-
-  function makeLabel(){
-    // Occasionally surface car 3706 so the rainbow highlight is visible in demo mode.
-    if(Math.random() < 0.08){
-      const partner = carPools[typeKeys[Math.floor(Math.random()*typeKeys.length)]]();
-      return Math.random() < 0.5 ? ('3706-' + partner) : (partner + '-3706');
-    }
-    // Roughly half of trains run as a two-car consist (e.g. Type 7 + Type 8).
-    if(Math.random() < 0.5){
-      const t1 = typeKeys[Math.floor(Math.random()*typeKeys.length)];
-      const t2 = typeKeys[Math.floor(Math.random()*typeKeys.length)];
-      return carPools[t1]() + '-' + carPools[t2]();
-    }
-    const t = typeKeys[Math.floor(Math.random()*typeKeys.length)];
-    return String(carPools[t]());
-  }
-
-  function makeSpeed(status){
-    if(status === 'STOPPED_AT') return 0;
-    if(status === 'INCOMING_AT') return 3 + Math.floor(Math.random()*8);
-    return 8 + Math.floor(Math.random()*32);
-  }
-
-  BRANCH_ORDER.forEach(key=>{
-    const stops = PAGES[key].stops;
-    const isMattapan = key === 'MATTAPAN';
-    const count = isMattapan ? (1 + Math.floor(Math.random()*2)) : (4 + Math.floor(Math.random()*3));
-    for(let i=0;i<count;i++){
-      const idx = Math.floor(Math.random() * stops.length);
-      const dir = Math.round(Math.random());
-      const status = statuses[Math.floor(Math.random()*statuses.length)];
-      demo.push({
-        id: key + '-demo-' + i,
-        branch: key,
-        label: isMattapan ? PCC_CAR_NUMBERS[Math.floor(Math.random()*PCC_CAR_NUMBERS.length)] : makeLabel(),
-        status: status,
-        direction: dir,
-        stopName: stops[idx],
-        headsign: dir === 0 ? stops[stops.length-1] : stops[0],
-        speedMph: makeSpeed(status),
-        updatedAt: new Date(Date.now() - Math.floor(Math.random()*90000)).toISOString()
-      });
-    }
-  });
-
-  // occasionally include one unrecognized-route vehicle on the subway trunk to demonstrate "UNK" handling
-  if(Math.random() < 0.5){
-    const stops = PAGES.SUBWAY.stops;
-    const idx = Math.floor(Math.random() * stops.length);
-    const status = statuses[Math.floor(Math.random()*statuses.length)];
-    demo.push({
-      id: 'edc-demo-0',
-      branch: 'SHUTTLE',
-      label: String(1000 + Math.floor(Math.random()*900)),
-      status: status,
-      direction: Math.round(Math.random()),
-      stopName: stops[idx],
-      headsign: 'Special service',
-      speedMph: makeSpeed(status),
-      updatedAt: new Date(Date.now() - Math.floor(Math.random()*60000)).toISOString()
-    });
-  }
-
-  return demo;
-}
-
 const STALE_VEHICLE_MS = 150000; // drop trains not updated in the last 150 seconds
 
 const VEHICLE_KEEP_ALIVE_MS = 100 * 1000; // keep a vehicle visible for 100s after it stops appearing in the feed
@@ -4437,7 +4276,7 @@ function renderVehicleList(){
 
   let relevant = page.isMulti
     ? state.vehicles.filter(v => findStopIndex(key, v.stopName) !== null)
-    : state.vehicles.filter(v => v.branch === key);
+    : state.vehicles.filter(v => isRelevantForBranchPage(key, v));
 
   if(key === 'REDASHMONT'){
     relevant = relevant.filter(v => getRedLineBranch(v) === 'ashmont');
@@ -5710,6 +5549,8 @@ async function init(){
   document.getElementById('notifDoubleType8Switch').classList.toggle('on', state.notifDoubleType8);
   document.getElementById('notifPrideSwitch').classList.toggle('on', state.notifPride);
   document.getElementById('notifType9Switch').classList.toggle('on', state.notifType9);
+
+  state.otherBranchesVisible = Object.assign({ B:false, C:false, D:false, E:false }, prefs.otherBranchesVisible || {});
 
   buildNav();
   buildLadder();
