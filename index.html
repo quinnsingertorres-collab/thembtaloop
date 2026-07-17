@@ -3884,7 +3884,9 @@ function checkTrainNotifications(vehicles){
     const doubleType8Ids = new Set();
     vehicles.forEach(v=>{
       const cars = String(v.label).split('-');
-      if(cars.length >= 2 && cars.every(c => getCarType(c) === 'Type 8')){
+      const leadIsType8 = cars.length >= 1 && getCarType(cars[0]) === 'Type 8';
+      const trailerIsType8 = cars.length >= 2 && getCarType(cars[1]) === 'Type 8';
+      if(leadIsType8 && trailerIsType8){
         doubleType8Ids.add(v.id);
         if(!notifiedDoubleType8.has(v.id)){
           notifiedDoubleType8.add(v.id);
