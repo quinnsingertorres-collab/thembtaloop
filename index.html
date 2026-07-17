@@ -3016,7 +3016,7 @@ async function showCarModal(v){
    stops away each currently is. */
 function getUpcoming(pageKey, idx, direction){
   const page = PAGES[pageKey];
-  const pool = page.isMulti ? state.vehicles : state.vehicles.filter(v => v.branch === pageKey);
+  const pool = page.isMulti ? state.vehicles : state.vehicles.filter(v => isRelevantForBranchPage(pageKey, v));
   const withIdx = pool
     .filter(v => v.direction === direction)
     .map(v => ({ v, vIdx: findStopIndex(pageKey, v.stopName) }))
@@ -3048,6 +3048,15 @@ const BUNCHING_MIN_GAP_MIN = 1.5;
 function isVehicleAtTerminus(pageKey, v){
   const stops = PAGES[pageKey] && PAGES[pageKey].stops;
   if(!stops || !v.stopName) return false;
+  // Green Line B/C/D/E stop lists start at the shared trunk (e.g. Government
+  // Center), which isn't actually that branch's own terminus — only its
+  // unique tail end (Boston College, Cleveland Circle, etc.) is. Checking
+  // the first stop here would wrongly flag another branch's train just
+  // passing through the shared trunk as "dwelling at this page's terminus."
+  const isGreenBranchPage = ['B','C','D','E'].includes(pageKey);
+  if(isGreenBranchPage){
+    return normName(v.stopName) === normName(stops[stops.length - 1]);
+  }
   return normName(v.stopName) === normName(stops[0]) || normName(v.stopName) === normName(stops[stops.length - 1]);
 }
 
