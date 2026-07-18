@@ -3018,7 +3018,18 @@ async function showCarModal(v){
    stops away each currently is. */
 function getUpcoming(pageKey, idx, direction){
   const page = PAGES[pageKey];
-  const pool = page.isMulti ? state.vehicles : state.vehicles.filter(v => isRelevantForBranchPage(pageKey, v));
+  const targetStopName = page.stops[idx];
+  const pool = (page.isMulti ? state.vehicles : state.vehicles.filter(v => isRelevantForBranchPage(pageKey, v)))
+    // A vehicle from a different branch than the page being viewed can only
+    // ever actually reach stops that are also on ITS OWN real route — e.g.
+    // a B train can be at a shared-trunk stop right now, but it will never
+    // continue on to a stop that only exists on E's own extension (like
+    // Lechmere), so it shouldn't be predicted to "arrive" there.
+    // Exception: if a community-reported destination override exists for
+    // this specific train (e.g. a C branch train confirmed extended to
+    // Medford/Tufts for the day), that's a real, human-confirmed service
+    // change — trust it over the normal per-branch stop list.
+    .filter(v => v.branch === pageKey || page.isMulti || destinationOverrideCache[v.id] || findStopIndex(v.branch, targetStopName) !== null);
   const withIdx = pool
     .filter(v => v.direction === direction)
     .map(v => ({ v, vIdx: findStopIndex(pageKey, v.stopName) }))
