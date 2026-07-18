@@ -370,9 +370,17 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
 /* ---------- Modal ---------- */
 .modal-overlay{position:fixed; inset:0; background:rgba(0,0,0,0.45); display:none; align-items:center; justify-content:center; z-index:100; padding:16px;}
 .modal-overlay.show{display:flex;}
-.modal-card{background:var(--panel); border-radius:14px; padding:20px; width:300px; max-width:100%; box-shadow:0 12px 40px rgba(0,0,0,0.35); max-height:80vh; overflow-y:auto; overflow-x:hidden; scrollbar-width:none; -ms-overflow-style:none;}
+.modal-card{background:var(--panel); border-radius:14px; padding:20px; width:420px; max-width:100%; box-shadow:0 12px 40px rgba(0,0,0,0.35); max-height:80vh; overflow-y:auto; overflow-x:hidden; scrollbar-width:none; -ms-overflow-style:none; position:relative;}
+.modal-close-x{
+  position:absolute; top:12px; right:12px;
+  width:28px; height:28px; border-radius:50%; border:none;
+  background:transparent; color:var(--text-faint);
+  display:flex; align-items:center; justify-content:center;
+  cursor:pointer; transition:background 0.15s ease, color 0.15s ease;
+}
+.modal-close-x:hover{background:var(--border); color:var(--text);}
 .modal-card::-webkit-scrollbar{display:none;}
-.modal-card h3{margin:0 0 12px; font-family:'Space Grotesk', sans-serif; font-size:16px; color:var(--text);}
+.modal-card h3{margin:0 0 12px; padding-right:32px; font-family:'Space Grotesk', sans-serif; font-size:16px; color:var(--text);}
 .modal-row{display:flex; justify-content:space-between; gap:12px; padding:7px 0; border-bottom:1px solid var(--border); font-size:13px; color:var(--text); flex-wrap:wrap; min-width:0;}
 .modal-row > *{min-width:0; overflow-wrap:break-word;}
 .modal-row:last-child{border-bottom:none;}
@@ -838,6 +846,9 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
 
 <div class="modal-overlay" id="carModalOverlay">
   <div class="modal-card">
+    <button class="modal-close-x" id="carModalCloseX" title="Close" aria-label="Close">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
     <h3 id="carModalTitle">Details</h3>
     <div id="carModalBody"></div>
     <button class="modal-close" id="carModalClose">Close</button>
@@ -3561,6 +3572,10 @@ async function showStationModal(pageKey, idx, stopName, side){
 }
 
 document.getElementById('carModalClose').addEventListener('click', ()=>{
+  document.getElementById('carModalOverlay').classList.remove('show');
+  modalRefreshToken++;
+});
+document.getElementById('carModalCloseX').addEventListener('click', ()=>{
   document.getElementById('carModalOverlay').classList.remove('show');
   modalRefreshToken++;
 });
