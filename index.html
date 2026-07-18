@@ -821,6 +821,11 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
 
       <div class="menu-divider"></div>
       <div class="menu-section-label">Notifications</div>
+      <div class="menu-row" style="flex-direction:column; align-items:flex-start; gap:8px;">
+        <span>Browser notification permission <span style="color:var(--text-faint); font-weight:400;">(needed for the toggles below to work)</span></span>
+        <button class="account-btn" id="notifPermissionBtn" style="margin-top:0; width:100%;">Allow notification permission</button>
+        <span class="signin-note" id="notifPermissionNote"></span>
+      </div>
       <div class="menu-row">
         <span>Notifications <span style="color:var(--text-faint); font-weight:400;">(website only for now)</span></span>
         <div class="switch" id="notifMasterSwitch"><div class="knob"></div></div>
@@ -4022,6 +4027,42 @@ function showToast(title, body){
   }, 4000);
 }
 
+async function promptNotificationPermission(){
+  const btn = document.getElementById('notifPermissionBtn');
+  const note = document.getElementById('notifPermissionNote');
+  if(typeof Notification === 'undefined'){
+    note.textContent = "This browser doesn't support notifications.";
+    btn.disabled = true;
+    btn.textContent = 'Not supported in this browser';
+    return;
+  }
+  try{
+    const result = await Notification.requestPermission();
+    updateNotifPermissionUI(result);
+  }catch(e){
+    console.error(e);
+    note.textContent = 'Something went wrong requesting permission.';
+  }
+}
+
+function updateNotifPermissionUI(permission){
+  const btn = document.getElementById('notifPermissionBtn');
+  const note = document.getElementById('notifPermissionNote');
+  if(permission === 'granted'){
+    btn.textContent = 'Notification permission granted';
+    btn.disabled = true;
+    note.textContent = "You're all set \u2014 the toggles below can now show notifications.";
+  }else if(permission === 'denied'){
+    btn.textContent = 'Allow notification permission';
+    btn.disabled = false;
+    note.textContent = "Blocked \u2014 you'll need to allow notifications for this site in your browser's own settings, then reload.";
+  }else{
+    btn.textContent = 'Allow notification permission';
+    btn.disabled = false;
+    note.textContent = '';
+  }
+}
+
 async function checkForNotifications(){
   if(!firebaseReady) return;
   try{
@@ -5778,6 +5819,14 @@ async function init(){
 
   document.getElementById('pushEnableBtn').addEventListener('click', subscribeToPushNotifications);
   checkPushSubscriptionStatus();
+
+  document.getElementById('notifPermissionBtn').addEventListener('click', promptNotificationPermission);
+  if(typeof Notification !== 'undefined'){
+    updateNotifPermissionUI(Notification.permission);
+  }else{
+    document.getElementById('notifPermissionBtn').disabled = true;
+    document.getElementById('notifPermissionBtn').textContent = 'Not supported in this browser';
+  }
 
   refreshConsistOverrideCache();
   setInterval(refreshConsistOverrideCache, 60000);
