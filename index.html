@@ -47,7 +47,8 @@ body.dark{
 }
 
 *{box-sizing:border-box;}
-html,body{margin:0; padding:0; background:var(--bg); color:var(--text); font-family:'IBM Plex Sans', sans-serif; transition:background 0.2s, color 0.2s; overflow-x:hidden;}
+html,body{margin:0; padding:0; background:var(--bg); color:var(--text); font-family:'IBM Plex Sans', sans-serif; transition:background 0.2s, color 0.2s; overflow-x:hidden; scrollbar-width:none; -ms-overflow-style:none;}
+html::-webkit-scrollbar, body::-webkit-scrollbar{display:none;}
 
 /* ---------- Sign-in gate / line-select overlay screens ---------- */
 .gate-screen{
@@ -307,7 +308,8 @@ body.dark .stop-dot{background:#ffffff;}
 }
 
 /* ---------- Vehicle list ---------- */
-.vehicle-list{display:flex; flex-direction:column; gap:7px; max-height:520px; overflow-y:auto; padding-right:4px;}
+.vehicle-list{display:flex; flex-direction:column; gap:7px; max-height:520px; overflow-y:auto; padding-right:4px; scrollbar-width:none; -ms-overflow-style:none;}
+.vehicle-list::-webkit-scrollbar{display:none;}
 .vehicle-list::-webkit-scrollbar{width:6px;}
 .vehicle-list::-webkit-scrollbar-thumb{background:var(--border); border-radius:4px;}
 
@@ -368,7 +370,8 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
 /* ---------- Modal ---------- */
 .modal-overlay{position:fixed; inset:0; background:rgba(0,0,0,0.45); display:none; align-items:center; justify-content:center; z-index:100; padding:16px;}
 .modal-overlay.show{display:flex;}
-.modal-card{background:var(--panel); border-radius:14px; padding:20px; width:300px; max-width:100%; box-shadow:0 12px 40px rgba(0,0,0,0.35); max-height:80vh; overflow-y:auto; overflow-x:hidden;}
+.modal-card{background:var(--panel); border-radius:14px; padding:20px; width:300px; max-width:100%; box-shadow:0 12px 40px rgba(0,0,0,0.35); max-height:80vh; overflow-y:auto; overflow-x:hidden; scrollbar-width:none; -ms-overflow-style:none;}
+.modal-card::-webkit-scrollbar{display:none;}
 .modal-card h3{margin:0 0 12px; font-family:'Space Grotesk', sans-serif; font-size:16px; color:var(--text);}
 .modal-row{display:flex; justify-content:space-between; gap:12px; padding:7px 0; border-bottom:1px solid var(--border); font-size:13px; color:var(--text); flex-wrap:wrap; min-width:0;}
 .modal-row > *{min-width:0; overflow-wrap:break-word;}
@@ -415,7 +418,8 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
 .car-search-note{font-size:11.5px; color:var(--text-faint); margin-bottom:10px; min-height:14px;}
 .car-search-note.error{color:#D64545;}
 
-.roster-list{display:flex; flex-direction:column; gap:10px; max-height:640px; overflow-y:auto; padding-right:4px;}
+.roster-list{display:flex; flex-direction:column; gap:10px; max-height:640px; overflow-y:auto; padding-right:4px; scrollbar-width:none; -ms-overflow-style:none;}
+.roster-list::-webkit-scrollbar{display:none;}
 .roster-list::-webkit-scrollbar{width:6px;}
 .roster-list::-webkit-scrollbar-thumb{background:var(--border); border-radius:4px;}
 
@@ -1775,9 +1779,7 @@ function normName(s){ return (s || '').toLowerCase().replace(/[^a-z0-9]/g, ''); 
 function findStopIndexInList(stopsArr, stopName){
   if(!stopName) return null;
   const target = normName(stopName);
-  let idx = stopsArr.findIndex(s => normName(s) === target);
-  if(idx !== -1) return idx;
-  idx = stopsArr.findIndex(s => normName(s).includes(target) || target.includes(normName(s)));
+  const idx = stopsArr.findIndex(s => normName(s) === target);
   return idx !== -1 ? idx : null;
 }
 
