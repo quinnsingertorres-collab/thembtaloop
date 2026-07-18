@@ -191,6 +191,23 @@ header{display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap
 
 /* ---------- Banner ---------- */
 .banner{display:none; padding:10px 16px; border-radius:var(--radius); border:1px solid #F0D9AE; background:#FDF6E9; color:#8A5A0B; font-size:13px; margin-bottom:16px;}
+.alert-toast{
+  position:fixed; top:16px; left:50%;
+  transform:translateX(-50%) translateY(-20px);
+  opacity:0; pointer-events:none;
+  display:flex; flex-direction:column; gap:2px;
+  max-width:min(90vw, 380px);
+  background:var(--panel); border:1px solid var(--border); border-radius:12px;
+  box-shadow:0 12px 32px rgba(0,0,0,0.35);
+  padding:12px 16px;
+  z-index:200;
+  transition:opacity 0.3s ease, transform 0.3s ease;
+}
+.alert-toast.show{
+  opacity:1; transform:translateX(-50%) translateY(0);
+}
+.alert-toast-title{font-family:'Space Grotesk', sans-serif; font-size:13px; font-weight:700; color:var(--text);}
+.alert-toast-body{font-size:12.5px; color:var(--text-dim); overflow:hidden; text-overflow:ellipsis; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;}
 .banner.show{display:block;}
 body.dark .banner{background:#332A14; border-color:#5C4A1E; color:#F0C063;}
 .discord-banner{
@@ -594,6 +611,10 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
   </header>
 
   <div class="banner" id="demoBanner">Please check your internet connection. If it is on and working, that means the MBTA's live data feed is currently unreachable due to an outage on their end. This is not an issue with In the Loop.</div>
+  <div class="alert-toast" id="alertToast">
+    <span class="alert-toast-title" id="alertToastTitle"></span>
+    <span class="alert-toast-body" id="alertToastBody"></span>
+  </div>
 
   <div class="banner" id="noTrainsBanner">All trains have gone to sleep for the night &#128564;. If you think this is a mistake, please report it in the Discord server: <a href="https://discord.gg/KmGGY75rn4" target="_blank" rel="noopener" style="color:inherit; text-decoration:underline; font-weight:700;">discord.gg/KmGGY75rn4</a></div>
 
@@ -815,6 +836,11 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
       <div class="menu-row">
         <span>Type 9 cars</span>
         <div class="switch" id="notifType9Switch"><div class="knob"></div></div>
+      </div>
+      <div class="menu-row" style="flex-direction:column; align-items:flex-start; gap:8px;">
+        <span>Push notifications for moderator alerts <span style="color:var(--text-faint); font-weight:400;">(arrives even when the app is closed)</span></span>
+        <button class="account-btn" id="pushEnableBtn" style="margin-top:0; width:100%;">Enable push notifications</button>
+        <span class="signin-note" id="pushStatusNote"></span>
       </div>
 
       <div id="menuAccountSection" style="display:none;">
@@ -3907,6 +3933,95 @@ async function fireLocalNotification(title, body){
   }catch(e){ console.error(e); }
 }
 
+// Real Web Push setup: converts the VAPID public key into the byte format
+// the Push API expects.
+function urlBase64ToUint8Array(base64String){
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for(let i = 0; i < rawData.length; i++){
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+
+async function subscribeToPushNotifications(){
+  const statusNote = document.getElementById('pushStatusNote');
+  const btn = document.getElementById('pushEnableBtn');
+  if(!('serviceWorker' in navigator) || !('PushManager' in window)){
+    statusNote.textContent = "Push notifications aren't supported in this browser.";
+    return;
+  }
+  try{
+    const permission = await Notification.requestPermission();
+    if(permission !== 'granted'){
+      statusNote.textContent = "Permission wasn't granted — check your browser's notification settings for this site.";
+      return;
+    }
+    const registration = await navigator.serviceWorker.ready;
+    let subscription = await registration.pushManager.getSubscription();
+    if(!subscription){
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+      });
+    }
+    if(firebaseReady){
+      const subJson = subscription.toJSON();
+      await fbDb.collection('push_subscriptions').doc(encodeURIComponent(subJson.endpoint)).set({
+        subscription: subJson,
+        userId: state.uid || null,
+        userName: state.userName || null,
+        createdAt: Date.now()
+      });
+    }
+    btn.textContent = 'Push notifications enabled';
+    btn.disabled = true;
+    statusNote.textContent = "You'll now get moderator alerts even when the app is closed.";
+  }catch(e){
+    console.error(e);
+    statusNote.textContent = 'Something went wrong enabling push notifications.';
+  }
+}
+
+async function checkPushSubscriptionStatus(){
+  const btn = document.getElementById('pushEnableBtn');
+  const statusNote = document.getElementById('pushStatusNote');
+  if(!btn) return;
+  if(!('serviceWorker' in navigator) || !('PushManager' in window)){
+    btn.disabled = true;
+    btn.textContent = 'Not supported in this browser';
+    return;
+  }
+  try{
+    const registration = await navigator.serviceWorker.ready;
+    const subscription = await registration.pushManager.getSubscription();
+    if(subscription){
+      btn.textContent = 'Push notifications enabled';
+      btn.disabled = true;
+      statusNote.textContent = "You'll get moderator alerts even when the app is closed.";
+    }
+  }catch(e){ console.error(e); }
+}
+
+let toastHideTimer = null;
+function showToast(title, body){
+  const toast = document.getElementById('alertToast');
+  document.getElementById('alertToastTitle').textContent = title;
+  document.getElementById('alertToastBody').textContent = body || '';
+  if(toastHideTimer) clearTimeout(toastHideTimer);
+  // Force a reflow so re-triggering the animation works even if a toast is
+  // already showing (e.g. two alerts posted in quick succession).
+  toast.classList.remove('show');
+  void toast.offsetWidth;
+  toast.classList.add('show');
+  toastHideTimer = setTimeout(()=>{
+    toast.classList.remove('show');
+    toastHideTimer = null;
+  }, 4000);
+}
+
 async function checkForNotifications(){
   if(!firebaseReady) return;
   try{
@@ -3921,6 +4036,7 @@ async function checkForNotifications(){
       const title = newest.kind === 'alert' ? 'In the Loop \u2014 Alert' : (newest.subject || 'In the Loop \u2014 Notification');
       const body = newest.kind === 'alert' ? newest.text : newest.body;
       fireLocalNotification(title, body);
+      showToast(title, body);
     }
   }catch(e){ console.error(e); }
 }
@@ -5098,6 +5214,12 @@ const FIREBASE_CONFIG = {
 const firebaseReady = FIREBASE_CONFIG.apiKey.indexOf('YOUR_FIREBASE_API_KEY') === -1
   && typeof firebase !== 'undefined';
 
+// Public half of the VAPID key pair used for Web Push. Safe to expose
+// client-side by design — only the matching PRIVATE key (held server-side
+// in the Firebase Cloud Function, never in this file) can actually send a
+// push using it.
+const VAPID_PUBLIC_KEY = 'BHEIq4o6pknFsV-fssjBnXccc-5tX1w8V9ojTS4ilQ2YEuNYJR2cW2BNlObuckum_6mbTireruMCe8kjUx3dYaA';
+
 let fbAuth = null;
 let fbDb = null;
 if(firebaseReady){
@@ -5653,6 +5775,9 @@ async function init(){
 
   checkForNotifications();
   setInterval(checkForNotifications, 60000);
+
+  document.getElementById('pushEnableBtn').addEventListener('click', subscribeToPushNotifications);
+  checkPushSubscriptionStatus();
 
   refreshConsistOverrideCache();
   setInterval(refreshConsistOverrideCache, 60000);
