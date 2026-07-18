@@ -4063,6 +4063,8 @@ function updateNotifPermissionUI(permission){
   }
 }
 
+const NOTIF_ALERTED_KEY = 'notif_last_alerted_ts_v1';
+
 async function checkForNotifications(){
   if(!firebaseReady) return;
   try{
@@ -4072,12 +4074,21 @@ async function checkForNotifications(){
     try{ lastSeen = parseInt(localStorage.getItem(NOTIF_SEEN_KEY) || '0', 10) || 0; }catch(e){ /* ignore */ }
     const hasUnseen = items.some(item => (item.ts || 0) > lastSeen);
     document.getElementById('notifDot').style.display = hasUnseen ? 'block' : 'none';
-    if(hasUnseen && state.notifMaster){
-      const newest = items[0];
+
+    // The toast/local notification should only ever fire once per alert —
+    // tracked separately from "seen" (which only updates when the person
+    // opens the notifications panel), so the reminder dot can stay visible
+    // as a persistent reminder without re-triggering the toast every poll.
+    let lastAlerted = 0;
+    try{ lastAlerted = parseInt(localStorage.getItem(NOTIF_ALERTED_KEY) || '0', 10) || 0; }catch(e){ /* ignore */ }
+    const newest = items[0];
+    const isNewAlert = (newest.ts || 0) > lastAlerted;
+    if(isNewAlert && state.notifMaster){
       const title = newest.kind === 'alert' ? 'In the Loop \u2014 Alert' : (newest.subject || 'In the Loop \u2014 Notification');
       const body = newest.kind === 'alert' ? newest.text : newest.body;
       fireLocalNotification(title, body);
       showToast(title, body);
+      try{ localStorage.setItem(NOTIF_ALERTED_KEY, String(newest.ts || Date.now())); }catch(e){ /* ignore */ }
     }
   }catch(e){ console.error(e); }
 }
