@@ -1536,7 +1536,7 @@ async function loadDestinationOverride(vehicleId){
 async function saveDestinationOverride(v, destination){
   const payload = {
     destination, editedBy: state.userName, editedByUid: state.uid || null, ts: Date.now(),
-    originalHeadsign: v.headsign || null, originalDirection: v.direction
+    originalHeadsign: v.headsign || null, originalDirection: v.direction, originalTripId: v.tripId || null
   };
   if(firebaseReady){
     try{ await fbDb.collection('destination_overrides').doc(v.id).set(payload); }catch(e){ console.error(e); }
@@ -2274,7 +2274,8 @@ function renderTrainDots(){
       const destOverrideEntry = destinationOverrideCache[entry.v.id];
       const hasAlteredDestination = !!destOverrideEntry && (
         (!destOverrideEntry.originalHeadsign || destOverrideEntry.originalHeadsign === entry.v.headsign) &&
-        (destOverrideEntry.originalDirection === undefined || destOverrideEntry.originalDirection === entry.v.direction)
+        (destOverrideEntry.originalDirection === undefined || destOverrideEntry.originalDirection === entry.v.direction) &&
+        (!destOverrideEntry.originalTripId || !entry.v.tripId || destOverrideEntry.originalTripId === entry.v.tripId)
       );
       const destBadge = hasAlteredDestination
         ? `<span class="bubble-dest-badge" title="Destination reported as changed"><svg viewBox="0 0 24 24" width="15" height="15" fill="none"><path d="M12 3.5L2 20.5h20L12 3.5z" fill="currentColor"/><rect x="10.8" y="8.8" width="2.4" height="5.6" rx="1.2" fill="#fff"/><circle cx="12" cy="17.2" r="1.35" fill="#fff"/></svg></span>`
@@ -2520,10 +2521,16 @@ async function showCarModal(v){
   // A destination override is tied to the specific trip it was reported on —
   // once the train's real headsign or direction changes (it terminated,
   // started a new trip, or reversed), the override no longer applies.
+  // Trip ID is checked too, since it's possible for a brand new trip to
+  // coincidentally have the same headsign/direction as the one the
+  // override was reported on (e.g. a normal D outbound trip after a
+  // one-time extension to North Station) — trip ID changing is a more
+  // reliable signal that it's genuinely a different trip now.
   let destinationOverride = destinationOverrideRaw;
   if(destinationOverride && (
     (destinationOverride.originalHeadsign && destinationOverride.originalHeadsign !== v.headsign) ||
-    (destinationOverride.originalDirection !== undefined && destinationOverride.originalDirection !== v.direction)
+    (destinationOverride.originalDirection !== undefined && destinationOverride.originalDirection !== v.direction) ||
+    (destinationOverride.originalTripId && v.tripId && destinationOverride.originalTripId !== v.tripId)
   )){
     await deleteDestinationOverride(v.id);
     refreshDestinationOverrideCache();
@@ -4166,6 +4173,18 @@ function clearStaleDestinationOverrides(now){
   Object.keys(destinationOverrideCache).forEach(vehicleId=>{
     const lastSeen = vehicleLastSeenTs[vehicleId];
     if(lastSeen === undefined || (now - lastSeen) > DESTINATION_OVERRIDE_STALE_MS){
+      deleteDestinationOverride(vehicleId);
+      delete destinationOverrideCache[vehicleId];
+      return;
+    }
+    // Also clear proactively (without waiting for anyone to open this
+    // train's modal) the moment its live trip ID has changed — a reliable
+    // sign it's genuinely moved on to a new trip, even if it happens to be
+    // running the same direction/headsign as before (e.g. back to a
+    // normal route after a one-time extension).
+    const override = destinationOverrideCache[vehicleId];
+    const liveVehicle = state.vehicles.find(v => v.id === vehicleId);
+    if(override.originalTripId && liveVehicle && liveVehicle.tripId && liveVehicle.tripId !== override.originalTripId){
       deleteDestinationOverride(vehicleId);
       delete destinationOverrideCache[vehicleId];
     }
