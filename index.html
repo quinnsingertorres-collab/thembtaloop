@@ -1397,7 +1397,7 @@ function buildRosterCarList(){
 }
 const ROSTER_CARS = buildRosterCarList();
 
-let state = { vehicles: [], currentPage: 'B', lastMainPage: 'B', live: null, abbreviate: false, signedIn: false, userName: '', photoURL: '', isModerator: false, filterDirection: 'ALL', filterType: 'ALL', rosterSearch: '', rosterTypeFilter: 'ALL', notifMaster: true, notifDoubleType8: false, notifPride: false, notifType9: false, activeLine: 'green', otherBranchesVisible: { B:false, C:false, D:false, E:false } };
+let state = { vehicles: [], currentPage: 'B', lastMainPage: 'B', live: null, abbreviate: false, signedIn: false, userName: '', photoURL: '', isModerator: false, filterDirection: 'ALL', filterType: 'ALL', rosterSearch: '', rosterTypeFilter: 'ALL', notifMaster: true, notifDoubleType8: false, notifPride: false, notifType9: false, activeLine: 'green', otherBranchesVisible: { B:false, C:false, D:false, E:false, ashmont:false, braintree:false } };
 let layout = null; // computed pixel layout for the current ladder
 
 /* ---------------- Community-reported data ----------------
@@ -1844,10 +1844,28 @@ function findStopIndex(pageKey, stopName){
 // single-branch page too, but only while they're on a stop that's also in
 // this page's own list (i.e. the shared trunk) — same idea as the Subway
 // trunk page, just opt-in per branch instead of its own dedicated page.
+// Green Line vehicles carry their branch directly (v.branch = 'B'/'C'/'D'/'E').
+// Red Line vehicles are all just v.branch='RED' — their actual branch has to
+// be determined the same way the rest of the app already does, via
+// getRedLineBranch (headsign/stop/schedule/manual-override).
+function getEffectiveBranchForToggle(v){
+  if(v.branch === 'RED') return getRedLineBranch(v);
+  return v.branch;
+}
+
+const CROSS_BRANCH_PAGES = {
+  green: ['B','C','D','E'],
+  red: ['REDASHMONT','REDBRAINTREE']
+};
+const RED_PAGE_TO_BRANCH_ID = { REDASHMONT:'ashmont', REDBRAINTREE:'braintree' };
+
 function isRelevantForBranchPage(key, v){
-  if(v.branch === key) return true;
-  if(state.activeLine !== 'green' || !['B','C','D','E'].includes(key)) return false;
-  if(!state.otherBranchesVisible[v.branch]) return false;
+  const ownBranch = getEffectiveBranchForToggle(v);
+  const pageBranchId = RED_PAGE_TO_BRANCH_ID[key] || key;
+  if(ownBranch === pageBranchId) return true;
+  const eligiblePages = CROSS_BRANCH_PAGES[state.activeLine];
+  if(!eligiblePages || !eligiblePages.includes(key)) return false;
+  if(!state.otherBranchesVisible[ownBranch]) return false;
   return findStopIndex(key, v.stopName) !== null;
 }
 
@@ -1857,9 +1875,9 @@ function getRelevantVehiclesForPage(key){
     ? state.vehicles.filter(v => findStopIndex(key, v.stopName) !== null)
     : state.vehicles.filter(v => isRelevantForBranchPage(key, v));
   if(key === 'REDASHMONT'){
-    relevant = relevant.filter(v => getRedLineBranch(v) === 'ashmont');
+    relevant = relevant.filter(v => getRedLineBranch(v) === 'ashmont' || (state.otherBranchesVisible.braintree && getRedLineBranch(v) === 'braintree'));
   }else if(key === 'REDBRAINTREE'){
-    relevant = relevant.filter(v => getRedLineBranch(v) === 'braintree');
+    relevant = relevant.filter(v => getRedLineBranch(v) === 'braintree' || (state.otherBranchesVisible.ashmont && getRedLineBranch(v) === 'ashmont'));
   }
   return relevant;
 }
@@ -1910,31 +1928,41 @@ function buildNav(){
 function renderOtherBranchesToggles(){
   const container = document.getElementById('otherBranchesToggleRow');
   const key = state.currentPage;
-  const isEligible = state.activeLine === 'green' && ['B','C','D','E'].includes(key);
+  const eligiblePages = CROSS_BRANCH_PAGES[state.activeLine];
+  const isEligible = eligiblePages && eligiblePages.includes(key);
   if(!isEligible){
     container.style.display = 'none';
     container.innerHTML = '';
     return;
   }
-  const otherBranches = ['B','C','D','E'].filter(b => b !== key);
+
+  // Build { id, label, hex } options for every branch on this line except
+  // the one currently being viewed.
+  const allOptions = state.activeLine === 'green'
+    ? ['B','C','D','E'].map(b => ({ id:b, label:b, hex:PAGES[b].hex }))
+    : ['ashmont','braintree'].map(b => ({ id:b, label:b === 'ashmont' ? 'Ashmont' : 'Braintree', hex:RED_BRANCH_COLORS[b] }));
+  const currentBranchId = RED_PAGE_TO_BRANCH_ID[key] || key;
+  const otherOptions = allOptions.filter(o => o.id !== currentBranchId);
+
   container.style.display = 'block';
   container.innerHTML = `
     <div class="roster-field-label" style="text-align:center;">Show:</div>
     <div style="display:flex; flex-wrap:wrap; justify-content:center; gap:14px; margin-bottom:10px; align-items:center;">
-      ${otherBranches.map(b => `
+      ${otherOptions.map(o => `
         <label style="display:flex; align-items:center; gap:8px; font-size:12.5px; cursor:pointer;">
-          <div class="switch${state.otherBranchesVisible[b] ? ' on' : ''}" data-other-branch-toggle="${b}" style="${state.otherBranchesVisible[b] ? `background:${PAGES[b].hex};` : ''}"><div class="knob"></div></div>
-          <span style="font-weight:700;">${b}</span>
+          <div class="switch${state.otherBranchesVisible[o.id] ? ' on' : ''}" data-other-branch-toggle="${o.id}" style="${state.otherBranchesVisible[o.id] ? `background:${o.hex};` : ''}"><div class="knob"></div></div>
+          <span style="font-weight:700;">${o.label}</span>
         </label>
       `).join('')}
     </div>
   `;
   container.querySelectorAll('[data-other-branch-toggle]').forEach(switchEl=>{
     switchEl.addEventListener('click', ()=>{
-      const branch = switchEl.dataset.otherBranchToggle;
-      state.otherBranchesVisible[branch] = !state.otherBranchesVisible[branch];
-      switchEl.classList.toggle('on', state.otherBranchesVisible[branch]);
-      switchEl.style.background = state.otherBranchesVisible[branch] ? PAGES[branch].hex : '';
+      const branchId = switchEl.dataset.otherBranchToggle;
+      const option = otherOptions.find(o => o.id === branchId);
+      state.otherBranchesVisible[branchId] = !state.otherBranchesVisible[branchId];
+      switchEl.classList.toggle('on', state.otherBranchesVisible[branchId]);
+      switchEl.style.background = state.otherBranchesVisible[branchId] ? option.hex : '';
       renderTrainDots();
       renderVehicleList();
       savePrefs();
@@ -2200,9 +2228,9 @@ function renderTrainDots(){
     .map(x => ({ ...x, targetY: computeDisplayY(x.idx, x.v.direction, x.v.status, layout.stopY, x.v, layout.stopCoords) }));
 
   if(key === 'REDASHMONT'){
-    relevant = relevant.filter(x => getRedLineBranch(x.v) === 'ashmont');
+    relevant = relevant.filter(x => getRedLineBranch(x.v) === 'ashmont' || (state.otherBranchesVisible.braintree && getRedLineBranch(x.v) === 'braintree'));
   }else if(key === 'REDBRAINTREE'){
-    relevant = relevant.filter(x => getRedLineBranch(x.v) === 'braintree');
+    relevant = relevant.filter(x => getRedLineBranch(x.v) === 'braintree' || (state.otherBranchesVisible.ashmont && getRedLineBranch(x.v) === 'ashmont'));
   }
 
   // Fill the station dot with the train's color while it's actually stopped there.
@@ -3073,6 +3101,8 @@ async function showCarModal(v){
 /* Returns vehicles heading toward (but not yet past) the given stop, in the
    given direction only, ordered by soonest arrival first, with how many
    stops away each currently is. */
+const BRANCH_ID_TO_PAGE_KEY = { B:'B', C:'C', D:'D', E:'E', ashmont:'REDASHMONT', braintree:'REDBRAINTREE' };
+
 function getUpcoming(pageKey, idx, direction){
   const page = PAGES[pageKey];
   const targetStopName = page.stops[idx];
@@ -3081,12 +3111,20 @@ function getUpcoming(pageKey, idx, direction){
     // ever actually reach stops that are also on ITS OWN real route — e.g.
     // a B train can be at a shared-trunk stop right now, but it will never
     // continue on to a stop that only exists on E's own extension (like
-    // Lechmere), so it shouldn't be predicted to "arrive" there.
+    // Lechmere), so it shouldn't be predicted to "arrive" there. Same idea
+    // applies to Red Line's Ashmont/Braintree split.
     // Exception: if a community-reported destination override exists for
     // this specific train (e.g. a C branch train confirmed extended to
     // Medford/Tufts for the day), that's a real, human-confirmed service
     // change — trust it over the normal per-branch stop list.
-    .filter(v => v.branch === pageKey || page.isMulti || destinationOverrideCache[v.id] || findStopIndex(v.branch, targetStopName) !== null);
+    .filter(v=>{
+      if(page.isMulti) return true;
+      const ownBranch = getEffectiveBranchForToggle(v);
+      const ownPageKey = BRANCH_ID_TO_PAGE_KEY[ownBranch] || ownBranch;
+      if(ownPageKey === pageKey) return true;
+      if(destinationOverrideCache[v.id]) return true;
+      return findStopIndex(ownPageKey, targetStopName) !== null;
+    });
   const withIdx = pool
     .filter(v => v.direction === direction)
     .map(v => ({ v, vIdx: findStopIndex(pageKey, v.stopName) }))
@@ -4546,9 +4584,9 @@ function renderVehicleList(){
     : state.vehicles.filter(v => isRelevantForBranchPage(key, v));
 
   if(key === 'REDASHMONT'){
-    relevant = relevant.filter(v => getRedLineBranch(v) === 'ashmont');
+    relevant = relevant.filter(v => getRedLineBranch(v) === 'ashmont' || (state.otherBranchesVisible.braintree && getRedLineBranch(v) === 'braintree'));
   }else if(key === 'REDBRAINTREE'){
-    relevant = relevant.filter(v => getRedLineBranch(v) === 'braintree');
+    relevant = relevant.filter(v => getRedLineBranch(v) === 'braintree' || (state.otherBranchesVisible.ashmont && getRedLineBranch(v) === 'ashmont'));
   }
 
   if(state.filterDirection !== 'ALL'){
@@ -5823,7 +5861,7 @@ async function init(){
   document.getElementById('notifPrideSwitch').classList.toggle('on', state.notifPride);
   document.getElementById('notifType9Switch').classList.toggle('on', state.notifType9);
 
-  state.otherBranchesVisible = Object.assign({ B:false, C:false, D:false, E:false }, prefs.otherBranchesVisible || {});
+  state.otherBranchesVisible = Object.assign({ B:false, C:false, D:false, E:false, ashmont:false, braintree:false }, prefs.otherBranchesVisible || {});
 
   buildNav();
   buildLadder();
