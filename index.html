@@ -2992,6 +2992,7 @@ async function showCarModal(v){
       </div>` : '');
 
   const existingExpress = expressReportCache[v.id];
+  const expressStopOptions = validStopsForThisVehicle.concat(['TESTING']);
   const expressSection = existingExpress
     ? `<div class="modal-section">
         <h4>Running express \ud83c\udfc3</h4>
@@ -3004,7 +3005,7 @@ async function showCarModal(v){
         <h4>Running express</h4>
         <div class="signin-note">Report this train skipping stops between two stations.</div>
         <datalist id="expressStationsDatalist">
-          ${validStopsForThisVehicle.map(s => `<option value="${s.replace(/"/g,'&quot;')}">`).join('')}
+          ${expressStopOptions.map(s => `<option value="${s.replace(/"/g,'&quot;')}">`).join('')}
         </datalist>
         <div class="roster-field-label">Express from</div>
         <input type="text" class="roster-input" id="expressStartStation" list="expressStationsDatalist" placeholder="Start typing a station&hellip;" autocomplete="off">
@@ -3068,9 +3069,9 @@ async function showCarModal(v){
     </div>
     ${crowdingStrip}
     ${carSections}
-    ${branchAssignSection}
-    ${standingBySection}
     ${expressSection}
+    ${standingBySection}
+    ${branchAssignSection}
     <div class="modal-section">
       <h4>Consist (car numbers)</h4>
       ${consistOverride ? '<div class="signin-note">The MBTA feed reported this train\'s consist differently; the numbers above reflect a community correction.</div>' : ''}
@@ -3290,8 +3291,8 @@ async function showCarModal(v){
         note.textContent = 'Enter both a start and end station.';
         return;
       }
-      const startStation = validStopsForThisVehicle.find(s => normName(s) === normName(startTyped));
-      const endStation = validStopsForThisVehicle.find(s => normName(s) === normName(endTyped));
+      const startStation = expressStopOptions.find(s => normName(s) === normName(startTyped));
+      const endStation = expressStopOptions.find(s => normName(s) === normName(endTyped));
       if(!startStation || !endStation){
         note.textContent = "That doesn't match a real station on this train's route \u2014 pick one from the suggestions.";
         return;
