@@ -1893,7 +1893,19 @@ function countForPage(key){
   const page = PAGES[key];
   if(page.isMembers) return null;
   if(page.isRoster) return ROSTER_CARS.length;
-  return getRelevantVehiclesForPage(key).length;
+  // REDASHMONT/REDBRAINTREE are also flagged isMulti (needed for their
+  // stop-index matching, since Red Line has no clean per-branch v.branch
+  // value) but each represents one specific branch, not a true
+  // multi-branch trunk like SUBWAY/REDTRUNK — check this first.
+  if(RED_PAGE_TO_BRANCH_ID[key]){
+    const pageBranchId = RED_PAGE_TO_BRANCH_ID[key];
+    return state.vehicles.filter(v => getEffectiveBranchForToggle(v) === pageBranchId).length;
+  }
+  if(page.isMulti) return getRelevantVehiclesForPage(key).length;
+  // Deliberately NOT getRelevantVehiclesForPage here — that includes
+  // cross-branch trains currently toggled into view (the "Show:" feature),
+  // which should never inflate this branch's own count in the bottom nav.
+  return state.vehicles.filter(v => getEffectiveBranchForToggle(v) === key).length;
 }
 
 /* ---------------- Bottom nav ---------------- */
