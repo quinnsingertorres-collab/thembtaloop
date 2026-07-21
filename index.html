@@ -3376,11 +3376,25 @@ async function showCarModal(v){
   // Keep this panel's data current while the person is looking at it,
   // using whatever fresh data the app's own live poll has by then — same
   // cadence as the main track map/list refresh.
-  setTimeout(()=>{
-    if(modalRefreshToken !== myModalToken) return; // modal closed or different content opened since
-    const fresh = state.vehicles.find(fv => fv.id === v.id);
-    if(fresh) showCarModal(fresh); // if not found, the trip likely ended — stop refreshing rather than show stale data
-  }, 15000);
+  // If the person currently has a text field in this panel focused (e.g.
+  // mid-way through writing a trip note), skip rebuilding this cycle —
+  // a full rebuild replaces the whole panel's HTML, which would wipe out
+  // whatever they're actively typing. Just check again next cycle instead.
+  (function scheduleModalRefresh(){
+    setTimeout(()=>{
+      if(modalRefreshToken !== myModalToken) return; // modal closed or different content opened since
+      const modalBody = document.getElementById('carModalBody');
+      const activeEl = document.activeElement;
+      const isTypingInModal = activeEl && modalBody && modalBody.contains(activeEl)
+        && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA');
+      if(isTypingInModal){
+        scheduleModalRefresh();
+        return;
+      }
+      const fresh = state.vehicles.find(fv => fv.id === v.id);
+      if(fresh) showCarModal(fresh); // if not found, the trip likely ended — stop refreshing rather than show stale data
+    }, 15000);
+  })();
 }
 
 /* Returns vehicles heading toward (but not yet past) the given stop, in the
@@ -4784,6 +4798,14 @@ function clearStaleDestinationOverrides(now){
   // An express report only applies for the segment it was made on — clear
   // it once the train reaches/passes the reported end station, starts a
   // new trip, or goes untracked.
+  //
+  // Note: unlike destination overrides/standing-by reports, this does NOT
+  // also check originalTripId — MBTA's real-time feed can reassign a
+  // Green Line vehicle's trip_id mid-run even for what's genuinely the
+  // same physical trip, which was causing express reports to vanish
+  // before the train ever reached the reported stations. The
+  // reached/passed-end-station check below is already a reliable signal
+  // on its own.
   Object.keys(expressReportCache).forEach(vehicleId=>{
     const report = expressReportCache[vehicleId];
     const lastSeen = vehicleLastSeenTs[vehicleId];
@@ -4793,10 +4815,6 @@ function clearStaleDestinationOverrides(now){
     }
     const liveVehicle = state.vehicles.find(v => v.id === vehicleId);
     if(!liveVehicle) return;
-    if(report.originalTripId && liveVehicle.tripId && liveVehicle.tripId !== report.originalTripId){
-      clearExpressReport(vehicleId);
-      return;
-    }
     if(!liveVehicle.branch) return;
     const pageKeyForVehicle = liveVehicle.branch === 'RED'
       ? (getRedLineBranch(liveVehicle) === 'ashmont' ? 'REDASHMONT' : 'REDBRAINTREE')
