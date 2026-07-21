@@ -2547,9 +2547,14 @@ function statusPhrase(status, stopName){
 function operatorDocId(vehicleId, carNum){ return vehicleId + '_' + carNum; }
 
 function todayDateString(){
-  // Uses the same Eastern-Time convention as the rest of the app's clock, so
-  // "end of day" lines up with when MBTA's own service day actually ends.
-  return new Date().toLocaleDateString('en-CA', { timeZone:'America/New_York' }); // YYYY-MM-DD
+  // MBTA's actual service day doesn't end at midnight — late-night trains
+  // running after 12am are still considered part of the previous day's
+  // service, typically until around 3:30am. Shifting the clock back by
+  // 3.5 hours before computing the date means anything before 3:30am
+  // Eastern still resolves to "yesterday" here, matching that convention,
+  // rather than flipping over at midnight.
+  const shifted = new Date(Date.now() - (3.5 * 60 * 60 * 1000));
+  return shifted.toLocaleDateString('en-CA', { timeZone:'America/New_York' }); // YYYY-MM-DD
 }
 
 // Cache of car numbers currently marked out of service (today only), so
