@@ -3010,6 +3010,7 @@ async function showCarModal(v){
       const text = input.value.trim();
       if(!text) return;
       await addTripNoteEntry(v.id, text, v.headsign || '');
+      awardPoints(text.split(/\s+/).length);
       showCarModal(v);
     });
   }
@@ -3071,6 +3072,7 @@ async function showCarModal(v){
       const newLabel = input.value.trim();
       if(!newLabel) return;
       await saveConsistOverride(v, newLabel);
+      awardPoints(5);
       refreshConsistOverrideCache();
       alert(CONSIST_EDIT_NOTICE);
       showCarModal(v);
@@ -3094,6 +3096,7 @@ async function showCarModal(v){
       if(!newCar) return;
       const updatedParts = carParts.concat([newCar]);
       await saveConsistOverride(v, updatedParts.join('-'));
+      awardPoints(5);
       refreshConsistOverrideCache();
       alert(CONSIST_EDIT_NOTICE);
       showCarModal(v);
@@ -3105,6 +3108,7 @@ async function showCarModal(v){
       const updatedParts = carParts.filter(c => c !== carToRemove);
       if(updatedParts.length === 0) return; // never allow removing the last car entirely
       await saveConsistOverride(v, updatedParts.join('-'));
+      awardPoints(5);
       refreshConsistOverrideCache();
       alert(CONSIST_EDIT_NOTICE);
       showCarModal(v);
@@ -3162,6 +3166,7 @@ async function showCarModal(v){
         return;
       }
       await saveStandingByReport(v, station, minutes ? parseInt(minutes, 10) : null, notes);
+      awardPoints(minutes ? 6 : 3);
       showCarModal(v);
     });
   }
@@ -3181,6 +3186,7 @@ async function showCarModal(v){
         await clearCarOutOfService(carNum);
       }else{
         await markCarOutOfService(carNum);
+        awardPoints(1);
       }
       showCarModal(v);
     });
