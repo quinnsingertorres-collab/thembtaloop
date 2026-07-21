@@ -424,7 +424,7 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
 .alert-desc{font-size:12px; color:var(--text-dim); line-height:1.5; margin-top:6px; white-space:pre-wrap;}
 .alert-station{color:var(--accent); text-decoration:underline; cursor:pointer; font-weight:600;}
 .modal-section:first-child{padding-top:0; margin-top:0; border-top:none;}
-.modal-section h4{margin:0 0 4px; font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-faint); font-family:'Space Grotesk', sans-serif;}
+.modal-section h4{margin:0 0 4px; font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; color:var(--text); font-family:'Space Grotesk', sans-serif;}
 
 .gltps-row{display:flex; gap:6px; margin-top:6px;}
 .gltps-btn{flex:1; padding:7px 4px; border-radius:7px; border:1px solid var(--border); background:var(--bg); color:var(--text); font-size:11px; font-weight:600; cursor:pointer; font-family:'IBM Plex Sans', sans-serif;}
@@ -2671,7 +2671,7 @@ let expandedCarDetailKeys = new Set();
 async function showCarModal(v){
   const myModalToken = ++modalRefreshToken;
   const alreadyOpen = document.getElementById('carModalOverlay').classList.contains('show');
-  document.getElementById('carModalTitle').textContent = `${getDisplayBranch(v.branch)} \u00b7 Car ${formatCarNumberForDisplay(v.label)}`;
+  document.getElementById('carModalTitle').textContent = `${getDisplayBranch(v.branch)} \u00b7 ${String(v.label).split('-').length > 1 ? 'Cars' : 'Car'} ${formatCarNumberForDisplay(v.label)}`;
   if(!alreadyOpen){
     // Only show the loading flash when this is a genuinely fresh open (the
     // modal wasn't already showing something) — a refresh of already-open
@@ -3003,12 +3003,12 @@ async function showCarModal(v){
     : (state.signedIn ? `<div class="modal-section">
         <h4>Running express</h4>
         <div class="signin-note">Report this train skipping stops between two stations.</div>
-        <div class="roster-field-label">Starts skipping at</div>
+        <div class="roster-field-label">Express from</div>
         <select class="roster-input" id="expressStartStation">
           <option value="">Select a station&hellip;</option>
           ${validStopsForThisVehicle.map(s => `<option value="${s.replace(/"/g,'&quot;')}">${displayName(s)}</option>`).join('')}
         </select>
-        <div class="roster-field-label">Resumes normal service at</div>
+        <div class="roster-field-label">Express to</div>
         <select class="roster-input" id="expressEndStation">
           <option value="">Select a station&hellip;</option>
           ${validStopsForThisVehicle.map(s => `<option value="${s.replace(/"/g,'&quot;')}">${displayName(s)}</option>`).join('')}
@@ -3069,11 +3069,11 @@ async function showCarModal(v){
       <div class="modal-row"><span>Last reported speed</span><strong>${v.speedMph !== null && v.speedMph !== undefined ? v.speedMph + ' mph' : 'Not reported'}</strong></div>
       <div class="modal-row"><span>Last update</span><strong>${secondsAgo}s ago</strong></div>
     </div>
+    ${crowdingStrip}
+    ${carSections}
     ${branchAssignSection}
     ${standingBySection}
     ${expressSection}
-    ${crowdingStrip}
-    ${carSections}
     <div class="modal-section">
       <h4>Consist (car numbers)</h4>
       ${consistOverride ? '<div class="signin-note">The MBTA feed reported this train\'s consist differently; the numbers above reflect a community correction.</div>' : ''}
