@@ -1644,17 +1644,18 @@ async function refreshExpressReportCache(){
     expressReportCache = map;
   }catch(e){ console.error(e); }
 }
-async function saveExpressReport(v, startStation, endStation){
+async function saveExpressReport(v, startStation, endStation, intermediateStop){
   if(!firebaseReady) return;
   const payload = {
-    startStation, endStation,
+    startStation, endStation, intermediateStop: intermediateStop || null,
     reportedBy: state.userName, reportedByUid: state.uid || null, ts: Date.now(),
     originalTripId: v.tripId || null
   };
   try{
     await fbDb.collection('express_reports').doc(v.id).set(payload);
     expressReportCache[v.id] = payload;
-    logEdit(state.userName, state.uid, `Reported car ${formatCarNumberForDisplay(v.label)} running express from ${startStation} to ${endStation}`);
+    const stopNote = intermediateStop ? ` (still stopping at ${intermediateStop})` : '';
+    logEdit(state.userName, state.uid, `Reported car ${formatCarNumberForDisplay(v.label)} running express from ${startStation} to ${endStation}${stopNote}`);
   }catch(e){ console.error(e); }
 }
 async function clearExpressReport(vehicleId){
@@ -2761,6 +2762,22 @@ async function showCarModal(v){
     oosByCar[carNum] = oosList[i];
   });
 
+  const allCarsOOS = carParts.every(c => oosByCar[c] && oosByCar[c].outOfService);
+  const anyCarOOS = carParts.some(c => oosByCar[c] && oosByCar[c].outOfService);
+  const oosMarkedByEntry = carParts.map(c => oosByCar[c]).find(d => d && d.outOfService);
+  const consolidatedOOSSection = `
+    <div class="modal-section">
+      <h4>Out of service</h4>
+      ${allCarsOOS
+        ? `<div class="modal-row"><span>Status</span><strong style="color:#D64545;">Out of Service</strong></div>
+           <span class="signin-note">Marked by ${liveName(oosMarkedByEntry.markedBy, oosMarkedByEntry.markedByUid, userInfoMap)} today \u2014 clears at end of service day</span>`
+        : (anyCarOOS ? `<div class="signin-note">Some but not all cars in this set are currently marked Out of Service.</div>` : '')}
+      ${state.signedIn
+        ? `<button class="account-btn" id="oosToggleAllBtn" data-oos-all-current="${allCarsOOS ? '1' : '0'}" style="margin-top:8px; ${allCarsOOS ? 'background:#0F8A4B;' : 'background:#D64545;'}">${allCarsOOS ? 'Mark this train back in service' : 'Mark this train Out of Service'}</button>`
+        : `<div class="signin-note">Sign in to report a train's service status.</div>`}
+    </div>
+  `;
+
   // Trip notes are tied to the train's current destination — if the MBTA feed
   // now shows a different headsign than when the notes were saved, this is
   // effectively a new trip, so the old notes no longer apply and get cleared.
@@ -2813,17 +2830,6 @@ async function showCarModal(v){
     const infoMap = lineCarInfoMap();
     const info = infoMap[type] || infoMap['Unknown'];
 
-    const oosData = oosByCar[carNum];
-    const isOOS = !!(oosData && oosData.outOfService);
-    const oosViewLine = isOOS
-      ? `<div class="modal-row"><span>Status</span><strong style="color:#D64545;">Out of Service</strong></div>
-         <span class="signin-note">Marked by ${liveName(oosData.markedBy, oosData.markedByUid, userInfoMap)} today \u2014 clears at end of service day</span>`
-      : '';
-    const oosButton = state.signedIn
-      ? `<button class="account-btn" data-oos-toggle="${carNum}" data-oos-current="${isOOS ? '1' : '0'}" style="margin-top:6px; ${isOOS ? 'background:#0F8A4B;' : 'background:#D64545;'}">${isOOS ? 'Mark this car back in service' : 'Mark this car out of service'}</button>`
-      : `<div class="signin-note">Sign in to report a car's service status.</div>`;
-    const oosBlock = `<div class="modal-row-spacer"></div>${oosViewLine}${oosButton}`;
-
     if(!isGreenLine){
       const crowdingStatus = getCrowdingForCar(v, carNum);
       const capacityPercent = getCapacityPercentForCar(v, carNum);
@@ -2846,7 +2852,6 @@ async function showCarModal(v){
             <div class="modal-row"><span>Year built</span><strong>${info.year}</strong></div>
             ${crowdingRow}
             ${capacityRow}
-            ${oosBlock}
           </div>
         </div>`;
     }
@@ -2900,7 +2905,6 @@ async function showCarModal(v){
           <div class="modal-row"><span>GLTPS</span><strong style="${gltpsColor}">${gltpsText}</strong></div>
           ${gltpsButtons}
           ${operatorBlock}
-          ${oosBlock}
         </div>
       </div>`;
   }).join('');
@@ -3009,6 +3013,7 @@ async function showCarModal(v){
     ? `<div class="modal-section">
         <h4>Running express</h4>
         <div class="modal-row"><span>From</span><strong>${displayName(existingExpress.startStation)}</strong></div>
+        ${existingExpress.intermediateStop ? `<div class="modal-row"><span>Still stops at</span><strong>${displayName(existingExpress.intermediateStop)}</strong></div>` : ''}
         <div class="modal-row"><span>To</span><strong>${displayName(existingExpress.endStation)}</strong></div>
         <div class="signin-note">Reported by ${existingExpress.reportedBy || 'Unknown'} \u2014 clears automatically once the train reaches ${displayName(existingExpress.endStation)}.</div>
         ${state.signedIn ? `<button class="roster-reset-btn" id="clearExpressBtn" style="margin-top:8px;">Clear this report</button>` : ''}
@@ -3021,6 +3026,8 @@ async function showCarModal(v){
         </datalist>
         <div class="roster-field-label">Express from</div>
         <input type="text" class="roster-input" id="expressStartStation" list="expressStationsDatalist" placeholder="Start typing a station&hellip;" autocomplete="off">
+        <div class="roster-field-label">Still stops at (optional)</div>
+        <input type="text" class="roster-input" id="expressIntermediateStop" list="expressStationsDatalist" placeholder="Only if it makes one stop in between&hellip;" autocomplete="off">
         <div class="roster-field-label">Express to</div>
         <input type="text" class="roster-input" id="expressEndStation" list="expressStationsDatalist" placeholder="Start typing a station&hellip;" autocomplete="off">
         <button class="account-btn" id="reportExpressBtn" style="margin-top:8px;">Report running express</button>
@@ -3103,6 +3110,7 @@ async function showCarModal(v){
       ${tripNotesListHtml}
       ${tripNotesEditForm}
     </div>
+    ${consolidatedOOSSection}
   `;
 
   const tripNotesSaveBtn = document.getElementById('tripNotesSaveBtn');
@@ -3298,6 +3306,7 @@ async function showCarModal(v){
     reportExpressBtn.addEventListener('click', async ()=>{
       const startTyped = document.getElementById('expressStartStation').value.trim();
       const endTyped = document.getElementById('expressEndStation').value.trim();
+      const intermediateTyped = document.getElementById('expressIntermediateStop').value.trim();
       const note = document.getElementById('expressNote');
       if(!startTyped || !endTyped){
         note.textContent = 'Enter both a start and end station.';
@@ -3313,7 +3322,15 @@ async function showCarModal(v){
         note.textContent = 'Start and end station need to be different.';
         return;
       }
-      await saveExpressReport(v, startStation, endStation);
+      let intermediateStop = null;
+      if(intermediateTyped){
+        intermediateStop = expressStopOptions.find(s => normName(s) === normName(intermediateTyped));
+        if(!intermediateStop){
+          note.textContent = "The intermediate stop doesn't match a real station on this train's route.";
+          return;
+        }
+      }
+      await saveExpressReport(v, startStation, endStation, intermediateStop);
       awardPoints(6);
       showCarModal(v);
     });
@@ -3326,19 +3343,19 @@ async function showCarModal(v){
     });
   }
 
-  document.querySelectorAll('[data-oos-toggle]').forEach(btn=>{
-    btn.addEventListener('click', async ()=>{
-      const carNum = btn.dataset.oosToggle;
-      const isCurrentlyOOS = btn.dataset.oosCurrent === '1';
-      if(isCurrentlyOOS){
-        await clearCarOutOfService(carNum);
+  const oosToggleAllBtn = document.getElementById('oosToggleAllBtn');
+  if(oosToggleAllBtn){
+    oosToggleAllBtn.addEventListener('click', async ()=>{
+      const isCurrentlyAllOOS = oosToggleAllBtn.dataset.oosAllCurrent === '1';
+      if(isCurrentlyAllOOS){
+        await Promise.all(carParts.map(c => clearCarOutOfService(c)));
       }else{
-        await markCarOutOfService(carNum);
+        await Promise.all(carParts.map(c => markCarOutOfService(c)));
         awardPoints(1);
       }
       showCarModal(v);
     });
-  });
+  }
 
   document.querySelectorAll('[data-op-save]').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
