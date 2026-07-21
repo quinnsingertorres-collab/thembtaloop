@@ -2586,6 +2586,48 @@ async function loadCarOutOfService(carNum){
     return data;
   }catch(e){ console.error(e); return null; }
 }
+
+// Hiding a specific train from the map/list entirely, for the rest of the
+// service day — e.g. for a train someone knows is about to be pulled, or
+// just doesn't want cluttering their view. Re-shows automatically the
+// moment it actually moves to a different stop or starts a new trip
+// (both strong signals the "hide" no longer applies to whatever's really
+// happening), or naturally expires at the start of a new service day.
+let hiddenTrainsCache = {};
+async function refreshHiddenTrainsCache(){
+  if(!firebaseReady) return;
+  try{
+    const snap = await fbDb.collection('hidden_trains').get();
+    const map = {};
+    const today = todayDateString();
+    const staleDocs = [];
+    snap.forEach(doc=>{
+      const d = doc.data();
+      if(d.date === today) map[doc.id] = d;
+      else staleDocs.push(doc.ref);
+    });
+    hiddenTrainsCache = map;
+    staleDocs.forEach(ref => ref.delete().catch(e => console.error(e)));
+  }catch(e){ console.error(e); }
+}
+async function hideTrainForToday(v){
+  if(!firebaseReady) return;
+  try{
+    const payload = {
+      hiddenBy: state.userName, hiddenByUid: state.uid || null, ts: Date.now(),
+      date: todayDateString(),
+      stopNameAtHide: v.stopName || null, tripIdAtHide: v.tripId || null
+    };
+    await fbDb.collection('hidden_trains').doc(v.id).set(payload);
+    hiddenTrainsCache[v.id] = payload;
+    logEdit(state.userName, state.uid, `Hid car ${formatCarNumberForDisplay(v.label)} from view for the rest of the service day`);
+  }catch(e){ console.error(e); }
+}
+async function unhideTrain(vehicleId){
+  if(!firebaseReady) return;
+  try{ await fbDb.collection('hidden_trains').doc(vehicleId).delete(); }catch(e){ console.error(e); }
+  delete hiddenTrainsCache[vehicleId];
+}
 async function markCarOutOfService(carNum){
   if(!firebaseReady) return;
   try{
@@ -3111,6 +3153,13 @@ async function showCarModal(v){
       ${tripNotesEditForm}
     </div>
     ${consolidatedOOSSection}
+    <div class="modal-section">
+      <h4>Hide this train</h4>
+      <div class="signin-note">Removes this train from the map and list for you and everyone else, for the rest of the service day. Reappears automatically if it moves to a different stop or starts a new trip.</div>
+      ${state.signedIn
+        ? `<button class="roster-reset-btn" id="hideTrainBtn" style="margin-top:8px; background:#D64545; color:#fff; border-color:#D64545;">Hide this train until end of service day</button>`
+        : `<div class="signin-note" style="margin-top:6px;">Sign in to hide a train.</div>`}
+    </div>
   `;
 
   const tripNotesSaveBtn = document.getElementById('tripNotesSaveBtn');
@@ -3354,6 +3403,16 @@ async function showCarModal(v){
         awardPoints(1);
       }
       showCarModal(v);
+    });
+  }
+
+  const hideTrainBtn = document.getElementById('hideTrainBtn');
+  if(hideTrainBtn){
+    hideTrainBtn.addEventListener('click', async ()=>{
+      if(!window.confirm('Hide this train for everyone, for the rest of the service day? It will reappear automatically once it moves to a different stop or starts a new trip.')) return;
+      await hideTrainForToday(v);
+      document.getElementById('carModalOverlay').classList.remove('show');
+      modalRefreshToken++;
     });
   }
 
@@ -4828,6 +4887,22 @@ function clearStaleDestinationOverrides(now){
       clearExpressReport(vehicleId);
     }
   });
+  // A hidden train reappears the moment it's actually moved to a
+  // different stop or started a new trip — both strong, reliable signs
+  // that whatever prompted hiding it no longer applies. Not checked
+  // against trip ID alone for the same reason express reports aren't
+  // (Green Line trip IDs can churn even mid-trip), so a stop change is
+  // checked too.
+  Object.keys(hiddenTrainsCache).forEach(vehicleId=>{
+    const hidden = hiddenTrainsCache[vehicleId];
+    const liveVehicle = state.vehicles.find(v => v.id === vehicleId);
+    if(!liveVehicle) return;
+    const stopChanged = hidden.stopNameAtHide && liveVehicle.stopName && normName(liveVehicle.stopName) !== normName(hidden.stopNameAtHide);
+    const tripChanged = hidden.tripIdAtHide && liveVehicle.tripId && liveVehicle.tripId !== hidden.tripIdAtHide;
+    if(stopChanged || tripChanged){
+      unhideTrain(vehicleId);
+    }
+  });
   // Prune entries well past the point they'd ever matter for this check,
   // so the tracker doesn't grow unbounded over a long-running session.
   const pruneBeforeMs = 30 * 60 * 1000;
@@ -4923,6 +4998,11 @@ async function refreshVehicles(){
   // MBTA's feed explicitly reporting that location is already confirmation,
   // so there's no ambiguity to wait out; remove them right away.
   state.vehicles = state.vehicles.filter(v => !isAtInnerbeltYard(v));
+
+  // A train someone chose to hide for the rest of the service day — kept
+  // out of state.vehicles entirely so every downstream view (map, list,
+  // counts) automatically excludes it without needing individual filters.
+  state.vehicles = state.vehicles.filter(v => !hiddenTrainsCache[v.id]);
 
   // A Green Line fleet number (Type 7/8/9/10, PCC) showing up on Red,
   // Orange, or Blue is a data error, not a real train — car numbers don't
@@ -6373,6 +6453,9 @@ async function init(){
 
   refreshOutOfServiceCache();
   setInterval(refreshOutOfServiceCache, 60000);
+
+  refreshHiddenTrainsCache();
+  setInterval(refreshHiddenTrainsCache, 60000);
 
   refreshSoloType7OverrideCache();
   setInterval(refreshSoloType7OverrideCache, 60000);
