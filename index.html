@@ -3003,16 +3003,13 @@ async function showCarModal(v){
     : (state.signedIn ? `<div class="modal-section">
         <h4>Running express</h4>
         <div class="signin-note">Report this train skipping stops between two stations.</div>
+        <datalist id="expressStationsDatalist">
+          ${validStopsForThisVehicle.map(s => `<option value="${s.replace(/"/g,'&quot;')}">`).join('')}
+        </datalist>
         <div class="roster-field-label">Express from</div>
-        <select class="roster-input" id="expressStartStation">
-          <option value="">Select a station&hellip;</option>
-          ${validStopsForThisVehicle.map(s => `<option value="${s.replace(/"/g,'&quot;')}">${displayName(s)}</option>`).join('')}
-        </select>
+        <input type="text" class="roster-input" id="expressStartStation" list="expressStationsDatalist" placeholder="Start typing a station&hellip;" autocomplete="off">
         <div class="roster-field-label">Express to</div>
-        <select class="roster-input" id="expressEndStation">
-          <option value="">Select a station&hellip;</option>
-          ${validStopsForThisVehicle.map(s => `<option value="${s.replace(/"/g,'&quot;')}">${displayName(s)}</option>`).join('')}
-        </select>
+        <input type="text" class="roster-input" id="expressEndStation" list="expressStationsDatalist" placeholder="Start typing a station&hellip;" autocomplete="off">
         <button class="account-btn" id="reportExpressBtn" style="margin-top:8px;">Report running express</button>
         <span class="roster-submit-note" id="expressNote"></span>
       </div>` : '');
@@ -3286,11 +3283,17 @@ async function showCarModal(v){
   const reportExpressBtn = document.getElementById('reportExpressBtn');
   if(reportExpressBtn){
     reportExpressBtn.addEventListener('click', async ()=>{
-      const startStation = document.getElementById('expressStartStation').value;
-      const endStation = document.getElementById('expressEndStation').value;
+      const startTyped = document.getElementById('expressStartStation').value.trim();
+      const endTyped = document.getElementById('expressEndStation').value.trim();
       const note = document.getElementById('expressNote');
+      if(!startTyped || !endTyped){
+        note.textContent = 'Enter both a start and end station.';
+        return;
+      }
+      const startStation = validStopsForThisVehicle.find(s => normName(s) === normName(startTyped));
+      const endStation = validStopsForThisVehicle.find(s => normName(s) === normName(endTyped));
       if(!startStation || !endStation){
-        note.textContent = 'Pick both a start and end station.';
+        note.textContent = "That doesn't match a real station on this train's route \u2014 pick one from the suggestions.";
         return;
       }
       if(startStation === endStation){
