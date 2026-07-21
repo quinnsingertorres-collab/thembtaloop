@@ -4788,7 +4788,7 @@ function clearStaleDestinationOverrides(now){
     const curIdx = findStopIndex(pageKeyForVehicle, liveVehicle.stopName);
     const endIdx = findStopIndex(pageKeyForVehicle, report.endStation);
     if(curIdx === null || endIdx === null) return;
-    const hasReachedOrPassedEnd = liveVehicle.direction === 0 ? curIdx <= endIdx : curIdx >= endIdx;
+    const hasReachedOrPassedEnd = liveVehicle.direction === 0 ? curIdx >= endIdx : curIdx <= endIdx;
     if(hasReachedOrPassedEnd){
       clearExpressReport(vehicleId);
     }
