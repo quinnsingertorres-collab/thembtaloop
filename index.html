@@ -1579,6 +1579,42 @@ async function loadDestinationOverride(vehicleId){
     return data[vehicleId] || null;
   }catch(e){ return null; }
 }
+// Community "standing by" reports — a train holding at a station, with an
+// optional expected hold time and free-text notes. Tied to the reported
+// station and the trip it was made on; auto-clears the moment the train's
+// live position moves on from that station, or it starts a new trip.
+let standingByCache = {};
+async function refreshStandingByCache(){
+  if(!firebaseReady) return;
+  try{
+    const snap = await fbDb.collection('standing_by_reports').get();
+    const map = {};
+    snap.forEach(doc => { map[doc.id] = doc.data(); });
+    standingByCache = map;
+  }catch(e){ console.error(e); }
+}
+async function saveStandingByReport(v, stationName, holdMinutes, notes){
+  if(!firebaseReady) return;
+  const payload = {
+    stationName,
+    holdMinutes: holdMinutes || null,
+    notes: notes || null,
+    reportedBy: state.userName, reportedByUid: state.uid || null, ts: Date.now(),
+    originalTripId: v.tripId || null
+  };
+  try{
+    await fbDb.collection('standing_by_reports').doc(v.id).set(payload);
+    standingByCache[v.id] = payload;
+    const holdText = holdMinutes ? ` for about ${holdMinutes} min` : '';
+    logEdit(state.userName, state.uid, `Reported car ${formatCarNumberForDisplay(v.label)} standing by at ${stationName}${holdText}`);
+  }catch(e){ console.error(e); }
+}
+async function clearStandingByReport(vehicleId){
+  if(!firebaseReady) return;
+  try{ await fbDb.collection('standing_by_reports').doc(vehicleId).delete(); }catch(e){ console.error(e); }
+  delete standingByCache[vehicleId];
+}
+
 async function saveDestinationOverride(v, destination){
   const payload = {
     destination, editedBy: state.userName, editedByUid: state.uid || null, ts: Date.now(),
@@ -2855,6 +2891,41 @@ async function showCarModal(v){
   const isGreenBranchEligible = isGreenLine && ['B','C','D','E'].includes(v.branch);
   const isRedBranchEligible = state.activeLine === 'red';
 
+  // "Standing by" report section — station dropdown is restricted to this
+  // train's own real route (using the same branch-resolution logic used
+  // elsewhere), so a report can't be filed against a station the train
+  // could never actually reach.
+  const validStopsForThisVehicle = (()=>{
+    if(state.activeLine === 'red'){
+      const branch = getRedLineBranch(v);
+      return PAGES[branch === 'ashmont' ? 'REDASHMONT' : 'REDBRAINTREE'].stops;
+    }
+    if(v.branch && PAGES[v.branch]) return PAGES[v.branch].stops;
+    return PAGES[state.activeLine === 'orange' ? 'ORANGE' : state.activeLine === 'blue' ? 'BLUE' : 'B'].stops;
+  })();
+  const existingStandingBy = standingByCache[v.id];
+  const standingBySection = existingStandingBy
+    ? `<div class="modal-section">
+        <h4>Standing by</h4>
+        <div class="modal-row"><span>Station</span><strong>${displayName(existingStandingBy.stationName)}</strong></div>
+        ${existingStandingBy.holdMinutes ? `<div class="modal-row"><span>Expected hold</span><strong>~${existingStandingBy.holdMinutes} min</strong></div>` : ''}
+        ${existingStandingBy.notes ? `<div class="signin-note">"${existingStandingBy.notes}"</div>` : ''}
+        <div class="signin-note">Reported by ${existingStandingBy.reportedBy || 'Unknown'} \u2014 clears automatically once the train leaves this station.</div>
+        ${state.signedIn ? `<button class="roster-reset-btn" id="clearStandingByBtn" style="margin-top:8px;">Clear this report</button>` : ''}
+      </div>`
+    : (state.signedIn ? `<div class="modal-section">
+        <h4>Standing by</h4>
+        <div class="signin-note">Report this train holding at a station along its route.</div>
+        <select class="roster-input" id="standingByStation" style="margin-top:6px;">
+          <option value="">Select a station&hellip;</option>
+          ${validStopsForThisVehicle.map(s => `<option value="${s.replace(/"/g,'&quot;')}">${displayName(s)}</option>`).join('')}
+        </select>
+        <input type="number" class="roster-input" id="standingByMinutes" placeholder="Expected hold time in minutes (optional)" min="0">
+        <textarea class="roster-textarea" id="standingByNotes" placeholder="Notes (optional)" style="margin-top:8px;"></textarea>
+        <button class="account-btn" id="reportStandingByBtn" style="margin-top:8px;">Report standing by</button>
+        <span class="roster-submit-note" id="standingByNote"></span>
+      </div>` : '');
+
   let branchAssignSection = '';
   if(isGreenBranchEligible){
     const ALL_GREEN_BRANCHES = ['B','C','D','E'];
@@ -2908,6 +2979,7 @@ async function showCarModal(v){
       <div class="modal-row"><span>Last update</span><strong>${secondsAgo}s ago</strong></div>
     </div>
     ${branchAssignSection}
+    ${standingBySection}
     ${crowdingStrip}
     ${carSections}
     <div class="modal-section">
@@ -3074,6 +3146,29 @@ async function showCarModal(v){
   if(undoBranchReassignBtn){
     undoBranchReassignBtn.addEventListener('click', async ()=>{
       await clearBranchReassignment(v.id);
+      showCarModal(v);
+    });
+  }
+
+  const reportStandingByBtn = document.getElementById('reportStandingByBtn');
+  if(reportStandingByBtn){
+    reportStandingByBtn.addEventListener('click', async ()=>{
+      const station = document.getElementById('standingByStation').value;
+      const minutes = document.getElementById('standingByMinutes').value.trim();
+      const notes = document.getElementById('standingByNotes').value.trim();
+      const note = document.getElementById('standingByNote');
+      if(!station){
+        note.textContent = 'Pick a station first.';
+        return;
+      }
+      await saveStandingByReport(v, station, minutes ? parseInt(minutes, 10) : null, notes);
+      showCarModal(v);
+    });
+  }
+  const clearStandingByBtn = document.getElementById('clearStandingByBtn');
+  if(clearStandingByBtn){
+    clearStandingByBtn.addEventListener('click', async ()=>{
+      await clearStandingByReport(v.id);
       showCarModal(v);
     });
   }
@@ -4493,6 +4588,26 @@ function clearStaleDestinationOverrides(now){
     const lastSeen = vehicleLastSeenTs[vehicleId];
     if(lastSeen === undefined || (now - lastSeen) > DESTINATION_OVERRIDE_STALE_MS){
       clearBranchReassignment(vehicleId);
+    }
+  });
+  // A "standing by" report is only meaningful while the train is actually
+  // still at the reported station — clear it the moment MBTA's feed shows
+  // it anywhere else, or it starts a new trip, or it goes untracked.
+  Object.keys(standingByCache).forEach(vehicleId=>{
+    const report = standingByCache[vehicleId];
+    const lastSeen = vehicleLastSeenTs[vehicleId];
+    if(lastSeen === undefined || (now - lastSeen) > DESTINATION_OVERRIDE_STALE_MS){
+      clearStandingByReport(vehicleId);
+      return;
+    }
+    const liveVehicle = state.vehicles.find(v => v.id === vehicleId);
+    if(!liveVehicle) return;
+    if(report.originalTripId && liveVehicle.tripId && liveVehicle.tripId !== report.originalTripId){
+      clearStandingByReport(vehicleId);
+      return;
+    }
+    if(liveVehicle.stopName && normName(liveVehicle.stopName) !== normName(report.stationName)){
+      clearStandingByReport(vehicleId);
     }
   });
   // Prune entries well past the point they'd ever matter for this check,
@@ -6013,6 +6128,9 @@ async function init(){
 
   refreshBranchReassignmentCache();
   setInterval(refreshBranchReassignmentCache, 60000);
+
+  refreshStandingByCache();
+  setInterval(refreshStandingByCache, 60000);
 
   routeOnLoad();
 }
