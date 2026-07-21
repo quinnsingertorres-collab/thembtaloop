@@ -318,6 +318,14 @@ body.dark .stop-dot{background:#ffffff;}
   box-shadow:0 0 0 2px #F59E0B, 0 1px 3px rgba(0,0,0,0.4);
   flex:0 0 auto;
 }
+.bubble-standingby-badge{
+  display:inline-flex; align-items:center; justify-content:center;
+  width:20px; height:20px; border-radius:50%;
+  background:#fff;
+  margin-left:5px; font-size:12px; line-height:1;
+  box-shadow:0 0 0 2px #D64545, 0 1px 3px rgba(0,0,0,0.4);
+  flex:0 0 auto;
+}
 .train-bubble .bline-first{font-weight:800;}
 
 .train-bubble.rainbow-outline{
@@ -2446,16 +2454,20 @@ function renderTrainDots(){
       const expressBadge = expressEntry
         ? `<span class="bubble-express-badge" title="Reported running express from ${expressEntry.startStation} to ${expressEntry.endStation}"><svg viewBox="0 0 24 24" width="12" height="12" fill="none"><path d="M5 5l7 7-7 7" stroke="#F59E0B" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><path d="M13 5l7 7-7 7" stroke="#F59E0B" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg></span>`
         : '';
+      const standingByEntry = standingByCache[entry.v.id];
+      const standingByBadge = standingByEntry
+        ? `<span class="bubble-standingby-badge" title="Reported standing by at ${standingByEntry.stationName}"><svg viewBox="0 0 24 24" width="12" height="12" fill="none"><path d="M8 2h8l6 6v8l-6 6H8l-6-6V8l6-6z" fill="#D64545"/><rect x="6.5" y="10.8" width="11" height="2.4" rx="1.2" fill="#fff"/></svg></span>`
+        : '';
       if(state.activeLine === 'red'){
         bubble.innerHTML = redBranch
-          ? `<span class="bletter">${bubbleBranch}</span><span class="bnums"><span class="bline bline-first">${formatCarNumberForDisplay(carParts[0])}</span></span>${destBadge}${expressBadge}`
-          : `<span class="bnums"><span class="bline bline-first">${formatCarNumberForDisplay(carParts[0])}</span></span>${destBadge}${expressBadge}`;
+          ? `<span class="bletter">${bubbleBranch}</span><span class="bnums"><span class="bline bline-first">${formatCarNumberForDisplay(carParts[0])}</span></span>${destBadge}${expressBadge}${standingByBadge}`
+          : `<span class="bnums"><span class="bline bline-first">${formatCarNumberForDisplay(carParts[0])}</span></span>${destBadge}${expressBadge}${standingByBadge}`;
       }else if(state.activeLine !== 'green'){
-        bubble.innerHTML = `<span class="bnums"><span class="bline bline-first">${formatCarNumberForDisplay(carParts[0])}</span></span>${destBadge}${expressBadge}`;
+        bubble.innerHTML = `<span class="bnums"><span class="bline bline-first">${formatCarNumberForDisplay(carParts[0])}</span></span>${destBadge}${expressBadge}${standingByBadge}`;
       }else if(carParts.length >= 2){
-        bubble.innerHTML = `<span class="bletter">${bubbleBranch}</span><span class="bnums">${carParts.map((p,i) => `<span class="bline${i===0?' bline-first':''}">${p}</span>`).join('')}</span>${destBadge}${expressBadge}`;
+        bubble.innerHTML = `<span class="bletter">${bubbleBranch}</span><span class="bnums">${carParts.map((p,i) => `<span class="bline${i===0?' bline-first':''}">${p}</span>`).join('')}</span>${destBadge}${expressBadge}${standingByBadge}`;
       }else{
-        bubble.innerHTML = `<span class="bletter">${bubbleBranch}</span><span class="bnums"><span class="bline bline-first">${effectiveBubbleLabel}</span></span>${destBadge}${expressBadge}`;
+        bubble.innerHTML = `<span class="bletter">${bubbleBranch}</span><span class="bnums"><span class="bline bline-first">${effectiveBubbleLabel}</span></span>${destBadge}${expressBadge}${standingByBadge}`;
       }
 
       const anchorX = side === 'west' ? (bubbleX + layout.BUBBLE_W) : bubbleX;
@@ -6157,6 +6169,16 @@ function carMatchesQuery(carNum, query){
   return false;
 }
 
+function findMatchingCarVehicle(query){
+  let matchedCar = null;
+  const match = state.vehicles.find(v => {
+    const found = String(v.label).split('-').find(c => carMatchesQuery(c, query));
+    if(found){ matchedCar = found; return true; }
+    return false;
+  });
+  return match ? { match, matchedCar } : null;
+}
+
 function searchForCar(){
   const input = document.getElementById('carSearchInput');
   const note = document.getElementById('carSearchNote');
@@ -6168,18 +6190,13 @@ function searchForCar(){
     return;
   }
 
-  let matchedCar = null;
-  const match = state.vehicles.find(v => {
-    const found = String(v.label).split('-').find(c => carMatchesQuery(c, query));
-    if(found){ matchedCar = found; return true; }
-    return false;
-  });
-
-  if(!match){
+  const result = findMatchingCarVehicle(query);
+  if(!result){
     note.textContent = `Car ${query} is not currently in active service.`;
     note.classList.add('error');
     return;
   }
+  const { match, matchedCar } = result;
 
   note.textContent = `Found car ${matchedCar} on the ${getDisplayBranch(match.branch)} line.`;
   switchPage(match.branch);
@@ -6193,9 +6210,37 @@ function searchForCar(){
   }
 }
 
+function searchAndOpenCar(){
+  const input = document.getElementById('carSearchInput');
+  const note = document.getElementById('carSearchNote');
+  const query = input.value.trim();
+  note.classList.remove('error');
+
+  if(!query){
+    note.textContent = 'Enter a car number to search.';
+    return;
+  }
+
+  const result = findMatchingCarVehicle(query);
+  if(!result){
+    note.textContent = `Car ${query} is not currently in active service.`;
+    note.classList.add('error');
+    return;
+  }
+  const { match, matchedCar } = result;
+  note.textContent = `Found car ${matchedCar} on the ${getDisplayBranch(match.branch)} line.`;
+  switchPage(match.branch);
+  showCarModal(match);
+}
+
 document.getElementById('carSearchBtn').addEventListener('click', searchForCar);
 document.getElementById('carSearchInput').addEventListener('keydown', (e)=>{
-  if(e.key === 'Enter') searchForCar();
+  if(e.key === 'Enter' && (e.ctrlKey || e.metaKey)){
+    e.preventDefault();
+    searchAndOpenCar();
+  }else if(e.key === 'Enter'){
+    searchForCar();
+  }
 });
 
 /* ---------------- Panel alignment (desktop two-column layout) ---------------- */
