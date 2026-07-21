@@ -2457,7 +2457,7 @@ function renderTrainDots(){
         : '';
       const standingByEntry = standingByCache[entry.v.id];
       const standingByBadge = standingByEntry
-        ? `<span class="bubble-standingby-badge" title="Reported standing by at ${standingByEntry.stationName}"><svg viewBox="0 0 24 24" width="12" height="12" fill="none"><path d="M8 2h8l6 6v8l-6 6H8l-6-6V8l6-6z" fill="#D64545"/><rect x="6.5" y="10.8" width="11" height="2.4" rx="1.2" fill="#fff"/></svg></span>`
+        ? `<span class="bubble-standingby-badge" title="Reported standing by at ${standingByEntry.stationName}"><svg viewBox="0 0 24 24" width="12" height="12" fill="none"><path d="M8 2h8l6 6v8l-6 6H8l-6-6V8l6-6z" fill="#D64545"/></svg></span>`
         : '';
       if(state.activeLine === 'red'){
         bubble.innerHTML = redBranch
