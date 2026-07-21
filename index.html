@@ -310,6 +310,14 @@ body.dark .stop-dot{background:#ffffff;}
   margin-left:5px; box-shadow:0 0 0 2.5px #D64545, 0 1px 3px rgba(0,0,0,0.4);
   flex:0 0 auto;
 }
+.bubble-express-badge{
+  display:inline-flex; align-items:center; justify-content:center;
+  width:20px; height:20px; border-radius:50%;
+  background:#fff;
+  margin-left:5px; font-size:12px; line-height:1;
+  box-shadow:0 0 0 2px #F59E0B, 0 1px 3px rgba(0,0,0,0.4);
+  flex:0 0 auto;
+}
 .train-bubble .bline-first{font-weight:800;}
 
 .train-bubble.rainbow-outline{
@@ -1615,6 +1623,38 @@ async function clearStandingByReport(vehicleId){
   delete standingByCache[vehicleId];
 }
 
+// Community "running express" reports — a train skipping stops between a
+// reported start and end station. Auto-clears once the train reaches/passes
+// the end station, starts a new trip, or goes untracked.
+let expressReportCache = {};
+async function refreshExpressReportCache(){
+  if(!firebaseReady) return;
+  try{
+    const snap = await fbDb.collection('express_reports').get();
+    const map = {};
+    snap.forEach(doc => { map[doc.id] = doc.data(); });
+    expressReportCache = map;
+  }catch(e){ console.error(e); }
+}
+async function saveExpressReport(v, startStation, endStation){
+  if(!firebaseReady) return;
+  const payload = {
+    startStation, endStation,
+    reportedBy: state.userName, reportedByUid: state.uid || null, ts: Date.now(),
+    originalTripId: v.tripId || null
+  };
+  try{
+    await fbDb.collection('express_reports').doc(v.id).set(payload);
+    expressReportCache[v.id] = payload;
+    logEdit(state.userName, state.uid, `Reported car ${formatCarNumberForDisplay(v.label)} running express from ${startStation} to ${endStation}`);
+  }catch(e){ console.error(e); }
+}
+async function clearExpressReport(vehicleId){
+  if(!firebaseReady) return;
+  try{ await fbDb.collection('express_reports').doc(vehicleId).delete(); }catch(e){ console.error(e); }
+  delete expressReportCache[vehicleId];
+}
+
 async function saveDestinationOverride(v, destination){
   const payload = {
     destination, editedBy: state.userName, editedByUid: state.uid || null, ts: Date.now(),
@@ -2402,16 +2442,20 @@ function renderTrainDots(){
       const destBadge = hasAlteredDestination
         ? `<span class="bubble-dest-badge" title="Destination reported as changed"><svg viewBox="0 0 24 24" width="15" height="15" fill="none"><path d="M12 3.5L2 20.5h20L12 3.5z" fill="currentColor"/><rect x="10.8" y="8.8" width="2.4" height="5.6" rx="1.2" fill="#fff"/><circle cx="12" cy="17.2" r="1.35" fill="#fff"/></svg></span>`
         : '';
+      const expressEntry = expressReportCache[entry.v.id];
+      const expressBadge = expressEntry
+        ? `<span class="bubble-express-badge" title="Reported running express from ${expressEntry.startStation} to ${expressEntry.endStation}">\ud83c\udfc3</span>`
+        : '';
       if(state.activeLine === 'red'){
         bubble.innerHTML = redBranch
-          ? `<span class="bletter">${bubbleBranch}</span><span class="bnums"><span class="bline bline-first">${formatCarNumberForDisplay(carParts[0])}</span></span>${destBadge}`
-          : `<span class="bnums"><span class="bline bline-first">${formatCarNumberForDisplay(carParts[0])}</span></span>${destBadge}`;
+          ? `<span class="bletter">${bubbleBranch}</span><span class="bnums"><span class="bline bline-first">${formatCarNumberForDisplay(carParts[0])}</span></span>${destBadge}${expressBadge}`
+          : `<span class="bnums"><span class="bline bline-first">${formatCarNumberForDisplay(carParts[0])}</span></span>${destBadge}${expressBadge}`;
       }else if(state.activeLine !== 'green'){
-        bubble.innerHTML = `<span class="bnums"><span class="bline bline-first">${formatCarNumberForDisplay(carParts[0])}</span></span>${destBadge}`;
+        bubble.innerHTML = `<span class="bnums"><span class="bline bline-first">${formatCarNumberForDisplay(carParts[0])}</span></span>${destBadge}${expressBadge}`;
       }else if(carParts.length >= 2){
-        bubble.innerHTML = `<span class="bletter">${bubbleBranch}</span><span class="bnums">${carParts.map((p,i) => `<span class="bline${i===0?' bline-first':''}">${p}</span>`).join('')}</span>${destBadge}`;
+        bubble.innerHTML = `<span class="bletter">${bubbleBranch}</span><span class="bnums">${carParts.map((p,i) => `<span class="bline${i===0?' bline-first':''}">${p}</span>`).join('')}</span>${destBadge}${expressBadge}`;
       }else{
-        bubble.innerHTML = `<span class="bletter">${bubbleBranch}</span><span class="bnums"><span class="bline bline-first">${effectiveBubbleLabel}</span></span>${destBadge}`;
+        bubble.innerHTML = `<span class="bletter">${bubbleBranch}</span><span class="bnums"><span class="bline bline-first">${effectiveBubbleLabel}</span></span>${destBadge}${expressBadge}`;
       }
 
       const anchorX = side === 'west' ? (bubbleX + layout.BUBBLE_W) : bubbleX;
@@ -2926,6 +2970,32 @@ async function showCarModal(v){
         <span class="roster-submit-note" id="standingByNote"></span>
       </div>` : '');
 
+  const existingExpress = expressReportCache[v.id];
+  const expressSection = existingExpress
+    ? `<div class="modal-section">
+        <h4>Running express \ud83c\udfc3</h4>
+        <div class="modal-row"><span>From</span><strong>${displayName(existingExpress.startStation)}</strong></div>
+        <div class="modal-row"><span>To</span><strong>${displayName(existingExpress.endStation)}</strong></div>
+        <div class="signin-note">Reported by ${existingExpress.reportedBy || 'Unknown'} \u2014 clears automatically once the train reaches ${displayName(existingExpress.endStation)}.</div>
+        ${state.signedIn ? `<button class="roster-reset-btn" id="clearExpressBtn" style="margin-top:8px;">Clear this report</button>` : ''}
+      </div>`
+    : (state.signedIn ? `<div class="modal-section">
+        <h4>Running express</h4>
+        <div class="signin-note">Report this train skipping stops between two stations.</div>
+        <div class="roster-field-label">Starts skipping at</div>
+        <select class="roster-input" id="expressStartStation">
+          <option value="">Select a station&hellip;</option>
+          ${validStopsForThisVehicle.map(s => `<option value="${s.replace(/"/g,'&quot;')}">${displayName(s)}</option>`).join('')}
+        </select>
+        <div class="roster-field-label">Resumes normal service at</div>
+        <select class="roster-input" id="expressEndStation">
+          <option value="">Select a station&hellip;</option>
+          ${validStopsForThisVehicle.map(s => `<option value="${s.replace(/"/g,'&quot;')}">${displayName(s)}</option>`).join('')}
+        </select>
+        <button class="account-btn" id="reportExpressBtn" style="margin-top:8px;">Report running express</button>
+        <span class="roster-submit-note" id="expressNote"></span>
+      </div>` : '');
+
   let branchAssignSection = '';
   if(isGreenBranchEligible){
     const ALL_GREEN_BRANCHES = ['B','C','D','E'];
@@ -2980,6 +3050,7 @@ async function showCarModal(v){
     </div>
     ${branchAssignSection}
     ${standingBySection}
+    ${expressSection}
     ${crowdingStrip}
     ${carSections}
     <div class="modal-section">
@@ -3174,6 +3245,33 @@ async function showCarModal(v){
   if(clearStandingByBtn){
     clearStandingByBtn.addEventListener('click', async ()=>{
       await clearStandingByReport(v.id);
+      showCarModal(v);
+    });
+  }
+
+  const reportExpressBtn = document.getElementById('reportExpressBtn');
+  if(reportExpressBtn){
+    reportExpressBtn.addEventListener('click', async ()=>{
+      const startStation = document.getElementById('expressStartStation').value;
+      const endStation = document.getElementById('expressEndStation').value;
+      const note = document.getElementById('expressNote');
+      if(!startStation || !endStation){
+        note.textContent = 'Pick both a start and end station.';
+        return;
+      }
+      if(startStation === endStation){
+        note.textContent = 'Start and end station need to be different.';
+        return;
+      }
+      await saveExpressReport(v, startStation, endStation);
+      awardPoints(6);
+      showCarModal(v);
+    });
+  }
+  const clearExpressBtn = document.getElementById('clearExpressBtn');
+  if(clearExpressBtn){
+    clearExpressBtn.addEventListener('click', async ()=>{
+      await clearExpressReport(v.id);
       showCarModal(v);
     });
   }
@@ -4614,6 +4712,35 @@ function clearStaleDestinationOverrides(now){
     }
     if(liveVehicle.stopName && normName(liveVehicle.stopName) !== normName(report.stationName)){
       clearStandingByReport(vehicleId);
+    }
+  });
+  // An express report only applies for the segment it was made on — clear
+  // it once the train reaches/passes the reported end station, starts a
+  // new trip, or goes untracked.
+  Object.keys(expressReportCache).forEach(vehicleId=>{
+    const report = expressReportCache[vehicleId];
+    const lastSeen = vehicleLastSeenTs[vehicleId];
+    if(lastSeen === undefined || (now - lastSeen) > DESTINATION_OVERRIDE_STALE_MS){
+      clearExpressReport(vehicleId);
+      return;
+    }
+    const liveVehicle = state.vehicles.find(v => v.id === vehicleId);
+    if(!liveVehicle) return;
+    if(report.originalTripId && liveVehicle.tripId && liveVehicle.tripId !== report.originalTripId){
+      clearExpressReport(vehicleId);
+      return;
+    }
+    if(!liveVehicle.branch) return;
+    const pageKeyForVehicle = liveVehicle.branch === 'RED'
+      ? (getRedLineBranch(liveVehicle) === 'ashmont' ? 'REDASHMONT' : 'REDBRAINTREE')
+      : (PAGES[liveVehicle.branch] ? liveVehicle.branch : null);
+    if(!pageKeyForVehicle) return;
+    const curIdx = findStopIndex(pageKeyForVehicle, liveVehicle.stopName);
+    const endIdx = findStopIndex(pageKeyForVehicle, report.endStation);
+    if(curIdx === null || endIdx === null) return;
+    const hasReachedOrPassedEnd = liveVehicle.direction === 0 ? curIdx <= endIdx : curIdx >= endIdx;
+    if(hasReachedOrPassedEnd){
+      clearExpressReport(vehicleId);
     }
   });
   // Prune entries well past the point they'd ever matter for this check,
@@ -6137,6 +6264,9 @@ async function init(){
 
   refreshStandingByCache();
   setInterval(refreshStandingByCache, 60000);
+
+  refreshExpressReportCache();
+  setInterval(refreshExpressReportCache, 60000);
 
   routeOnLoad();
 }
