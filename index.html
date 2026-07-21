@@ -710,6 +710,13 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
     <div class="back-link" id="modNotifsBackBtn">&lsaquo; Back</div>
 
     <div class="roster-row">
+      <div class="roster-row-head"><span class="roster-car-chip">Disruption Mode</span></div>
+      <div class="roster-edited-by">During major disruptions (shuttle buses, single-tracking, etc.), trains can legitimately drop out of MBTA's live feed for longer stretches. Enabling this extends how long a train stays visible at its last known position after going quiet &mdash; from 5 minutes up to 15 &mdash; for everyone using the app.</div>
+      <button class="account-btn" id="disruptionModeToggleBtn" style="margin-top:8px;">Enable Disruption Mode</button>
+      <span class="roster-submit-note" id="disruptionModeNote"></span>
+    </div>
+
+    <div class="roster-row">
       <div class="roster-row-head"><span class="roster-car-chip">Push an Alert</span></div>
       <div class="roster-edited-by">Sent to all users immediately when confirmed.</div>
       <div class="roster-field-label">Alert text</div>
@@ -4380,9 +4387,65 @@ async function fetchBlueLineVehicles(){
   }).filter(v => v.stopName);
 }
 
-const STALE_VEHICLE_MS = 150000; // drop trains not updated in the last 150 seconds
 
 const VEHICLE_KEEP_ALIVE_MS = 100 * 1000; // keep a vehicle visible for 100s after it stops appearing in the feed
+// Real physical termini across all lines — a train that drops out of the
+// feed while sitting at one of these has most likely just finished a trip
+// (retired/reassigned), so it gets the normal short keep-alive. Anywhere
+// else, a train disappearing mid-route is more likely a feed hiccup, so it
+// gets a much longer grace period before actually vanishing from the map.
+const REAL_TERMINUS_STOPS = [
+  'Government Center', 'Boston College', 'Cleveland Circle', 'Union Square',
+  'Riverside', 'Medford/Tufts', 'Heath Street'
+];
+const NON_TERMINUS_KEEP_ALIVE_MS = 5 * 60 * 1000; // 5 minutes
+const NON_TERMINUS_KEEP_ALIVE_DISRUPTION_MS = 15 * 60 * 1000; // 15 minutes, when disruption mode is on
+
+// Shared, moderator-controlled setting — when on, non-terminus trains get a
+// much longer grace period before disappearing, since a real disruption
+// (shuttle buses, single-tracking) can knock a train out of MBTA's live
+// feed for a long stretch even though it's still genuinely running.
+let disruptionModeCache = false;
+async function refreshDisruptionModeCache(){
+  if(!firebaseReady) return;
+  try{
+    const doc = await fbDb.collection('mod_settings').doc('disruption_mode').get();
+    disruptionModeCache = !!(doc.exists && doc.data().enabled);
+    updateDisruptionModeUI();
+  }catch(e){ console.error(e); }
+}
+async function setDisruptionMode(enabled){
+  if(!firebaseReady) return;
+  try{
+    await fbDb.collection('mod_settings').doc('disruption_mode').set({
+      enabled, setBy: state.userName, setByUid: state.uid || null, ts: Date.now()
+    });
+    disruptionModeCache = enabled;
+    updateDisruptionModeUI();
+    logEdit(state.userName, state.uid, `${enabled ? 'Enabled' : 'Disabled'} Disruption Mode (extended train grace period)`);
+  }catch(e){ console.error(e); }
+}
+function updateDisruptionModeUI(){
+  const btn = document.getElementById('disruptionModeToggleBtn');
+  const note = document.getElementById('disruptionModeNote');
+  if(!btn) return;
+  if(disruptionModeCache){
+    btn.textContent = 'Disable Disruption Mode';
+    btn.style.background = '#D64545';
+    note.textContent = 'Disruption Mode is ON \u2014 trains stay visible for up to 15 minutes after going quiet.';
+  }else{
+    btn.textContent = 'Enable Disruption Mode';
+    btn.style.background = '';
+    note.textContent = '';
+  }
+}
+
+function keepAliveDurationFor(v){
+  if(v.stopName && !REAL_TERMINUS_STOPS.some(s => normName(s) === normName(v.stopName))){
+    return disruptionModeCache ? NON_TERMINUS_KEEP_ALIVE_DISRUPTION_MS : NON_TERMINUS_KEEP_ALIVE_MS;
+  }
+  return VEHICLE_KEEP_ALIVE_MS;
+}
 const DESTINATION_OVERRIDE_STALE_MS = 5 * 60 * 1000; // clear an updated-destination report if its train hasn't been seen in 5 minutes
 let lastKnownVehicles = {}; // vehicleId -> { vehicle, lastSeenTs }
 let vehicleLastSeenTs = {}; // vehicleId -> timestamp last actually seen in the live feed (outlives the 100s keep-alive window)
@@ -4497,7 +4560,8 @@ async function refreshVehicles(){
     state.vehicles.forEach(v => { lastKnownVehicles[v.id] = { vehicle: v, lastSeenTs: now }; });
     Object.keys(lastKnownVehicles).forEach(id=>{
       const entry = lastKnownVehicles[id];
-      if(now - entry.lastSeenTs > VEHICLE_KEEP_ALIVE_MS){
+      const keepAliveMs = keepAliveDurationFor(entry.vehicle);
+      if(now - entry.lastSeenTs > keepAliveMs){
         delete lastKnownVehicles[id];
       }else if(!seenIds.has(id)){
         state.vehicles.push(entry.vehicle);
@@ -4507,7 +4571,7 @@ async function refreshVehicles(){
 
   state.vehicles = state.vehicles.filter(v => {
     if(!v.updatedAt) return true;
-    return (now - new Date(v.updatedAt).getTime()) <= STALE_VEHICLE_MS;
+    return (now - new Date(v.updatedAt).getTime()) <= keepAliveDurationFor(v);
   });
 
   // Trains confirmed at Innerbelt Yard aren't in active revenue service —
@@ -5111,31 +5175,47 @@ async function buildMembersPanel(){
     const gCount = gltpsCounts[u.uid] || 0;
     return `
       <div class="roster-row" data-uid="${u.uid}">
-        <div class="roster-row-head">
+        <div class="roster-row-head" data-member-toggle="${u.uid}" style="cursor:pointer;">
           <span class="roster-car-chip">${u.displayName || '(no name)'}</span>
           ${tagBubble}
           ${u.uid === state.uid ? '<span class="roster-active-badge">You</span>' : ''}
+          <span class="signin-note" style="margin-left:auto;">Tap for details \u25be</span>
         </div>
-        <div class="roster-edited-by">${u.email || '(no email on file)'} \u00b7 joined ${joined}</div>
-        <div class="roster-edited-by">${rCount} roster edit${rCount===1?'':'s'} \u00b7 ${gCount} GLTPS report${gCount===1?'':'s'}</div>
+        <div class="member-details" id="memberDetails-${u.uid}" style="display:none;">
+          <div class="roster-edited-by">${u.email || '(no email on file)'} \u00b7 joined ${joined}</div>
+          <div class="roster-edited-by">${rCount} roster edit${rCount===1?'':'s'} \u00b7 ${gCount} GLTPS report${gCount===1?'':'s'}</div>
 
-        <div class="roster-field-label">Display name</div>
-        <input type="text" class="roster-input" data-uid="${u.uid}" data-admin-field="name" value="${(u.displayName || '').replace(/"/g, '&quot;')}">
-        <button class="account-btn" data-save-user="${u.uid}" style="margin-top:6px;">Save name</button>
+          <div class="roster-field-label">Display name</div>
+          <input type="text" class="roster-input" data-uid="${u.uid}" data-admin-field="name" value="${(u.displayName || '').replace(/"/g, '&quot;')}">
+          <button class="account-btn" data-save-user="${u.uid}" style="margin-top:6px;">Save name</button>
 
-        <div class="roster-field-label">Points</div>
-        <input type="number" class="roster-input" data-points-uid="${u.uid}" value="${u.points || 0}">
-        <button class="account-btn" data-save-points="${u.uid}" style="margin-top:6px;">Save points</button>
+          <div class="roster-field-label">Points</div>
+          <input type="number" class="roster-input" data-points-uid="${u.uid}" value="${u.points || 0}">
+          <button class="account-btn" data-save-points="${u.uid}" style="margin-top:6px;">Save points</button>
 
-        <div class="roster-field-label">User tag</div>
-        <input type="text" class="roster-input" data-tag-uid="${u.uid}" value="${u.tag || ''}" placeholder="e.g. Founding Member">
-        <input type="text" class="roster-input" data-tagcolor-uid="${u.uid}" value="${u.tagColor || '#6B7280'}" placeholder="#6B7280" style="margin-top:6px;">
-        <button class="account-btn" data-save-tag="${u.uid}" style="margin-top:6px;">Save tag</button>
+          <div class="roster-field-label">User tag</div>
+          <input type="text" class="roster-input" data-tag-uid="${u.uid}" value="${u.tag || ''}" placeholder="e.g. Founding Member">
+          <input type="text" class="roster-input" data-tagcolor-uid="${u.uid}" value="${u.tagColor || '#6B7280'}" placeholder="#6B7280" style="margin-top:6px;">
+          <button class="account-btn" data-save-tag="${u.uid}" style="margin-top:6px;">Save tag</button>
 
-        ${(rCount > 0 || gCount > 0) ? `<button class="roster-reset-btn" data-delete-user="${u.uid}" style="margin-top:8px;">Delete all reports from this user</button>` : ''}
-        ${u.uid !== state.uid ? `<button class="roster-reset-btn" data-delete-account="${u.uid}" style="margin-top:8px; background:#D64545; color:#fff; border-color:#D64545;">Delete user</button>` : ''}
+          ${(rCount > 0 || gCount > 0) ? `<button class="roster-reset-btn" data-delete-user="${u.uid}" style="margin-top:8px;">Delete all reports from this user</button>` : ''}
+          ${u.uid !== state.uid ? `<button class="roster-reset-btn" data-delete-account="${u.uid}" style="margin-top:8px; background:#D64545; color:#fff; border-color:#D64545;">Delete user</button>` : ''}
+        </div>
       </div>`;
   }).join('');
+
+  body.querySelectorAll('[data-member-toggle]').forEach(headEl=>{
+    headEl.addEventListener('click', (e)=>{
+      // Don't toggle if the click landed on an interactive element inside the header itself.
+      if(e.target.closest('button, input, a')) return;
+      const uid = headEl.dataset.memberToggle;
+      const details = document.getElementById(`memberDetails-${uid}`);
+      const arrow = headEl.querySelector('.signin-note');
+      const isOpen = details.style.display !== 'none';
+      details.style.display = isOpen ? 'none' : 'block';
+      if(arrow) arrow.textContent = isOpen ? 'Tap for details \u25be' : 'Hide details \u25b4';
+    });
+  });
 
   body.querySelectorAll('[data-save-user]').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
@@ -5681,6 +5761,15 @@ document.getElementById('membersBackBtn').addEventListener('click', ()=> switchP
 document.getElementById('modNotifsBackBtn').addEventListener('click', ()=> switchPage(state.lastMainPage || 'B'));
 document.getElementById('editLogsBackBtn').addEventListener('click', ()=> switchPage(state.lastMainPage || 'B'));
 
+document.getElementById('disruptionModeToggleBtn').addEventListener('click', async ()=>{
+  const turningOn = !disruptionModeCache;
+  const confirmMsg = turningOn
+    ? 'Enable Disruption Mode? Trains away from a terminus will stay on the map for up to 15 minutes after going quiet (instead of 5), for every user.'
+    : 'Disable Disruption Mode? Trains will go back to the normal 5-minute grace period.';
+  if(!window.confirm(confirmMsg)) return;
+  await setDisruptionMode(turningOn);
+});
+
 document.getElementById('modAlertSendBtn').addEventListener('click', async ()=>{
   const textEl = document.getElementById('modAlertText');
   const expiryEl = document.getElementById('modAlertExpiry');
@@ -5897,6 +5986,9 @@ async function init(){
 
   refreshDestinationOverrideCache();
   setInterval(refreshDestinationOverrideCache, 60000);
+
+  refreshDisruptionModeCache();
+  setInterval(refreshDisruptionModeCache, 60000);
 
   refreshRedOriginLogCache();
   setInterval(refreshRedOriginLogCache, 60000);
