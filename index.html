@@ -1965,7 +1965,7 @@ function getRelevantVehiclesForPage(key){
   const page = PAGES[key];
   let relevant = page.isMulti
     ? state.vehicles.filter(v => findStopIndex(key, v.stopName) !== null)
-    : state.vehicles.filter(v => isRelevantForBranchPage(key, v));
+    : state.vehicles.filter(v => isRelevantForBranchPage(key, v) && findStopIndex(key, v.stopName) !== null);
   if(key === 'REDASHMONT'){
     relevant = relevant.filter(v => getRedLineBranch(v) === 'ashmont' || (state.otherBranchesVisible.braintree && getRedLineBranch(v) === 'braintree'));
   }else if(key === 'REDBRAINTREE'){
@@ -1984,13 +1984,13 @@ function countForPage(key){
   // multi-branch trunk like SUBWAY/REDTRUNK — check this first.
   if(RED_PAGE_TO_BRANCH_ID[key]){
     const pageBranchId = RED_PAGE_TO_BRANCH_ID[key];
-    return state.vehicles.filter(v => getEffectiveBranchForToggle(v) === pageBranchId).length;
+    return state.vehicles.filter(v => getEffectiveBranchForToggle(v) === pageBranchId && findStopIndex(key, v.stopName) !== null).length;
   }
   if(page.isMulti) return getRelevantVehiclesForPage(key).length;
   // Deliberately NOT getRelevantVehiclesForPage here — that includes
   // cross-branch trains currently toggled into view (the "Show:" feature),
   // which should never inflate this branch's own count in the bottom nav.
-  return state.vehicles.filter(v => getEffectiveBranchForToggle(v) === key).length;
+  return state.vehicles.filter(v => getEffectiveBranchForToggle(v) === key && findStopIndex(key, v.stopName) !== null).length;
 }
 
 /* ---------------- Bottom nav ---------------- */
@@ -5070,7 +5070,7 @@ function renderVehicleList(){
 
   let relevant = page.isMulti
     ? state.vehicles.filter(v => findStopIndex(key, v.stopName) !== null)
-    : state.vehicles.filter(v => isRelevantForBranchPage(key, v));
+    : state.vehicles.filter(v => isRelevantForBranchPage(key, v) && findStopIndex(key, v.stopName) !== null);
 
   if(key === 'REDASHMONT'){
     relevant = relevant.filter(v => getRedLineBranch(v) === 'ashmont' || (state.otherBranchesVisible.braintree && getRedLineBranch(v) === 'braintree'));
