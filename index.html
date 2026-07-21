@@ -6374,15 +6374,25 @@ document.getElementById('carSearchInput').addEventListener('keydown', (e)=>{
 // Pressing "/" anywhere jumps straight to the car search box, matching the
 // common convention from other sites (GitHub, Slack, etc.) — but not while
 // the person is already typing somewhere else, so it doesn't hijack a "/"
-// they're entering as actual text in another field.
+// they're entering as actual text in another field. If the search box
+// already has text in it (whether it's currently focused or not), "/"
+// clears it instead, so it's a quick way to start a fresh search.
 document.addEventListener('keydown', (e)=>{
   if(e.key !== '/') return;
-  const activeTag = document.activeElement ? document.activeElement.tagName : '';
-  const isTypingElsewhere = ['INPUT', 'TEXTAREA', 'SELECT'].includes(activeTag);
+  const activeEl = document.activeElement;
+  const searchInput = document.getElementById('carSearchInput');
+  const isSearchInputFocused = activeEl === searchInput;
+  const isTypingElsewhere = activeEl && ['INPUT', 'TEXTAREA', 'SELECT'].includes(activeEl.tagName) && !isSearchInputFocused;
   if(isTypingElsewhere) return;
   e.preventDefault();
-  const searchInput = document.getElementById('carSearchInput');
-  if(searchInput) searchInput.focus();
+  if(searchInput){
+    if(searchInput.value){
+      searchInput.value = '';
+      const note = document.getElementById('carSearchNote');
+      if(note){ note.textContent = ''; note.classList.remove('error'); }
+    }
+    searchInput.focus();
+  }
 });
 
 /* ---------------- Panel alignment (desktop two-column layout) ---------------- */
