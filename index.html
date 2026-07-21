@@ -2666,6 +2666,8 @@ function getCarPositionLabel(i, isGreenLine){
   return i === 0 ? 'Head Car' : ordinalSuffix(i+1) + ' Car';
 }
 
+let expandedCarDetailKeys = new Set();
+
 async function showCarModal(v){
   const myModalToken = ++modalRefreshToken;
   const alreadyOpen = document.getElementById('carModalOverlay').classList.contains('show');
@@ -2779,13 +2781,20 @@ async function showCarModal(v){
       const fallbackType = isGreenLine ? getCarType(carParts[0]) : lineCarType(carParts[0]);
       const fallbackInfoMap = lineCarInfoMap();
       const fallbackInfo = fallbackInfoMap[fallbackType] || fallbackInfoMap['Unknown'];
+      const posKey = `pos-${i}`;
+      const isExpanded = expandedCarDetailKeys.has(posKey);
       return `
         <div class="modal-section">
-          <h4>${getCarPositionLabel(i, isGreenLine)}</h4>
-          <div class="signin-note">Car number not reported by MBTA's live feed for this position.</div>
-          <div class="modal-row"><span>Type</span><strong>${fallbackType}</strong></div>
-          <div class="modal-row"><span>Builder</span><strong>${fallbackInfo.builder}</strong></div>
-          <div class="modal-row"><span>Year built</span><strong>${fallbackInfo.year}</strong></div>
+          <h4 class="car-detail-toggle" data-car-detail-toggle="${posKey}" style="cursor:pointer; display:flex; align-items:center; justify-content:space-between;">
+            <span>${getCarPositionLabel(i, isGreenLine)}</span>
+            <span class="signin-note" style="margin:0;">${isExpanded ? 'Hide \u25b4' : 'Details \u25be'}</span>
+          </h4>
+          <div class="car-details" id="carDetails-${posKey}" style="display:${isExpanded ? 'block' : 'none'};">
+            <div class="signin-note">Car number not reported by MBTA's live feed for this position.</div>
+            <div class="modal-row"><span>Type</span><strong>${fallbackType}</strong></div>
+            <div class="modal-row"><span>Builder</span><strong>${fallbackInfo.builder}</strong></div>
+            <div class="modal-row"><span>Year built</span><strong>${fallbackInfo.year}</strong></div>
+          </div>
         </div>`;
     }
     const type = isGreenLine ? getCarType(carNum) : lineCarType(carNum);
@@ -2812,15 +2821,21 @@ async function showCarModal(v){
       const capacityRow = (capacityPercent !== null)
         ? `<div class="modal-row"><span>Capacity</span><strong>${Math.round(capacityPercent)}% full</strong></div>`
         : '';
+      const isExpandedNG = expandedCarDetailKeys.has(carNum);
       return `
         <div class="modal-section">
-          <h4>${getCarPositionLabel(i, isGreenLine)} \u2014 ${formatCarNumberForDisplay(carNum)}</h4>
-          <div class="modal-row"><span>Type</span><strong>${type}</strong></div>
-          <div class="modal-row"><span>Builder</span><strong>${info.builder}</strong></div>
-          <div class="modal-row"><span>Year built</span><strong>${info.year}</strong></div>
-          ${crowdingRow}
-          ${capacityRow}
-          ${oosBlock}
+          <h4 class="car-detail-toggle" data-car-detail-toggle="${carNum}" style="cursor:pointer; display:flex; align-items:center; justify-content:space-between;">
+            <span>${getCarPositionLabel(i, isGreenLine)} \u2014 ${formatCarNumberForDisplay(carNum)}</span>
+            <span class="signin-note" style="margin:0;">${isExpandedNG ? 'Hide \u25b4' : 'Details \u25be'}</span>
+          </h4>
+          <div class="car-details" id="carDetails-${carNum}" style="display:${isExpandedNG ? 'block' : 'none'};">
+            <div class="modal-row"><span>Type</span><strong>${type}</strong></div>
+            <div class="modal-row"><span>Builder</span><strong>${info.builder}</strong></div>
+            <div class="modal-row"><span>Year built</span><strong>${info.year}</strong></div>
+            ${crowdingRow}
+            ${capacityRow}
+            ${oosBlock}
+          </div>
         </div>`;
     }
 
@@ -2857,18 +2872,24 @@ async function showCarModal(v){
       ? `<div class="modal-row"><span>Seats</span><strong>${seats}${(gltps && gltps.status === 'Installed' && (type === 'Type 7' || type === 'Type 8')) ? ' (2 fewer \u2014 GLTPS installed)' : ''}</strong></div>`
       : '';
 
+    const isExpandedGreen = expandedCarDetailKeys.has(carNum);
     return `
       <div class="modal-section">
-        <h4>${getCarPositionLabel(i, isGreenLine)} \u2014 ${formatCarNumberForDisplay(carNum)}</h4>
-        <div class="modal-row"><span>Type</span><strong>${type}</strong></div>
-        <div class="modal-row"><span>Builder</span><strong>${info.builder}</strong></div>
-        <div class="modal-row"><span>Year built</span><strong>${getBuildYear(type, carNum)}</strong></div>
-        ${seatsRow}
-        <div class="modal-row"><span>Livery / wrap</span><strong>${livery}</strong></div>
-        <div class="modal-row"><span>GLTPS</span><strong style="${gltpsColor}">${gltpsText}</strong></div>
-        ${gltpsButtons}
-        ${operatorBlock}
-        ${oosBlock}
+        <h4 class="car-detail-toggle" data-car-detail-toggle="${carNum}" style="cursor:pointer; display:flex; align-items:center; justify-content:space-between;">
+          <span>${getCarPositionLabel(i, isGreenLine)} \u2014 ${formatCarNumberForDisplay(carNum)}</span>
+          <span class="signin-note" style="margin:0;">${isExpandedGreen ? 'Hide \u25b4' : 'Details \u25be'}</span>
+        </h4>
+        <div class="car-details" id="carDetails-${carNum}" style="display:${isExpandedGreen ? 'block' : 'none'};">
+          <div class="modal-row"><span>Type</span><strong>${type}</strong></div>
+          <div class="modal-row"><span>Builder</span><strong>${info.builder}</strong></div>
+          <div class="modal-row"><span>Year built</span><strong>${getBuildYear(type, carNum)}</strong></div>
+          ${seatsRow}
+          <div class="modal-row"><span>Livery / wrap</span><strong>${livery}</strong></div>
+          <div class="modal-row"><span>GLTPS</span><strong style="${gltpsColor}">${gltpsText}</strong></div>
+          ${gltpsButtons}
+          ${operatorBlock}
+          ${oosBlock}
+        </div>
       </div>`;
   }).join('');
 
@@ -3131,6 +3152,19 @@ async function showCarModal(v){
       await saveGltpsEntry(car, status);
       if(changed) awardPoints(3);
       showCarModal(v);
+    });
+  });
+
+  document.querySelectorAll('[data-car-detail-toggle]').forEach(headEl=>{
+    headEl.addEventListener('click', (e)=>{
+      if(e.target.closest('button, input, a, select, textarea')) return;
+      const carKey = headEl.dataset.carDetailToggle;
+      const details = document.getElementById(`carDetails-${carKey}`);
+      const arrow = headEl.querySelector('.signin-note');
+      const isOpen = details.style.display !== 'none';
+      details.style.display = isOpen ? 'none' : 'block';
+      if(isOpen) expandedCarDetailKeys.delete(carKey); else expandedCarDetailKeys.add(carKey);
+      if(arrow) arrow.textContent = isOpen ? 'Details \u25be' : 'Hide \u25b4';
     });
   });
 
