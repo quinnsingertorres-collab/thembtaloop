@@ -2457,7 +2457,7 @@ function renderTrainDots(){
         : '';
       const standingByEntry = standingByCache[entry.v.id];
       const standingByBadge = standingByEntry
-        ? `<span class="bubble-standingby-badge" title="Reported standing by at ${standingByEntry.stationName}"><svg viewBox="0 0 24 24" width="17" height="17" fill="none"><path d="M8 2h8l6 6v8l-6 6H8l-6-6V8l6-6z" fill="#D64545" stroke="#fff" stroke-width="1.3"/><g transform="translate(12,12) scale(0.62) translate(-12.77,-12.70)"><path d="M9.2 12.3V7.7a1 1 0 0 1 2 0v3.6h.5V6.9a1 1 0 0 1 2 0v4.4h.5V7.6a1 1 0 0 1 2 0v4.7h.5V9.4a1 1 0 0 1 2 0v5.8c0 2.4-1.8 4.3-4.1 4.3h-1.8c-1.2 0-2.3-.5-3.1-1.4l-2.6-2.9a1 1 0 0 1 1.3-1.5l1.8 1.3v-3z" fill="#fff"/></g></svg></span>`
+        ? `<span class="bubble-standingby-badge" title="Reported standing by at ${standingByEntry.stationName}"><svg viewBox="0 0 24 24" width="17" height="17" fill="none"><path d="M8 2h8l6 6v8l-6 6H8l-6-6V8l6-6z" fill="#D64545" stroke="#fff" stroke-width="1.3"/><g transform="translate(12,12) scale(0.62) translate(-13.1,-13.6)"><path d="M9.2 12.3V7.7a1 1 0 0 1 2 0v3.6h.5V6.9a1 1 0 0 1 2 0v4.4h.5V7.6a1 1 0 0 1 2 0v4.7h.5V9.4a1 1 0 0 1 2 0v5.8c0 2.4-1.8 4.3-4.1 4.3h-1.8c-1.2 0-2.3-.5-3.1-1.4l-2.6-2.9a1 1 0 0 1 1.3-1.5l1.8 1.3v-3z" fill="#fff"/></g></svg></span>`
         : '';
       if(state.activeLine === 'red'){
         bubble.innerHTML = redBranch
@@ -4839,9 +4839,12 @@ function clearStaleDestinationOverrides(now){
       clearBranchReassignment(vehicleId);
     }
   });
-  // A "standing by" report is only meaningful while the train is actually
-  // still at the reported station — clear it the moment MBTA's feed shows
-  // it anywhere else, or it starts a new trip, or it goes untracked.
+  // A "standing by" report can be made ahead of time (e.g. "will hold at
+  // Government Center" while the train is still at Park Street) — so it
+  // should stay active both before and during the hold, only clearing once
+  // the train has actually passed the reported station. Not checked
+  // against trip ID either, for the same reason express reports aren't:
+  // Green Line trip IDs can change mid-run even for the same physical trip.
   Object.keys(standingByCache).forEach(vehicleId=>{
     const report = standingByCache[vehicleId];
     const lastSeen = vehicleLastSeenTs[vehicleId];
@@ -4851,11 +4854,16 @@ function clearStaleDestinationOverrides(now){
     }
     const liveVehicle = state.vehicles.find(v => v.id === vehicleId);
     if(!liveVehicle) return;
-    if(report.originalTripId && liveVehicle.tripId && liveVehicle.tripId !== report.originalTripId){
-      clearStandingByReport(vehicleId);
-      return;
-    }
-    if(liveVehicle.stopName && normName(liveVehicle.stopName) !== normName(report.stationName)){
+    if(!liveVehicle.branch) return;
+    const pageKeyForVehicle = liveVehicle.branch === 'RED'
+      ? (getRedLineBranch(liveVehicle) === 'ashmont' ? 'REDASHMONT' : 'REDBRAINTREE')
+      : (PAGES[liveVehicle.branch] ? liveVehicle.branch : null);
+    if(!pageKeyForVehicle) return;
+    const curIdx = findStopIndex(pageKeyForVehicle, liveVehicle.stopName);
+    const targetIdx = findStopIndex(pageKeyForVehicle, report.stationName);
+    if(curIdx === null || targetIdx === null) return;
+    const hasPassedStation = liveVehicle.direction === 0 ? curIdx > targetIdx : curIdx < targetIdx;
+    if(hasPassedStation){
       clearStandingByReport(vehicleId);
     }
   });
@@ -6361,6 +6369,20 @@ document.getElementById('carSearchInput').addEventListener('keydown', (e)=>{
   }else if(e.key === 'Enter'){
     searchForCar();
   }
+});
+
+// Pressing "/" anywhere jumps straight to the car search box, matching the
+// common convention from other sites (GitHub, Slack, etc.) — but not while
+// the person is already typing somewhere else, so it doesn't hijack a "/"
+// they're entering as actual text in another field.
+document.addEventListener('keydown', (e)=>{
+  if(e.key !== '/') return;
+  const activeTag = document.activeElement ? document.activeElement.tagName : '';
+  const isTypingElsewhere = ['INPUT', 'TEXTAREA', 'SELECT'].includes(activeTag);
+  if(isTypingElsewhere) return;
+  e.preventDefault();
+  const searchInput = document.getElementById('carSearchInput');
+  if(searchInput) searchInput.focus();
 });
 
 /* ---------------- Panel alignment (desktop two-column layout) ---------------- */
