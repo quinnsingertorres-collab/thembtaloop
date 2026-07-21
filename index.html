@@ -2444,7 +2444,7 @@ function renderTrainDots(){
         : '';
       const expressEntry = expressReportCache[entry.v.id];
       const expressBadge = expressEntry
-        ? `<span class="bubble-express-badge" title="Reported running express from ${expressEntry.startStation} to ${expressEntry.endStation}">\ud83c\udfc3</span>`
+        ? `<span class="bubble-express-badge" title="Reported running express from ${expressEntry.startStation} to ${expressEntry.endStation}"><svg viewBox="0 0 24 24" width="12" height="12" fill="none"><path d="M5 5l7 7-7 7" stroke="#F59E0B" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><path d="M13 5l7 7-7 7" stroke="#F59E0B" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg></span>`
         : '';
       if(state.activeLine === 'red'){
         bubble.innerHTML = redBranch
@@ -2995,7 +2995,7 @@ async function showCarModal(v){
   const expressStopOptions = validStopsForThisVehicle.concat(['TESTING']);
   const expressSection = existingExpress
     ? `<div class="modal-section">
-        <h4>Running express \ud83c\udfc3</h4>
+        <h4>Running express</h4>
         <div class="modal-row"><span>From</span><strong>${displayName(existingExpress.startStation)}</strong></div>
         <div class="modal-row"><span>To</span><strong>${displayName(existingExpress.endStation)}</strong></div>
         <div class="signin-note">Reported by ${existingExpress.reportedBy || 'Unknown'} \u2014 clears automatically once the train reaches ${displayName(existingExpress.endStation)}.</div>
