@@ -3052,10 +3052,10 @@ async function showCarModal(v){
     : (state.signedIn ? `<div class="modal-section">
         <h4>Standing by</h4>
         <div class="signin-note">Report this train holding at a station along its route.</div>
-        <select class="roster-input" id="standingByStation" style="margin-top:6px;">
-          <option value="">Select a station&hellip;</option>
-          ${validStopsForThisVehicle.map(s => `<option value="${s.replace(/"/g,'&quot;')}">${displayName(s)}</option>`).join('')}
-        </select>
+        <datalist id="standingByStationsDatalist">
+          ${validStopsForThisVehicle.map(s => `<option value="${s.replace(/"/g,'&quot;')}">`).join('')}
+        </datalist>
+        <input type="text" class="roster-input" id="standingByStation" list="standingByStationsDatalist" placeholder="Start typing a station&hellip;" autocomplete="off" style="margin-top:6px;">
         <input type="number" class="roster-input" id="standingByMinutes" placeholder="Expected hold time in minutes (optional)" min="0">
         <textarea class="roster-textarea" id="standingByNotes" placeholder="Notes (optional)" style="margin-top:8px;"></textarea>
         <button class="account-btn" id="reportStandingByBtn" style="margin-top:8px;">Report standing by</button>
@@ -3359,12 +3359,17 @@ async function showCarModal(v){
   const reportStandingByBtn = document.getElementById('reportStandingByBtn');
   if(reportStandingByBtn){
     reportStandingByBtn.addEventListener('click', async ()=>{
-      const station = document.getElementById('standingByStation').value;
+      const stationTyped = document.getElementById('standingByStation').value.trim();
       const minutes = document.getElementById('standingByMinutes').value.trim();
       const notes = document.getElementById('standingByNotes').value.trim();
       const note = document.getElementById('standingByNote');
+      if(!stationTyped){
+        note.textContent = 'Enter a station first.';
+        return;
+      }
+      const station = validStopsForThisVehicle.find(s => normName(s) === normName(stationTyped));
       if(!station){
-        note.textContent = 'Pick a station first.';
+        note.textContent = "That doesn't match a real station on this train's route \u2014 pick one from the suggestions.";
         return;
       }
       await saveStandingByReport(v, station, minutes ? parseInt(minutes, 10) : null, notes);
