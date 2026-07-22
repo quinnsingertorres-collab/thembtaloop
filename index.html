@@ -2449,7 +2449,9 @@ function renderTrainDots(){
         ? `<span class="bubble-express-badge" title="Reported running express from ${expressEntry.startStation} to ${expressEntry.endStation}"><svg viewBox="0 0 24 24" width="12" height="12" fill="none"><path d="M5 5l7 7-7 7" stroke="#F59E0B" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><path d="M13 5l7 7-7 7" stroke="#F59E0B" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg></span>`
         : '';
       const standingByEntry = standingByCache[entry.v.id];
-      const standingByBadge = standingByEntry
+      const hasArrivedAtStandingByStation = standingByEntry && entry.v.stopName
+        && normName(entry.v.stopName) === normName(standingByEntry.stationName);
+      const standingByBadge = hasArrivedAtStandingByStation
         ? `<span class="bubble-standingby-badge" title="Reported standing by at ${standingByEntry.stationName}"><svg viewBox="0 0 24 24" fill="none"><path d="M8 2h8l6 6v8l-6 6H8l-6-6V8l6-6z" fill="#D64545" stroke="#fff" stroke-width="1.5"/></svg></span>`
         : '';
       if(state.activeLine === 'red'){
