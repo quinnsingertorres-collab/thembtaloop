@@ -5846,18 +5846,32 @@ function tickClock(){
   if(topClock) topClock.innerHTML = html;
 }
 
+function weatherCodeToLabel(code){
+  const labels = {
+    0: 'Clear', 1: 'Mostly clear', 2: 'Partly cloudy', 3: 'Overcast',
+    45: 'Fog', 48: 'Fog',
+    51: 'Light drizzle', 53: 'Drizzle', 55: 'Heavy drizzle',
+    56: 'Freezing drizzle', 57: 'Freezing drizzle',
+    61: 'Light rain', 63: 'Rain', 65: 'Heavy rain',
+    66: 'Freezing rain', 67: 'Freezing rain',
+    71: 'Light snow', 73: 'Snow', 75: 'Heavy snow', 77: 'Snow grains',
+    80: 'Rain showers', 81: 'Rain showers', 82: 'Heavy rain showers',
+    85: 'Snow showers', 86: 'Heavy snow showers',
+    95: 'Thunderstorms', 96: 'Thunderstorms', 99: 'Thunderstorms'
+  };
+  return labels[code] || 'Unknown';
+}
+
 async function fetchWeather(){
   const el = document.getElementById('weatherDisplay');
   const topEl = document.getElementById('weatherDisplayTop');
   try{
-    const res = await fetch('https://api.open-meteo.com/v1/forecast?latitude=42.3601&longitude=-71.0589&current=temperature_2m&hourly=precipitation_probability&temperature_unit=fahrenheit&timezone=America%2FNew_York&forecast_days=1');
+    const res = await fetch('https://api.open-meteo.com/v1/forecast?latitude=42.3601&longitude=-71.0589&current=temperature_2m,weather_code&temperature_unit=fahrenheit&timezone=America%2FNew_York&forecast_days=1');
     if(!res.ok) throw new Error('bad status');
     const data = await res.json();
     const temp = Math.round(data.current.temperature_2m);
-    let idx = data.hourly.time.indexOf(data.current.time);
-    if(idx === -1) idx = 0;
-    const precip = data.hourly.precipitation_probability[idx];
-    const html = `<div>${temp}\u00b0F</div><div>${precip}% precip</div>`;
+    const condition = weatherCodeToLabel(data.current.weather_code);
+    const html = `<div>${temp}\u00b0F</div><div>${condition}</div>`;
     el.innerHTML = html;
     if(topEl) topEl.innerHTML = html;
   }catch(err){
