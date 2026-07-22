@@ -2682,9 +2682,25 @@ async function saveVehicleOperator(vehicleId, carNum, operator){
   if(!firebaseReady) return;
   try{
     await fbDb.collection('vehicle_operators').doc(operatorDocId(vehicleId, carNum)).set({
-      operator, setBy: state.userName, setByUid: state.uid || null, ts: Date.now()
+      operator, vehicleId, carNum, setBy: state.userName, setByUid: state.uid || null, ts: Date.now()
     });
     logEdit(state.userName, state.uid, `Set operator info for car ${carNum}`);
+  }catch(e){ console.error(e); }
+}
+
+// Not surfaced anywhere in the UI on purpose — lets the car search box also
+// match on an operator's name/badge, without documenting or hinting at it.
+let operatorSearchCache = [];
+async function refreshOperatorSearchCache(){
+  if(!firebaseReady) return;
+  try{
+    const snap = await fbDb.collection('vehicle_operators').get();
+    const list = [];
+    snap.forEach(doc=>{
+      const d = doc.data();
+      if(d.operator && d.vehicleId) list.push({ operator: d.operator, vehicleId: d.vehicleId });
+    });
+    operatorSearchCache = list;
   }catch(e){ console.error(e); }
 }
 async function deleteVehicleOperator(vehicleId, carNum){
@@ -3161,9 +3177,10 @@ async function showCarModal(v){
     : null;
 
   const canSeeOperators = state.isModerator || state.isTrustedMember;
+  const operatorPositionLabel = (i)=> i === 0 ? 'Pilot Car' : getCarPositionLabel(i, isGreenLine);
   const operatorSummarySection = canSeeOperators
-    ? carParts.filter(c => operatorByCar[c] && operatorByCar[c].operator).map(c => `
-        <div class="modal-row"><span>Operator (Car ${formatCarNumberForDisplay(c)})</span><strong>${operatorByCar[c].operator}</strong></div>
+    ? carParts.map((c, i) => ({ c, i })).filter(({c}) => operatorByCar[c] && operatorByCar[c].operator).map(({c, i}) => `
+        <div class="modal-row"><span>Operator (${operatorPositionLabel(i)} ${formatCarNumberForDisplay(c)})</span><strong>${operatorByCar[c].operator}</strong></div>
         <div class="signin-note">Set by ${liveName(operatorByCar[c].setBy, operatorByCar[c].setByUid, userInfoMap)}</div>
       `).join('')
     : '';
@@ -6408,7 +6425,17 @@ function findMatchingCarVehicle(query){
     if(found){ matchedCar = found; return true; }
     return false;
   });
-  return match ? { match, matchedCar } : null;
+  if(match) return { match, matchedCar };
+
+  const queryLower = query.trim().toLowerCase();
+  if(queryLower){
+    const opMatch = operatorSearchCache.find(o => o.operator.toLowerCase().includes(queryLower));
+    if(opMatch){
+      const opVehicle = state.vehicles.find(v => v.id === opMatch.vehicleId);
+      if(opVehicle) return { match: opVehicle, matchedCar: String(opVehicle.label).split('-')[0] };
+    }
+  }
+  return null;
 }
 
 function searchForCar(){
@@ -6597,6 +6624,9 @@ async function init(){
 
   refreshHiddenTrainsCache();
   setInterval(refreshHiddenTrainsCache, 60000);
+
+  refreshOperatorSearchCache();
+  setInterval(refreshOperatorSearchCache, 60000);
 
   refreshSoloType7OverrideCache();
   setInterval(refreshSoloType7OverrideCache, 60000);
