@@ -1420,7 +1420,7 @@ function buildRosterCarList(){
 }
 const ROSTER_CARS = buildRosterCarList();
 
-let state = { vehicles: [], currentPage: 'B', lastMainPage: 'B', live: null, abbreviate: false, signedIn: false, userName: '', photoURL: '', isModerator: false, filterDirection: 'ALL', filterType: 'ALL', rosterSearch: '', rosterTypeFilter: 'ALL', notifMaster: true, notifDoubleType8: false, notifPride: false, notifType9: false, activeLine: 'green', otherBranchesVisible: { B:false, C:false, D:false, E:false, ashmont:false, braintree:false } };
+let state = { vehicles: [], currentPage: 'B', lastMainPage: 'B', live: null, abbreviate: false, signedIn: false, userName: '', photoURL: '', isModerator: false, isTrustedMember: false, filterDirection: 'ALL', filterType: 'ALL', rosterSearch: '', rosterTypeFilter: 'ALL', notifMaster: true, notifDoubleType8: false, notifPride: false, notifType9: false, activeLine: 'green', otherBranchesVisible: { B:false, C:false, D:false, E:false, ashmont:false, braintree:false } };
 let layout = null; // computed pixel layout for the current ladder
 
 /* ---------------- Community-reported data ----------------
@@ -2698,6 +2698,22 @@ async function clearTripNotes(vehicleId){
   if(!firebaseReady) return;
   try{ await fbDb.collection('trip_notes').doc(vehicleId).delete(); }catch(e){ console.error(e); }
 }
+async function deleteSingleTripNote(vehicleId, entryTs){
+  if(!firebaseReady) return;
+  try{
+    const ref = fbDb.collection('trip_notes').doc(vehicleId);
+    const doc = await ref.get();
+    if(!doc.exists) return;
+    const data = doc.data();
+    const updatedEntries = (data.entries || []).filter(e => e.ts !== entryTs);
+    if(updatedEntries.length === 0){
+      await ref.delete();
+    }else{
+      await ref.update({ entries: updatedEntries });
+    }
+    logEdit(state.userName, state.uid, `Removed a trip note`);
+  }catch(e){ console.error(e); }
+}
 
 function ordinalSuffix(n){
   const s = ["th","st","nd","rd"];
@@ -2905,17 +2921,14 @@ async function showCarModal(v){
 
     const opData = operatorByCar[carNum];
     const hasOpData = !!(opData && opData.operator);
-    const opViewLine = hasOpData
-      ? `<div class="modal-row"><span>Operator</span><strong>${opData.operator}</strong></div>
-         <span class="signin-note">Set by ${liveName(opData.setBy, opData.setByUid, userInfoMap)}</span>`
-      : '';
-    const opEditForm = state.isModerator
+    const canManageOperators = state.isModerator || state.isTrustedMember;
+    const opEditForm = canManageOperators
       ? `<input type="text" class="roster-input" data-op-car="${carNum}" value="${(opData && opData.operator) || ''}" placeholder="Operator name/badge">
          <button class="account-btn" data-op-save="${carNum}" style="margin-top:6px;">Save operator</button>
          ${hasOpData ? `<button class="roster-reset-btn" data-op-remove="${carNum}" style="margin-top:6px;">Remove operator</button>` : ''}`
       : '';
-    const operatorBlock = (hasOpData || state.isModerator)
-      ? `<div class="modal-row-spacer"></div>${opViewLine}${opEditForm}`
+    const operatorBlock = canManageOperators
+      ? `<div class="modal-row-spacer"></div><div class="roster-field-label">Report operator</div>${opEditForm}`
       : '';
 
     const gltps = gltpsMap[carNum];
@@ -2993,12 +3006,14 @@ async function showCarModal(v){
     ? `<div class="roster-edited-by">Updated by <strong>${liveName(destinationOverride.editedBy, destinationOverride.editedByUid, userInfoMap)}</strong> (${timeAgo(new Date(destinationOverride.ts).toISOString())})</div>`
     : '';
 
+  const canModerateReports = state.isModerator || state.isTrustedMember;
   const tripNoteEntries = (tripNotes && tripNotes.entries) || [];
   const tripNotesListHtml = tripNoteEntries.length
     ? tripNoteEntries.map(entry => `
         <div class="roster-row" style="margin-bottom:8px;">
           <div>${(entry.text || '').replace(/</g,'&lt;')}</div>
           <div class="roster-edited-by">\u2014 <strong>${liveName(entry.author, entry.authorUid, userInfoMap)}</strong>, ${timeAgo(new Date(entry.ts).toISOString())}</div>
+          ${canModerateReports ? `<button class="roster-reset-btn" data-remove-trip-note="${entry.ts}" style="margin-top:4px; font-size:11px; padding:4px 8px;">Remove</button>` : ''}
         </div>`).join('')
     : `<div class="signin-note">No notes yet for this trip.</div>`;
 
@@ -3124,6 +3139,14 @@ async function showCarModal(v){
     ? new Date(originDepartureTime).toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' })
     : null;
 
+  const canSeeOperators = state.isModerator || state.isTrustedMember;
+  const operatorSummarySection = canSeeOperators
+    ? carParts.filter(c => operatorByCar[c] && operatorByCar[c].operator).map(c => `
+        <div class="modal-row"><span>Operator (Car ${formatCarNumberForDisplay(c)})</span><strong>${operatorByCar[c].operator}</strong></div>
+        <div class="signin-note">Set by ${liveName(operatorByCar[c].setBy, operatorByCar[c].setByUid, userInfoMap)}</div>
+      `).join('')
+    : '';
+
   document.getElementById('carModalBody').innerHTML = `
     <div class="modal-section">
       ${soloType7Notice}
@@ -3132,6 +3155,7 @@ async function showCarModal(v){
       ${originTimeStr ? `<div class="modal-row"><span>Left origin at</span><strong>${originTimeStr}</strong></div>` : ''}
       <div class="modal-row"><span>Last reported speed</span><strong>${v.speedMph !== null && v.speedMph !== undefined ? v.speedMph + ' mph' : 'Not reported'}</strong></div>
       <div class="modal-row"><span>Last update</span><strong>${secondsAgo}s ago</strong></div>
+      ${operatorSummarySection}
     </div>
     ${crowdingStrip}
     ${carSections}
@@ -3178,6 +3202,14 @@ async function showCarModal(v){
       showCarModal(v);
     });
   }
+
+  document.querySelectorAll('[data-remove-trip-note]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const entryTs = parseFloat(btn.dataset.removeTripNote);
+      await deleteSingleTripNote(v.id, entryTs);
+      showCarModal(v);
+    });
+  });
 
   const destinationSelect = document.getElementById('destinationEditSelect');
   const destinationOtherInput = document.getElementById('destinationOtherInput');
@@ -5572,12 +5604,13 @@ async function buildMembersPanel(){
 
   body.innerHTML = '<div class="empty-state">Loading users&hellip;</div>';
 
-  let usersSnap, rosterSnap, gltpsSnap;
+  let usersSnap, rosterSnap, gltpsSnap, trustedSnap;
   try{
-    [usersSnap, rosterSnap, gltpsSnap] = await Promise.all([
+    [usersSnap, rosterSnap, gltpsSnap, trustedSnap] = await Promise.all([
       fbDb.collection('users').get(),
       fbDb.collection('roster').get(),
-      fbDb.collection('gltps').get()
+      fbDb.collection('gltps').get(),
+      fbDb.collection('trusted_members').get()
     ]);
   }catch(e){
     console.error(e);
@@ -5596,8 +5629,11 @@ async function buildMembersPanel(){
     if(uid) gltpsCounts[uid] = (gltpsCounts[uid] || 0) + 1;
   });
 
+  const trustedUids = new Set();
+  trustedSnap.forEach(doc => trustedUids.add(doc.id));
+
   const users = [];
-  usersSnap.forEach(doc => users.push({ uid: doc.id, ...doc.data() }));
+  usersSnap.forEach(doc => users.push({ uid: doc.id, ...doc.data(), isTrustedMember: trustedUids.has(doc.id) }));
   users.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   meta.textContent = users.length + ' user' + (users.length === 1 ? '' : 's');
 
@@ -5635,6 +5671,10 @@ async function buildMembersPanel(){
           <input type="text" class="roster-input" data-tag-uid="${u.uid}" value="${u.tag || ''}" placeholder="e.g. Founding Member">
           <input type="text" class="roster-input" data-tagcolor-uid="${u.uid}" value="${u.tagColor || '#6B7280'}" placeholder="#6B7280" style="margin-top:6px;">
           <button class="account-btn" data-save-tag="${u.uid}" style="margin-top:6px;">Save tag</button>
+
+          <div class="roster-field-label">Trusted Member</div>
+          <div class="signin-note">Can view/report train operator info and remove community reports and trip notes.</div>
+          <button class="account-btn" data-toggle-trusted="${u.uid}" data-trusted-current="${u.isTrustedMember ? '1' : '0'}" style="margin-top:6px; ${u.isTrustedMember ? 'background:#0F8A4B;' : ''}">${u.isTrustedMember ? 'Revoke Trusted Member' : 'Make Trusted Member'}</button>
 
           ${(rCount > 0 || gCount > 0) ? `<button class="roster-reset-btn" data-delete-user="${u.uid}" style="margin-top:8px;">Delete all reports from this user</button>` : ''}
           ${u.uid !== state.uid ? `<button class="roster-reset-btn" data-delete-account="${u.uid}" style="margin-top:8px; background:#D64545; color:#fff; border-color:#D64545;">Delete user</button>` : ''}
@@ -5689,6 +5729,25 @@ async function buildMembersPanel(){
       try{
         await fbDb.collection('users').doc(uid).delete();
         await fbDb.collection('admins').doc(uid).delete().catch(()=>{});
+        await fbDb.collection('trusted_members').doc(uid).delete().catch(()=>{});
+      }catch(e){ console.error(e); }
+      buildMembersPanel();
+    });
+  });
+
+  body.querySelectorAll('[data-toggle-trusted]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const uid = btn.dataset.toggleTrusted;
+      const isCurrentlyTrusted = btn.dataset.trustedCurrent === '1';
+      try{
+        if(isCurrentlyTrusted){
+          await fbDb.collection('trusted_members').doc(uid).delete();
+        }else{
+          await fbDb.collection('trusted_members').doc(uid).set({
+            grantedBy: state.userName, grantedByUid: state.uid || null, ts: Date.now()
+          });
+        }
+        logEdit(state.userName, state.uid, `${isCurrentlyTrusted ? 'Revoked' : 'Granted'} Trusted Member status for a user`);
       }catch(e){ console.error(e); }
       buildMembersPanel();
     });
@@ -6035,8 +6094,13 @@ async function completeSignIn(name, email, uid, photoURL){
       const adminSnap = await fbDb.collection('admins').doc(uid).get();
       state.isModerator = adminSnap.exists;
     }catch(e){ console.error(e); state.isModerator = false; }
+    try{
+      const trustedSnap = await fbDb.collection('trusted_members').doc(uid).get();
+      state.isTrustedMember = trustedSnap.exists;
+    }catch(e){ console.error(e); state.isTrustedMember = false; }
   }else{
     state.isModerator = !!(email && MODERATOR_EMAILS.includes(String(email).toLowerCase()));
+    state.isTrustedMember = false;
   }
 
   if(!firebaseReady){
@@ -6049,7 +6113,7 @@ async function completeSignIn(name, email, uid, photoURL){
   document.getElementById('userChip').innerHTML = state.photoURL
     ? `<img src="${state.photoURL}" alt="${name}" referrerpolicy="no-referrer">`
     : name.charAt(0).toUpperCase();
-  document.getElementById('userChip').title = name + (state.isModerator ? ' \u00b7 Mod' : '');
+  document.getElementById('userChip').title = name + (state.isModerator ? ' \u00b7 Mod' : (state.isTrustedMember ? ' \u00b7 Trusted Member' : ''));
   document.getElementById('accountNameInput').value = name;
   document.getElementById('menuAccountSection').style.display = 'block';
   document.getElementById('membersMenuLink').style.display = state.isModerator ? 'flex' : 'none';
@@ -6070,6 +6134,7 @@ function resetSignedOutUI(){
   state.userEmail = '';
   state.uid = null;
   state.isModerator = false;
+  state.isTrustedMember = false;
   state.photoURL = '';
   document.getElementById('userChip').textContent = 'G';
   document.getElementById('googleBtnWrap').style.display = '';
@@ -6113,7 +6178,7 @@ document.getElementById('saveNameBtn').addEventListener('click', async ()=>{
   document.getElementById('userChip').innerHTML = state.photoURL
     ? `<img src="${state.photoURL}" alt="${name}" referrerpolicy="no-referrer">`
     : name.charAt(0).toUpperCase();
-  document.getElementById('userChip').title = name + (state.isModerator ? ' \u00b7 Mod' : '');
+  document.getElementById('userChip').title = name + (state.isModerator ? ' \u00b7 Mod' : (state.isTrustedMember ? ' \u00b7 Trusted Member' : ''));
   if(firebaseReady && state.uid){
     try{
       await fbDb.collection('users').doc(state.uid).set({ displayName: name }, { merge:true });
