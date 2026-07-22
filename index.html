@@ -262,7 +262,7 @@ body.dark .discord-banner{background:#5865F2; border-color:#5865F2; color:#fff;}
   position:absolute; width:13px; height:13px; border-radius:50%;
   background:var(--panel); border:3px solid; transform:translate(-50%,-50%); z-index:2; cursor:pointer;
 }
-body.dark .stop-dot{background:#ffffff;}
+body.dark .stop-dot{background:var(--bg);}
 .stop-dot-bypassed{
   background:#D64545 !important; border-color:#D64545 !important;
 }
@@ -294,7 +294,7 @@ body.dark .stop-dot{background:#ffffff;}
   outline:2px solid #3B82F6; outline-offset:2px;
 }
 .stop-dot{ transition:background 0.4s ease; }
-.stop-dot.stop-dot-occupied{ background:var(--accent) !important; }
+.stop-dot.stop-dot-occupied{ background:var(--occupied-color, var(--accent)) !important; }
 .modal-row-spacer{ height:8px; }
 .train-bubble .bletter{font-family:'Space Grotesk', sans-serif; font-size:19px; font-weight:800; line-height:1;}
 .train-bubble .bnums{display:flex; flex-direction:column; align-items:center; justify-content:center; line-height:1.1;}
@@ -2239,7 +2239,7 @@ function buildLadder(){
     dotW.dataset.side = 'west';
     dotW.style.left = westTrackX + 'px';
     dotW.style.top = y + 'px';
-    dotW.style.borderColor = page.isMulti ? '#1A1A1A' : page.hex;
+    dotW.style.borderColor = '#fff';
     dotW.addEventListener('click', ()=> isBypassed ? showBypassNotice(name) : (isFirstTerminus ? showTerminusSchedule(key, name, 0) : showStationModal(key, i, name, 'west')));
     ladder.appendChild(dotW);
 
@@ -2249,7 +2249,7 @@ function buildLadder(){
     dotE.dataset.side = 'east';
     dotE.style.left = eastTrackX + 'px';
     dotE.style.top = y + 'px';
-    dotE.style.borderColor = page.isMulti ? '#1A1A1A' : page.hex;
+    dotE.style.borderColor = '#fff';
     dotE.addEventListener('click', ()=> isBypassed ? showBypassNotice(name) : (isLastTerminus ? showTerminusSchedule(key, name, 1) : showStationModal(key, i, name, 'east')));
     ladder.appendChild(dotE);
 
@@ -2334,6 +2334,7 @@ function renderTrainDots(){
   // currently have a train stopped at them.
   ladder.querySelectorAll('.stop-dot.stop-dot-occupied').forEach(el=>{
     el.classList.remove('stop-dot-occupied');
+    el.style.removeProperty('--occupied-color');
   });
 
   const candidates = page.isMulti ? state.vehicles : state.vehicles.filter(v => isRelevantForBranchPage(key, v));
@@ -2352,13 +2353,25 @@ function renderTrainDots(){
     relevant = relevant.filter(x => getRedLineBranch(x.v) === 'braintree' || (state.otherBranchesVisible.ashmont && getRedLineBranch(x.v) === 'ashmont'));
   }
 
-  // Fill the station dot with the train's color while it's actually stopped there.
+  // Fill the station dot with the occupying train's own line/branch color —
+  // important on multi-branch views like the Subway tab, where B/C/D/E
+  // trains all pass through the same shared stops and need to stay
+  // visually distinguishable from each other.
   relevant.forEach(({ v, idx })=>{
     if(v.status !== 'STOPPED_AT') return;
     const side = v.direction === 0 ? 'west' : 'east';
     const dot = ladder.querySelector(`.stop-dot[data-stop-idx="${idx}"][data-side="${side}"]`);
     if(dot){
+      const carPartsForOOS = String(consistOverrideCache[carSetKey(v.label)] || v.label).split('-');
+      const isOOS = isSoloType7(v) || carPartsForOOS.some(c => outOfServiceCarsCache[c]);
+      let occupiedHex = getBranchHex(v.branch);
+      if(state.activeLine === 'red'){
+        const branch = getRedLineBranch(v);
+        if(branch) occupiedHex = RED_BRANCH_COLORS[branch];
+      }
+      if(isOOS) occupiedHex = SOLO_TYPE7_GRAY;
       dot.classList.add('stop-dot-occupied');
+      dot.style.setProperty('--occupied-color', occupiedHex);
     }
   });
 
