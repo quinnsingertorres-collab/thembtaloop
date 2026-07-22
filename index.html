@@ -3539,7 +3539,6 @@ function getUpcoming(pageKey, idx, direction){
     // Medford/Tufts for the day), that's a real, human-confirmed service
     // change — trust it over the normal per-branch stop list.
     .filter(v=>{
-      if(page.isMulti) return true;
       const ownBranch = getEffectiveBranchForToggle(v);
       const ownPageKey = BRANCH_ID_TO_PAGE_KEY[ownBranch] || ownBranch;
       if(ownPageKey === pageKey) return true;
