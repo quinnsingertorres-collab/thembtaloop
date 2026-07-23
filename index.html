@@ -6517,6 +6517,27 @@ document.getElementById('carModalBody').addEventListener('keydown', (e)=>{
   if(btn) btn.click();
 });
 
+// Left/right arrow keys cycle between the branch tabs at the bottom of the
+// screen (B/C/D/E/Subway/Mattapan on Green, the three Red Line tabs, etc.)
+// — works the same way regardless of which line is currently active, since
+// it just looks up whichever tab order applies to state.activeLine.
+document.addEventListener('keydown', (e)=>{
+  if(e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+  const activeTag = document.activeElement ? document.activeElement.tagName : '';
+  if(['INPUT', 'TEXTAREA', 'SELECT'].includes(activeTag)) return;
+  if(document.getElementById('carModalOverlay').classList.contains('show')) return;
+
+  const order = state.activeLine === 'red' ? RED_NAV_ORDER
+    : state.activeLine === 'orange' ? ORANGE_NAV_ORDER
+    : state.activeLine === 'blue' ? BLUE_NAV_ORDER
+    : NAV_ORDER;
+  const currentIdx = order.indexOf(state.currentPage);
+  if(currentIdx === -1) return;
+  const delta = e.key === 'ArrowLeft' ? -1 : 1;
+  const nextIdx = (currentIdx + delta + order.length) % order.length;
+  switchPage(order[nextIdx]);
+});
+
 // Pressing "/" anywhere jumps straight to the car search box, matching the
 // common convention from other sites (GitHub, Slack, etc.) — but not while
 // the person is already typing somewhere else, so it doesn't hijack a "/"
