@@ -1117,6 +1117,68 @@ const RED_CAR_INFO = {
   'Unknown': { builder:'Unknown', year:'Unknown' }
 };
 const RED_BRANCH_COLORS = { ashmont:'#D57065', braintree:'#ECC1BC' };
+
+// Stops currently bypassed/closed, scoped per page/branch (so e.g. Blue
+// Line's own Government Center isn't affected by a Green Line closure at a
+// stop of the same name). An entry with no "until" is an ongoing closure
+// with no announced end; "from"/"until" (YYYY-MM-DD, same Eastern
+// service-day convention as todayDateString) bound a specific window.
+// directionOnly (0 or 1) restricts the closure to just that direction,
+// leaving the opposite direction running normally.
+function buildRangeClosure(pageKeys, fromStop, toStop, extra){
+  const entries = [];
+  pageKeys.forEach(pageKey=>{
+    const stops = (PAGES[pageKey] || {}).stops || [];
+    const fromIdx = stops.indexOf(fromStop);
+    const toIdx = stops.indexOf(toStop);
+    if(fromIdx === -1 || toIdx === -1) return; // this page doesn't include these stops
+    const lo = Math.min(fromIdx, toIdx), hi = Math.max(fromIdx, toIdx);
+    for(let i = lo; i <= hi; i++){
+      entries.push(Object.assign({ pages:[pageKey], stop: stops[i] }, extra));
+    }
+  });
+  return entries;
+}
+
+const BYPASSED_STOPS = [
+  { pages:['E'], stop:'Symphony',
+    reason:'All trains will bypass Symphony station. This is to allow for accessibility upgrades within the station.',
+    moreInfoUrl:'https://www.mbta.com/projects/symphony-station-accessibility-improvements' },
+  { pages:['C'], stop:'Summit Avenue',
+    reason:'Westbound C branch trains skip Summit Avenue. This is to allow for track work.',
+    until:'2026-08-07', directionOnly:0 },
+  ...buildRangeClosure(['REDTRUNK','REDASHMONT','REDBRAINTREE'], 'Charles/MGH', 'Alewife',
+    { reason:'No Red Line service between Charles/MGH and Alewife. This is to allow for infrastructure upgrades.', until:'2026-07-30' }),
+  ...buildRangeClosure(['B'], 'Government Center', 'Babcock Street',
+    { reason:'No Green Line service on the B branch between North Station and Babcock Street. This is to allow for trackwork.', from:'2026-08-01', until:'2026-08-02' }),
+  ...buildRangeClosure(['C'], 'Government Center', 'Kenmore',
+    { reason:'No Green Line service on the C branch between North Station and Kenmore. This is to allow for trackwork.', from:'2026-08-01', until:'2026-08-02' }),
+  ...buildRangeClosure(['D'], 'North Station', 'Kenmore',
+    { reason:'No Green Line service on the D branch between North Station and Kenmore. This is to allow for trackwork.', from:'2026-08-01', until:'2026-08-02' }),
+  ...buildRangeClosure(['E'], 'North Station', 'Heath Street',
+    { reason:'No Green Line service on the E branch between North Station and Heath Street. This is to allow for trackwork.', from:'2026-08-01', until:'2026-08-02' }),
+  ...buildRangeClosure(['B'], 'Government Center', 'Babcock Street',
+    { reason:'No Green Line service on the B branch between North Station and Babcock Street. This is to allow for trackwork.', from:'2026-08-08', until:'2026-08-16' }),
+  ...buildRangeClosure(['C'], 'Government Center', 'Cleveland Circle',
+    { reason:'No Green Line service on the C branch between North Station and Cleveland Circle. This is to allow for trackwork.', from:'2026-08-08', until:'2026-08-16' }),
+  ...buildRangeClosure(['D'], 'North Station', 'Kenmore',
+    { reason:'No Green Line service on the D branch between North Station and Kenmore. This is to allow for trackwork.', from:'2026-08-08', until:'2026-08-16' }),
+  ...buildRangeClosure(['E'], 'North Station', 'Heath Street',
+    { reason:'No Green Line service on the E branch between North Station and Heath Street. This is to allow for trackwork.', from:'2026-08-08', until:'2026-08-16' })
+];
+
+function getBypassInfo(pageKey, stopName, side){
+  const today = todayDateString();
+  const match = BYPASSED_STOPS.find(entry=>{
+    if(!entry.pages.includes(pageKey)) return false;
+    if(entry.stop !== stopName) return false;
+    if(entry.from && today < entry.from) return false;
+    if(entry.until && today > entry.until) return false;
+    if(entry.directionOnly !== undefined && entry.directionOnly !== side) return false;
+    return true;
+  });
+  return match || null;
+}
 const RED_BRANCH_TEXT_COLORS = { ashmont:'#FFFFFE', braintree:'#C83C2B' };
 const RED_ASHMONT_ONLY_STOPS = ["Savin Hill","Fields Corner","Shawmut","Ashmont"];
 const RED_BRAINTREE_ONLY_STOPS = ["North Quincy","Wollaston","Quincy Center","Quincy Adams","Braintree"];
@@ -2225,7 +2287,8 @@ function buildLadder(){
 
   page.stops.forEach((name, i)=>{
     const y = stopY[i];
-    const isBypassed = name === 'Symphony';
+    const bypassInfoW = getBypassInfo(key, name, 0);
+    const bypassInfoE = getBypassInfo(key, name, 1);
     const isFirstTerminus = (['B','C','D','E'].includes(key) && i === 0)
       || (['REDTRUNK','REDASHMONT','REDBRAINTREE'].includes(key) && i === 0)
       || (['ORANGE','BLUE'].includes(key) && i === 0);
@@ -2234,23 +2297,23 @@ function buildLadder(){
       || (['ORANGE','BLUE'].includes(key) && i === page.stops.length - 1);
 
     const dotW = document.createElement('div');
-    dotW.className = 'stop-dot' + (isBypassed ? ' stop-dot-bypassed' : '');
+    dotW.className = 'stop-dot' + (bypassInfoW ? ' stop-dot-bypassed' : '');
     dotW.dataset.stopIdx = i;
     dotW.dataset.side = 'west';
     dotW.style.left = westTrackX + 'px';
     dotW.style.top = y + 'px';
     dotW.style.borderColor = '#fff';
-    dotW.addEventListener('click', ()=> isBypassed ? showBypassNotice(name) : (isFirstTerminus ? showTerminusSchedule(key, name, 0) : showStationModal(key, i, name, 'west')));
+    dotW.addEventListener('click', ()=> bypassInfoW ? showBypassNotice(name, bypassInfoW) : (isFirstTerminus ? showTerminusSchedule(key, name, 0) : showStationModal(key, i, name, 'west')));
     ladder.appendChild(dotW);
 
     const dotE = document.createElement('div');
-    dotE.className = 'stop-dot' + (isBypassed ? ' stop-dot-bypassed' : '');
+    dotE.className = 'stop-dot' + (bypassInfoE ? ' stop-dot-bypassed' : '');
     dotE.dataset.stopIdx = i;
     dotE.dataset.side = 'east';
     dotE.style.left = eastTrackX + 'px';
     dotE.style.top = y + 'px';
     dotE.style.borderColor = '#fff';
-    dotE.addEventListener('click', ()=> isBypassed ? showBypassNotice(name) : (isLastTerminus ? showTerminusSchedule(key, name, 1) : showStationModal(key, i, name, 'east')));
+    dotE.addEventListener('click', ()=> bypassInfoE ? showBypassNotice(name, bypassInfoE) : (isLastTerminus ? showTerminusSchedule(key, name, 1) : showStationModal(key, i, name, 'east')));
     ladder.appendChild(dotE);
 
     const labelEl = document.createElement('div');
@@ -4025,13 +4088,14 @@ async function showTerminusSchedule(branchKey, stopName, directionId){
   }, 30000);
 }
 
-function showBypassNotice(stopName){
+function showBypassNotice(stopName, info){
   modalRefreshToken++;
+  info = info || { reason: 'All trains will bypass this station.' };
   document.getElementById('carModalTitle').textContent = displayName(stopName);
   document.getElementById('carModalBody').innerHTML = `
     <div class="modal-section">
       <div class="alert-header" style="color:#D64545;">&#9888; Station bypassed</div>
-      <div class="alert-desc">All trains will bypass Symphony station. This is to allow for accessibility upgrades within the station. For more information visit: <a href="https://www.mbta.com/projects/symphony-station-accessibility-improvements" target="_blank" rel="noopener" style="color:var(--accent); text-decoration:underline;">mbta.com/projects/symphony-station-accessibility-improvements</a></div>
+      <div class="alert-desc">${info.reason}${info.moreInfoUrl ? ` For more information visit: <a href="${info.moreInfoUrl}" target="_blank" rel="noopener" style="color:var(--accent); text-decoration:underline;">${info.moreInfoUrl.replace(/^https?:\/\//,'')}</a>` : ''}</div>
     </div>
   `;
   document.getElementById('carModalOverlay').classList.add('show');
