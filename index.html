@@ -3018,10 +3018,10 @@ async function showCarModal(v){
   const consistEditForm = state.signedIn
     ? `<div class="roster-field-label">Current cars: ${carParts.map(c => formatCarNumberForDisplay(c)).join('-')}</div>
        ${removeCarButtons}
-       <input type="text" class="roster-input" id="consistAddInput" placeholder="Car number to add, e.g. 3868" style="margin-top:6px;">
+       <input type="text" class="roster-input" id="consistAddInput" data-enter-target="consistAddBtn" placeholder="Car number to add, e.g. 3868" style="margin-top:6px;">
        <button class="account-btn" id="consistAddBtn" style="margin-top:6px;">Add car</button>
        <div class="roster-field-label" style="margin-top:10px;">Or directly edit the whole set</div>
-       <input type="text" class="roster-input" id="consistEditInput" value="${effectiveLabel}" placeholder="e.g. 3838-3868">
+       <input type="text" class="roster-input" id="consistEditInput" data-enter-target="consistSaveBtn" value="${effectiveLabel}" placeholder="e.g. 3838-3868">
        <button class="account-btn" id="consistSaveBtn" style="margin-top:6px;">Save consist correction</button>`
     : `<div class="signin-note">Sign in to correct this train's car numbers.</div>`;
 
@@ -3099,8 +3099,8 @@ async function showCarModal(v){
         <datalist id="standingByStationsDatalist">
           ${validStopsForThisVehicle.map(s => `<option value="${s.replace(/"/g,'&quot;')}">`).join('')}
         </datalist>
-        <input type="text" class="roster-input" id="standingByStation" list="standingByStationsDatalist" placeholder="Start typing a station&hellip;" autocomplete="off" style="margin-top:6px;">
-        <input type="number" class="roster-input" id="standingByMinutes" placeholder="Expected hold time in minutes (optional)" min="0">
+        <input type="text" class="roster-input" id="standingByStation" list="standingByStationsDatalist" data-enter-target="reportStandingByBtn" placeholder="Start typing a station&hellip;" autocomplete="off" style="margin-top:6px;">
+        <input type="number" class="roster-input" id="standingByMinutes" data-enter-target="reportStandingByBtn" placeholder="Expected hold time in minutes (optional)" min="0">
         <textarea class="roster-textarea" id="standingByNotes" placeholder="Notes (optional)" style="margin-top:8px;"></textarea>
         <button class="account-btn" id="reportStandingByBtn" style="margin-top:8px;">Report standing by</button>
         <span class="roster-submit-note" id="standingByNote"></span>
@@ -3124,11 +3124,11 @@ async function showCarModal(v){
           ${expressStopOptions.map(s => `<option value="${s.replace(/"/g,'&quot;')}">`).join('')}
         </datalist>
         <div class="roster-field-label">Express from</div>
-        <input type="text" class="roster-input" id="expressStartStation" list="expressStationsDatalist" placeholder="Start typing a station&hellip;" autocomplete="off">
+        <input type="text" class="roster-input" id="expressStartStation" list="expressStationsDatalist" data-enter-target="reportExpressBtn" placeholder="Start typing a station&hellip;" autocomplete="off">
         <div class="roster-field-label">Still stops at (optional)</div>
-        <input type="text" class="roster-input" id="expressIntermediateStop" list="expressStationsDatalist" placeholder="Only if it makes one stop in between&hellip;" autocomplete="off">
+        <input type="text" class="roster-input" id="expressIntermediateStop" list="expressStationsDatalist" data-enter-target="reportExpressBtn" placeholder="Only if it makes one stop in between&hellip;" autocomplete="off">
         <div class="roster-field-label">Express to</div>
-        <input type="text" class="roster-input" id="expressEndStation" list="expressStationsDatalist" placeholder="Start typing a station&hellip;" autocomplete="off">
+        <input type="text" class="roster-input" id="expressEndStation" list="expressStationsDatalist" data-enter-target="reportExpressBtn" placeholder="Start typing a station&hellip;" autocomplete="off">
         <button class="account-btn" id="reportExpressBtn" style="margin-top:8px;">Report running express</button>
         <span class="roster-submit-note" id="expressNote"></span>
       </div>` : '');
@@ -3177,10 +3177,9 @@ async function showCarModal(v){
     : null;
 
   const canSeeOperators = state.isModerator || state.isTrustedMember;
-  const operatorPositionLabel = (i)=> i === 0 ? 'Pilot Car' : getCarPositionLabel(i, isGreenLine);
   const operatorSummarySection = canSeeOperators
     ? carParts.map((c, i) => ({ c, i })).filter(({c}) => operatorByCar[c] && operatorByCar[c].operator).map(({c, i}) => `
-        <div class="modal-row"><span>Operator (${operatorPositionLabel(i)} ${formatCarNumberForDisplay(c)})</span><strong>${operatorByCar[c].operator}</strong></div>
+        <div class="modal-row"><span>Operator (${getCarPositionLabel(i, isGreenLine)} ${formatCarNumberForDisplay(c)})</span><strong>${operatorByCar[c].operator}</strong></div>
         <div class="signin-note">Set by ${liveName(operatorByCar[c].setBy, operatorByCar[c].setByUid, userInfoMap)}</div>
       `).join('')
     : '';
@@ -6494,12 +6493,28 @@ function searchAndOpenCar(){
 
 document.getElementById('carSearchBtn').addEventListener('click', searchForCar);
 document.getElementById('carSearchInput').addEventListener('keydown', (e)=>{
-  if(e.key === 'Enter' && (e.ctrlKey || e.metaKey)){
+  if(e.key !== 'Enter') return;
+  const input = e.target;
+  if(input.value.trim().endsWith('.')){
     e.preventDefault();
+    input.value = input.value.trim().slice(0, -1).trim();
     searchAndOpenCar();
-  }else if(e.key === 'Enter'){
+  }else{
     searchForCar();
   }
+});
+
+// Lets pressing Enter in a form field submit it directly (e.g. reporting a
+// train running express), instead of requiring a click on the button.
+// Uses one delegated listener on the modal's stable container rather than
+// rewiring every time the modal's content re-renders.
+document.getElementById('carModalBody').addEventListener('keydown', (e)=>{
+  if(e.key !== 'Enter') return;
+  const target = e.target;
+  if(target.tagName !== 'INPUT' || !target.dataset.enterTarget) return;
+  e.preventDefault();
+  const btn = document.getElementById(target.dataset.enterTarget);
+  if(btn) btn.click();
 });
 
 // Pressing "/" anywhere jumps straight to the car search box, matching the
