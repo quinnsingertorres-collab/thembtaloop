@@ -2522,7 +2522,12 @@ function renderTrainDots(){
         bubble.style.color = textColor;
       }
       const staggerOffset = state.staggerBunchedTrains ? 70 : 0;
-      const staggeredBubbleX = bubbleX + (side === 'west' ? -1 : 1) * (entry.staggerIndex % 2) * staggerOffset;
+      // Stagger toward the track/center rather than away from it — there's
+      // much more room in that direction before running out of space,
+      // versus staggering outward which can push a bubble right off the
+      // ladder's own edge and into whatever panel sits next to it.
+      const rawStaggeredX = bubbleX + (side === 'west' ? 1 : -1) * (entry.staggerIndex % 2) * staggerOffset;
+      const staggeredBubbleX = Math.max(0, Math.min(layout.W - layout.BUBBLE_W, rawStaggeredX));
       bubble.style.top = (bubbleY - entry.h/2) + 'px';
       bubble.style.width = layout.BUBBLE_W + 'px';
       bubble.style.minHeight = '28px';
