@@ -47,7 +47,7 @@ const VAPID_PUBLIC_KEY = 'BHEIq4o6pknFsV-fssjBnXccc-5tX1w8V9ojTS4ilQ2YEuNYJR2cW2
 // accumulate stale entries forever.
 async function sendToAllSubscribers(payload){
   webpush.setVapidDetails(
-    'mailto:noreply@thembtaloop.vercel.app',
+    'mailto:noreply@thembtaloop.com',
     VAPID_PUBLIC_KEY,
     VAPID_PRIVATE_KEY.value()
   );
