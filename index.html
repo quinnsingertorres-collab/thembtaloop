@@ -322,7 +322,7 @@ body.dark .stop-dot{background:var(--bg);}
   flex:0 0 auto;
 }
 .bubble-standingby-badge svg{width:100%; height:100%;}
-.train-bubble .bline-first{font-weight:800; font-size:14px;}
+.train-bubble .bline-first{font-weight:800; font-size:17px;}
 
 .train-bubble.rainbow-outline{
   background:linear-gradient(135deg,
@@ -2521,7 +2521,7 @@ function renderTrainDots(){
         bubble.style.background = branchHex;
         bubble.style.color = textColor;
       }
-      const staggerOffset = state.staggerBunchedTrains ? 70 : 0;
+      const staggerOffset = state.staggerBunchedTrains ? 110 : 0;
       // Stagger toward the track/center rather than away from it — there's
       // much more room in that direction before running out of space,
       // versus staggering outward which can push a bubble right off the
