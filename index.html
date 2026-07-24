@@ -322,7 +322,7 @@ body.dark .stop-dot{background:var(--bg);}
   flex:0 0 auto;
 }
 .bubble-standingby-badge svg{width:100%; height:100%;}
-.train-bubble .bline-first{font-weight:900;}
+.train-bubble .bline-first{font-weight:900; font-size:14.5px;}
 
 .train-bubble.rainbow-outline{
   background:linear-gradient(135deg,
@@ -834,8 +834,8 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
         <div class="switch" id="abbrevSwitch"><div class="knob"></div></div>
       </div>
       <div class="menu-row">
-        <span>Stagger bunched trains <span style="color:var(--text-faint); font-weight:400;">(spread out overlapping bubbles)</span></span>
-        <div class="switch" id="staggerSwitch"><div class="knob"></div></div>
+        <span>Stagger bunched trains <span style="color:var(--text-faint); font-weight:400;">(temporarily disabled)</span></span>
+        <div class="switch" id="staggerSwitch" style="opacity:0.4; pointer-events:none; cursor:default;"><div class="knob"></div></div>
       </div>
 
       <div class="menu-divider"></div>
@@ -6697,11 +6697,9 @@ async function init(){
     if(!hasSavedAbbrevPref) savePrefs();
   }
 
-  // Off by default, regardless of device.
-  if(prefs.staggerBunchedTrains){
-    state.staggerBunchedTrains = true;
-    document.getElementById('staggerSwitch').classList.add('on');
-  }
+  // Temporarily disabled — forced off regardless of any saved preference.
+  // To re-enable, restore: if(prefs.staggerBunchedTrains){ state.staggerBunchedTrains = true; document.getElementById('staggerSwitch').classList.add('on'); }
+  state.staggerBunchedTrains = false;
 
   // Notification preferences default to master-on, specific alerts off, until
   // the user opts in.
