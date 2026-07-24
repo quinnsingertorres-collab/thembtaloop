@@ -2453,16 +2453,21 @@ function renderTrainDots(){
   function placeBubbles(list){
     const sorted = list.slice().sort((a,b) => a.targetY - b.targetY);
     const placed = [];
-    let prevY = null, prevHalfH = 0;
-    const MIN_GAP = 5;
+    let prevY = null, prevHalfH = 0, staggerIndex = 0;
+    const MIN_GAP = 2;
     sorted.forEach(entry=>{
       const h = estBubbleHeight(entry.v.label);
       let y = entry.targetY;
+      let wasCompacted = false;
       if(prevY !== null){
         const minCenterDist = prevHalfH + h/2 + MIN_GAP;
-        if(y < prevY + minCenterDist) y = prevY + minCenterDist;
+        if(y < prevY + minCenterDist){
+          y = prevY + minCenterDist;
+          wasCompacted = true;
+        }
       }
-      placed.push({ v: entry.v, idx: entry.idx, targetY: entry.targetY, y, h });
+      staggerIndex = wasCompacted ? staggerIndex + 1 : 0;
+      placed.push({ v: entry.v, idx: entry.idx, targetY: entry.targetY, y, h, staggerIndex });
       prevY = y;
       prevHalfH = h/2;
     });
@@ -2519,10 +2524,12 @@ function renderTrainDots(){
         bubble.style.background = branchHex;
         bubble.style.color = textColor;
       }
+      const staggerOffset = 16;
+      const staggeredBubbleX = bubbleX + (side === 'west' ? -1 : 1) * (entry.staggerIndex % 2) * staggerOffset;
       bubble.style.top = (bubbleY - entry.h/2) + 'px';
       bubble.style.width = layout.BUBBLE_W + 'px';
       bubble.style.minHeight = '28px';
-      bubble.style.left = bubbleX + 'px';
+      bubble.style.left = staggeredBubbleX + 'px';
       bubble.title = `${getDisplayBranch(entry.v.branch)} \u00b7 Car ${formatCarNumberForDisplay(effectiveBubbleLabel)} \u2014 tap for details`;
       const destOverrideEntry = destinationOverrideCache[entry.v.id];
       const hasAlteredDestination = !!destOverrideEntry && (
@@ -2555,7 +2562,7 @@ function renderTrainDots(){
         bubble.innerHTML = `<span class="bletter">${bubbleBranch}</span><span class="bnums"><span class="bline bline-first">${effectiveBubbleLabel}</span></span>${destBadge}${expressBadge}${standingByBadge}`;
       }
 
-      const anchorX = side === 'west' ? (bubbleX + layout.BUBBLE_W) : bubbleX;
+      const anchorX = side === 'west' ? (staggeredBubbleX + layout.BUBBLE_W) : staggeredBubbleX;
       let line = existingLines[entry.v.id];
       if(!line){
         line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
