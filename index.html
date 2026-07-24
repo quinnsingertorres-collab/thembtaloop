@@ -688,6 +688,7 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
         <option value="Type 10">Type 10</option>
         <option value="PCC">PCC (Mattapan)</option>
       </select>
+      <button class="account-btn" id="rosterClearFiltersBtn" style="flex:0 0 auto;">Clear filters</button>
     </div>
     <div class="roster-list" id="rosterList"></div>
     <div class="storage-note">Status, livery/wrap, and notes can only be edited while signed in; edits show the display name of whoever last saved them. This is a fan-generated roster from known car-numbering ranges, not an official MBTA list.</div>
@@ -1924,6 +1925,8 @@ async function savePrefs(){
     localStorage.setItem(PREFS_KEY, JSON.stringify({
       abbreviate: state.abbreviate,
       staggerBunchedTrains: state.staggerBunchedTrains,
+      rosterSearch: state.rosterSearch,
+      rosterTypeFilter: state.rosterTypeFilter,
       notifMaster: state.notifMaster,
       notifDoubleType8: state.notifDoubleType8,
       notifPride: state.notifPride,
@@ -5618,10 +5621,20 @@ async function buildRosterPanel(){
 document.getElementById('rosterSearch').addEventListener('input', (e)=>{
   state.rosterSearch = e.target.value;
   buildRosterPanel();
+  savePrefs();
 });
 document.getElementById('rosterTypeFilter').addEventListener('change', (e)=>{
   state.rosterTypeFilter = e.target.value;
   buildRosterPanel();
+  savePrefs();
+});
+document.getElementById('rosterClearFiltersBtn').addEventListener('click', ()=>{
+  state.rosterSearch = '';
+  state.rosterTypeFilter = 'ALL';
+  document.getElementById('rosterSearch').value = '';
+  document.getElementById('rosterTypeFilter').value = 'ALL';
+  buildRosterPanel();
+  savePrefs();
 });
 
 /* ---------------- Admin (moderator tools) ---------------- */
@@ -6700,6 +6713,17 @@ async function init(){
   // Temporarily disabled — forced off regardless of any saved preference.
   // To re-enable, restore: if(prefs.staggerBunchedTrains){ state.staggerBunchedTrains = true; document.getElementById('staggerSwitch').classList.add('on'); }
   state.staggerBunchedTrains = false;
+
+  // Restore the roster page's filters from last time, so they don't reset
+  // to defaults every time the page reloads.
+  if(prefs.rosterSearch){
+    state.rosterSearch = prefs.rosterSearch;
+    document.getElementById('rosterSearch').value = prefs.rosterSearch;
+  }
+  if(prefs.rosterTypeFilter){
+    state.rosterTypeFilter = prefs.rosterTypeFilter;
+    document.getElementById('rosterTypeFilter').value = prefs.rosterTypeFilter;
+  }
 
   // Notification preferences default to master-on, specific alerts off, until
   // the user opts in.
