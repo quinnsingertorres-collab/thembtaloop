@@ -2383,10 +2383,12 @@ function renderTrainDots(){
   // whole SVG and recreating everything from scratch every render, so they
   // can glide too instead of snapping to the new position.
   const existingLines = {};
+  const existingElbowLines = {};
   const existingEndDots = {};
   const svg = document.getElementById('ladderLines');
   if(svg){
     svg.querySelectorAll('.train-leader-line').forEach(el => { existingLines[el.dataset.vehicleId] = el; });
+    svg.querySelectorAll('.train-leader-elbow').forEach(el => { existingElbowLines[el.dataset.vehicleId] = el; });
     svg.querySelectorAll('.train-leader-dot').forEach(el => { existingEndDots[el.dataset.vehicleId] = el; });
   }
 
@@ -2572,13 +2574,41 @@ function renderTrainDots(){
         line.dataset.vehicleId = entry.v.id;
         if(svg) svg.appendChild(line);
       }
+      // Normally a single straight segment from the bubble to its stop dot.
+      // When staggering is on, that same single segment would often look
+      // diagonal (since the bubble's X no longer lines up with the track),
+      // so instead this first segment stays horizontal — running at the
+      // bubble's own Y all the way to the track's X — and a second,
+      // separate vertical segment (below) covers the rest of the way down
+      // to the stop dot itself. Neither segment is ever diagonal.
+      const line1Y2 = state.staggerBunchedTrains ? bubbleY : displayY;
       line.setAttribute('x1', anchorX);
       line.setAttribute('y1', bubbleY);
       line.setAttribute('x2', trackX);
-      line.setAttribute('y2', displayY);
+      line.setAttribute('y2', line1Y2);
       line.setAttribute('stroke', branchHex);
       line.setAttribute('stroke-width', '2.5');
       line.setAttribute('opacity', '0.65');
+
+      let elbowLine = existingElbowLines[entry.v.id];
+      if(state.staggerBunchedTrains){
+        if(!elbowLine){
+          elbowLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+          elbowLine.setAttribute('class', 'train-leader-elbow train-leader-line');
+          elbowLine.dataset.vehicleId = entry.v.id;
+          if(svg) svg.appendChild(elbowLine);
+        }
+        elbowLine.setAttribute('x1', trackX);
+        elbowLine.setAttribute('y1', bubbleY);
+        elbowLine.setAttribute('x2', trackX);
+        elbowLine.setAttribute('y2', displayY);
+        elbowLine.setAttribute('stroke', branchHex);
+        elbowLine.setAttribute('stroke-width', '2.5');
+        elbowLine.setAttribute('opacity', '0.65');
+      }else if(elbowLine){
+        elbowLine.remove();
+        delete existingElbowLines[entry.v.id];
+      }
 
       let endDot = existingEndDots[entry.v.id];
       if(!endDot){
@@ -2600,6 +2630,9 @@ function renderTrainDots(){
   // mirroring the bubble cleanup below.
   Object.keys(existingLines).forEach(vid=>{
     if(!seenVehicleIds.has(vid)) existingLines[vid].remove();
+  });
+  Object.keys(existingElbowLines).forEach(vid=>{
+    if(!seenVehicleIds.has(vid)) existingElbowLines[vid].remove();
   });
   Object.keys(existingEndDots).forEach(vid=>{
     if(!seenVehicleIds.has(vid)) existingEndDots[vid].remove();
