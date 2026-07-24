@@ -833,6 +833,10 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
         <span>Stop abbreviations</span>
         <div class="switch" id="abbrevSwitch"><div class="knob"></div></div>
       </div>
+      <div class="menu-row">
+        <span>Stagger bunched trains <span style="color:var(--text-faint); font-weight:400;">(spread out overlapping bubbles)</span></span>
+        <div class="switch" id="staggerSwitch"><div class="knob"></div></div>
+      </div>
 
       <div class="menu-divider"></div>
       <div class="menu-section-label">Notifications</div>
@@ -1493,7 +1497,7 @@ function buildRosterCarList(){
 }
 const ROSTER_CARS = buildRosterCarList();
 
-let state = { vehicles: [], currentPage: 'B', lastMainPage: 'B', live: null, abbreviate: false, signedIn: false, userName: '', photoURL: '', isModerator: false, isTrustedMember: false, filterDirection: 'ALL', filterType: 'ALL', rosterSearch: '', rosterTypeFilter: 'ALL', notifMaster: true, notifDoubleType8: false, notifPride: false, notifType9: false, activeLine: 'green', otherBranchesVisible: { B:false, C:false, D:false, E:false, ashmont:false, braintree:false } };
+let state = { vehicles: [], currentPage: 'B', lastMainPage: 'B', live: null, abbreviate: false, staggerBunchedTrains: false, signedIn: false, userName: '', photoURL: '', isModerator: false, isTrustedMember: false, filterDirection: 'ALL', filterType: 'ALL', rosterSearch: '', rosterTypeFilter: 'ALL', notifMaster: true, notifDoubleType8: false, notifPride: false, notifType9: false, activeLine: 'green', otherBranchesVisible: { B:false, C:false, D:false, E:false, ashmont:false, braintree:false } };
 let layout = null; // computed pixel layout for the current ladder
 
 /* ---------------- Community-reported data ----------------
@@ -1919,6 +1923,7 @@ async function savePrefs(){
   try{
     localStorage.setItem(PREFS_KEY, JSON.stringify({
       abbreviate: state.abbreviate,
+      staggerBunchedTrains: state.staggerBunchedTrains,
       notifMaster: state.notifMaster,
       notifDoubleType8: state.notifDoubleType8,
       notifPride: state.notifPride,
@@ -2516,7 +2521,7 @@ function renderTrainDots(){
         bubble.style.background = branchHex;
         bubble.style.color = textColor;
       }
-      const staggerOffset = 16;
+      const staggerOffset = state.staggerBunchedTrains ? 70 : 0;
       const staggeredBubbleX = bubbleX + (side === 'west' ? -1 : 1) * (entry.staggerIndex % 2) * staggerOffset;
       bubble.style.top = (bubbleY - entry.h/2) + 'px';
       bubble.style.width = layout.BUBBLE_W + 'px';
@@ -6429,6 +6434,12 @@ document.getElementById('abbrevSwitch').addEventListener('click', ()=>{
   switchPage(state.currentPage);
   savePrefs();
 });
+document.getElementById('staggerSwitch').addEventListener('click', ()=>{
+  state.staggerBunchedTrains = !state.staggerBunchedTrains;
+  document.getElementById('staggerSwitch').classList.toggle('on', state.staggerBunchedTrains);
+  renderTrainDots();
+  savePrefs();
+});
 
 function wireNotifToggle(id, stateKey){
   document.getElementById(id).addEventListener('click', ()=>{
@@ -6646,6 +6657,12 @@ async function init(){
     state.abbreviate = true;
     document.getElementById('abbrevSwitch').classList.add('on');
     if(!hasSavedAbbrevPref) savePrefs();
+  }
+
+  // Off by default, regardless of device.
+  if(prefs.staggerBunchedTrains){
+    state.staggerBunchedTrains = true;
+    document.getElementById('staggerSwitch').classList.add('on');
   }
 
   // Notification preferences default to master-on, specific alerts off, until
