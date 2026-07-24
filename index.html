@@ -522,14 +522,6 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
   </div>
 </div>
 
-<div id="placeholderLineScreen" class="gate-screen" style="display:none;">
-  <div class="gate-card">
-    <h1 id="placeholderLineTitle">Coming Soon</h1>
-    <p>This line isn't tracked yet &mdash; only the Green Line is currently available. Check back later!</p>
-    <button id="placeholderBackBtn" class="gate-signin-btn">&larr; Choose a different line</button>
-  </div>
-</div>
-
 <div id="welcomeScreen" class="gate-screen" style="display:none;">
   <div class="gate-card">
     <h1 id="welcomeText" class="welcome-text">Welcome!</h1>
@@ -6038,11 +6030,9 @@ if(firebaseReady){
 
 const LINE_SELECTION_KEY = 'selected_line_v1';
 const LAST_PAGE_KEY = 'last_page_v1';
-const LINE_DISPLAY_NAMES = { red:'Red Line', blue:'Blue Line', orange:'Orange Line', green:'Green Line' };
 
 function hideAllGateScreens(){
   document.getElementById('lineSelectScreen').style.display = 'none';
-  document.getElementById('placeholderLineScreen').style.display = 'none';
   document.getElementById('welcomeScreen').style.display = 'none';
   document.getElementById('privacyWarningScreen').style.display = 'none';
 }
@@ -6076,11 +6066,6 @@ function showLineSelectScreen(){
   hideAllGateScreens();
   applyLineAccent(null);
   document.getElementById('lineSelectScreen').style.display = 'flex';
-}
-function showPlaceholderLineScreen(line){
-  hideAllGateScreens();
-  document.getElementById('placeholderLineTitle').textContent = (LINE_DISPLAY_NAMES[line] || 'This line') + ' \u2014 Coming Soon';
-  document.getElementById('placeholderLineScreen').style.display = 'flex';
 }
 function applyLineAccent(hex){
   if(hex){ document.body.style.setProperty('--accent', hex); }
@@ -6178,17 +6163,15 @@ function revealApp(line){
 // already-signed-in returning visitor): first-timers pick a line; returning
 // users go straight back to whatever they had selected/were viewing before.
 // Decides what to show on page load, regardless of sign-in status: no line
-// chosen yet -> line-select screen; a real line already chosen -> straight
-// into that line's app; a placeholder line chosen -> its coming-soon screen.
+// chosen yet -> line-select screen; a line already chosen -> straight into
+// that line's app.
 function routeOnLoad(){
   let selectedLine = null;
   try{ selectedLine = localStorage.getItem(LINE_SELECTION_KEY); }catch(e){ /* ignore */ }
-  if(!selectedLine){
+  if(!selectedLine || !['green','red','orange','blue'].includes(selectedLine)){
     showLineSelectScreen();
-  }else if(['green','red','orange','blue'].includes(selectedLine)){
-    revealApp(selectedLine);
   }else{
-    showPlaceholderLineScreen(selectedLine);
+    revealApp(selectedLine);
   }
 }
 
@@ -6196,16 +6179,8 @@ document.querySelectorAll('.line-select-btn').forEach(btn=>{
   btn.addEventListener('click', ()=>{
     const line = btn.dataset.line;
     try{ localStorage.setItem(LINE_SELECTION_KEY, line); }catch(e){ /* ignore */ }
-    if(['green','red','orange','blue'].includes(line)){
-      revealApp(line);
-    }else{
-      showPlaceholderLineScreen(line);
-    }
+    revealApp(line);
   });
-});
-document.getElementById('placeholderBackBtn').addEventListener('click', ()=>{
-  try{ localStorage.removeItem(LINE_SELECTION_KEY); }catch(e){ /* ignore */ }
-  showLineSelectScreen();
 });
 
 async function completeSignIn(name, email, uid, photoURL){
