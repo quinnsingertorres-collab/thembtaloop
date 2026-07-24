@@ -1396,6 +1396,23 @@ function isSoloType7(v){
 }
 const SOLO_TYPE7_GRAY = '#6B7280';
 
+// Type 9 cars can't safely open their doors at Fenwood Road, Mission Park,
+// Riverway, or Back of the Hill (no stop sign), so a Type 9 anywhere in
+// that stretch of the E branch (Brigham Circle through Heath Street) gets
+// automatically flagged.
+function isType9InRestrictedZone(v){
+  if(v.branch !== 'E') return false;
+  const parts = String(consistOverrideCache[carSetKey(v.label)] || v.label).split('-');
+  const hasType9 = parts.some(c => getCarType(c) === 'Type 9');
+  if(!hasType9) return false;
+  const startIdx = findStopIndex('E', 'Brigham Circle');
+  const endIdx = findStopIndex('E', 'Heath Street');
+  const curIdx = findStopIndex('E', v.stopName);
+  if(startIdx === null || endIdx === null || curIdx === null) return false;
+  const lo = Math.min(startIdx, endIdx), hi = Math.max(startIdx, endIdx);
+  return curIdx >= lo && curIdx <= hi;
+}
+
 // Real-time per-car crowding is only available from MBTA for Orange Line
 // (all cars) and Red Line's newer 1900-series CRRC cars — not Green Line or
 // Blue Line, and not every Red Line car even when the feed includes it.
@@ -3173,6 +3190,11 @@ async function showCarModal(v){
        ${state.signedIn ? `<button class="account-btn" id="soloType7InServiceBtn" style="margin-top:6px; background:#0F8A4B;">Mark this car in service</button>` : `<div class="signin-note">Sign in to mark this car in service.</div>`}`
     : '';
 
+  const type9RestrictedZoneNotice = isType9InRestrictedZone(v)
+    ? `<div class="modal-row"><span>Status</span><strong style="color:#D64545;">May not be in service (auto-detected)</strong></div>
+       <div class="signin-note">This train may not be in service &mdash; Type 9 trains cannot service Fenwood Road, Mission Park, Riverway, and Back of the Hill due to the lack of a stop sign, which makes it unsafe for passengers to alight the train.</div>`
+    : '';
+
   const GREEN_BRANCH_NAMES = { B:'Boston College', C:'Cleveland Circle', D:'Riverside', E:'Heath Street' };
   const RED_BRANCH_NAMES = { ashmont:'Ashmont', braintree:'Braintree' };
   const existingBranchReassignment = branchReassignmentCache[v.id];
@@ -3295,6 +3317,7 @@ async function showCarModal(v){
   document.getElementById('carModalBody').innerHTML = `
     <div class="modal-section">
       ${soloType7Notice}
+      ${type9RestrictedZoneNotice}
       <div class="modal-row"><span>Status</span><strong>${statusPhrase(v.status, v.stopName)}</strong></div>
       <div class="modal-row"><span>Destination</span><strong>${effectiveDestination}</strong></div>
       ${originTimeStr ? `<div class="modal-row"><span>Left origin at</span><strong>${originTimeStr}</strong></div>` : ''}
@@ -5199,6 +5222,20 @@ async function refreshVehicles(){
   // (map, list, counts) automatically excludes it without needing
   // individual filters.
   state.vehicles = state.vehicles.filter(v => !hiddenTrainsCache[v.id]);
+
+  // A car number can't physically be running solo AND coupled to another
+  // car at the same time — if MBTA's feed reports both, that's a data
+  // glitch (likely a stale/duplicate record), so drop the solo entry and
+  // keep the coupled one.
+  const carsCurrentlyCoupled = new Set();
+  state.vehicles.forEach(v=>{
+    const parts = String(v.label).split('-');
+    if(parts.length > 1) parts.forEach(c => carsCurrentlyCoupled.add(c));
+  });
+  state.vehicles = state.vehicles.filter(v=>{
+    const parts = String(v.label).split('-');
+    return !(parts.length === 1 && carsCurrentlyCoupled.has(parts[0]));
+  });
 
   // A Green Line fleet number (Type 7/8/9/10, PCC) showing up on Red,
   // Orange, or Blue is a data error, not a real train — car numbers don't
