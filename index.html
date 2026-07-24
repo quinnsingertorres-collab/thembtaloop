@@ -261,6 +261,7 @@ body.dark .discord-banner{background:#5865F2; border-color:#5865F2; color:#fff;}
 .stop-dot{
   position:absolute; width:13px; height:13px; border-radius:50%;
   background:var(--panel); border:3px solid; transform:translate(-50%,-50%); z-index:2; cursor:pointer;
+  transition:background 0.4s ease;
 }
 body.dark .stop-dot{background:var(--bg);}
 .stop-dot-bypassed{
@@ -293,7 +294,6 @@ body.dark .stop-dot{background:var(--bg);}
 .train-bubble.bubble-search-highlight{
   outline:2px solid #3B82F6; outline-offset:2px;
 }
-.stop-dot{ transition:background 0.4s ease; }
 .stop-dot.stop-dot-occupied{ background:var(--occupied-color, var(--accent)) !important; box-shadow:0 0 0 1px #000; }
 .modal-row-spacer{ height:8px; }
 .train-bubble .bletter{font-family:'Space Grotesk', sans-serif; font-size:19px; font-weight:800; line-height:1;}
