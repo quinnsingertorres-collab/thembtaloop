@@ -5149,8 +5149,9 @@ async function refreshVehicles(){
   state.vehicles = state.vehicles.filter(v => !isAtInnerbeltYard(v));
 
   // A train someone chose to hide for the rest of the service day — kept
-  // out of state.vehicles entirely so every downstream view (map, list,
-  // counts) automatically excludes it without needing individual filters.
+  // out of state.vehicles entirely for everyone, so every downstream view
+  // (map, list, counts) automatically excludes it without needing
+  // individual filters.
   state.vehicles = state.vehicles.filter(v => !hiddenTrainsCache[v.id]);
 
   // A Green Line fleet number (Type 7/8/9/10, PCC) showing up on Red,
