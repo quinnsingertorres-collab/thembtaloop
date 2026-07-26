@@ -3285,6 +3285,7 @@ async function showCarModal(v){
         <div class="signin-note">Report this train holding at a station along its route.</div>
         <datalist id="standingByStationsDatalist">
           ${validStopsForThisVehicle.map(s => `<option value="${s.replace(/"/g,'&quot;')}">`).join('')}
+          ${validStopsForThisVehicle.filter(s => ABBREVIATIONS[s]).map(s => `<option value="${ABBREVIATIONS[s].replace(/"/g,'&quot;')}">`).join('')}
         </datalist>
         <input type="text" class="roster-input" id="standingByStation" list="standingByStationsDatalist" data-enter-target="reportStandingByBtn" placeholder="Start typing a station&hellip;" autocomplete="off" style="margin-top:6px;">
         <input type="number" class="roster-input" id="standingByMinutes" data-enter-target="reportStandingByBtn" placeholder="Expected hold time in minutes (optional)" min="0">
@@ -3309,6 +3310,7 @@ async function showCarModal(v){
         <div class="signin-note">Report this train skipping stops between two stations.</div>
         <datalist id="expressStationsDatalist">
           ${expressStopOptions.map(s => `<option value="${s.replace(/"/g,'&quot;')}">`).join('')}
+          ${expressStopOptions.filter(s => ABBREVIATIONS[s]).map(s => `<option value="${ABBREVIATIONS[s].replace(/"/g,'&quot;')}">`).join('')}
         </datalist>
         <div class="roster-field-label">Express from</div>
         <input type="text" class="roster-input" id="expressStartStation" list="expressStationsDatalist" data-enter-target="reportExpressBtn" placeholder="Start typing a station&hellip;" autocomplete="off">
