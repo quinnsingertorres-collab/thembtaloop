@@ -1458,6 +1458,33 @@ function getCapacityPercentForCar(v, carNum){
   return match.occupancy_percentage;
 }
 
+// MBTA's V3 API (used for everything else in this app) doesn't expose these
+// two fields — they're only available via the enhanced GTFS-realtime feed:
+// https://github.com/mbta/gtfs-documentation/blob/master/reference/gtfs-realtime.md#enhanced-json-feeds
+// So this is a separate, additional fetch, merged onto state.vehicles by
+// vehicle id once it comes back. If this fetch fails for any reason (CORS,
+// network, MBTA changing the feed), it should fail silently — none of the
+// rest of the app depends on this data being present.
+let enhancedTripDataCache = {};
+async function refreshEnhancedTripData(){
+  try{
+    const res = await fetch('https://cdn.mbta.com/realtime/VehiclePositions_enhanced.json');
+    if(!res.ok) return;
+    const data = await res.json();
+    const next = {};
+    (data.entity || []).forEach(entity=>{
+      const vp = entity.vehicle;
+      if(!vp || !vp.vehicle || !vp.vehicle.id) return;
+      const trip = vp.trip || {};
+      next[vp.vehicle.id] = {
+        isNonRevenue: trip.revenue === false,
+        isLastTrip: trip.last_trip === true
+      };
+    });
+    enhancedTripDataCache = next;
+  }catch(e){ /* silently ignore -- this feed is supplementary, not required */ }
+}
+
 function lineCarType(label){
   if(state.activeLine === 'red') return getRedCarType(label);
   if(state.activeLine === 'orange') return getOrangeCarType(label);
@@ -2026,6 +2053,15 @@ function displayName(name){
 
 /* ---------------- Stop matching ---------------- */
 function normName(s){ return (s || '').toLowerCase().replace(/[^a-z0-9]/g, ''); }
+
+// Lets someone type either the full stop name or its abbreviation (e.g.
+// "Gov't Ctr" for "Government Center") and still match correctly — this is
+// independent of the user's own abbreviate-display toggle, which only
+// affects how stops are *shown*, not what's accepted as input here.
+function findStopMatchingInput(options, typed){
+  const normTyped = normName(typed);
+  return options.find(s => normName(s) === normTyped || (ABBREVIATIONS[s] && normName(ABBREVIATIONS[s]) === normTyped));
+}
 
 function findStopIndexInList(stopsArr, stopName){
   if(!stopName) return null;
@@ -3207,6 +3243,15 @@ async function showCarModal(v){
        <div class="signin-note">This train may not be in service &mdash; Type 9 trains cannot service Fenwood Road, Mission Park, Riverway, and Back of the Hill due to the lack of a stop sign, which makes it unsafe for passengers to alight the train.</div>`
     : '';
 
+  const enhancedTripInfo = enhancedTripDataCache[v.id];
+  const nonRevenueNotice = enhancedTripInfo && enhancedTripInfo.isNonRevenue
+    ? `<div class="modal-row"><span>Status</span><strong style="color:#D64545;">Non-revenue trip (auto-detected)</strong></div>
+       <div class="signin-note">MBTA's data marks this as a non-revenue move (e.g. traveling to the start of a route or a yard move) &mdash; it isn't accepting passengers.</div>`
+    : '';
+  const lastTripNotice = enhancedTripInfo && enhancedTripInfo.isLastTrip
+    ? `<div class="modal-row"><span>Last trip</span><strong>Yes, for this branch/direction today</strong></div>`
+    : '';
+
   const GREEN_BRANCH_NAMES = { B:'Boston College', C:'Cleveland Circle', D:'Riverside', E:'Heath Street' };
   const RED_BRANCH_NAMES = { ashmont:'Ashmont', braintree:'Braintree' };
   const existingBranchReassignment = branchReassignmentCache[v.id];
@@ -3330,6 +3375,8 @@ async function showCarModal(v){
     <div class="modal-section">
       ${soloType7Notice}
       ${type9RestrictedZoneNotice}
+      ${nonRevenueNotice}
+      ${lastTripNotice}
       <div class="modal-row"><span>Status</span><strong>${statusPhrase(v.status, v.stopName)}</strong></div>
       <div class="modal-row"><span>Destination</span><strong>${effectiveDestination}</strong></div>
       ${originTimeStr ? `<div class="modal-row"><span>Left origin at</span><strong>${originTimeStr}</strong></div>` : ''}
@@ -3554,7 +3601,7 @@ async function showCarModal(v){
         note.textContent = 'Enter a station first.';
         return;
       }
-      const station = validStopsForThisVehicle.find(s => normName(s) === normName(stationTyped));
+      const station = findStopMatchingInput(validStopsForThisVehicle, stationTyped);
       if(!station){
         note.textContent = "That doesn't match a real station on this train's route \u2014 pick one from the suggestions.";
         return;
@@ -3583,8 +3630,8 @@ async function showCarModal(v){
         note.textContent = 'Enter both a start and end station.';
         return;
       }
-      const startStation = expressStopOptions.find(s => normName(s) === normName(startTyped));
-      const endStation = expressStopOptions.find(s => normName(s) === normName(endTyped));
+      const startStation = findStopMatchingInput(expressStopOptions, startTyped);
+      const endStation = findStopMatchingInput(expressStopOptions, endTyped);
       if(!startStation || !endStation){
         note.textContent = "That doesn't match a real station on this train's route \u2014 pick one from the suggestions.";
         return;
@@ -3595,7 +3642,7 @@ async function showCarModal(v){
       }
       let intermediateStop = null;
       if(intermediateTyped){
-        intermediateStop = expressStopOptions.find(s => normName(s) === normName(intermediateTyped));
+        intermediateStop = findStopMatchingInput(expressStopOptions, intermediateTyped);
         if(!intermediateStop){
           note.textContent = "The intermediate stop doesn't match a real station on this train's route.";
           return;
@@ -5249,6 +5296,21 @@ async function refreshVehicles(){
     return !(parts.length === 1 && carsCurrentlyCoupled.has(parts[0]));
   });
 
+  // The exact same car set (e.g. "3718-3811") showing up as two separate
+  // vehicle entries at once is a data glitch, not two physical trains —
+  // keep only the most recently updated one. Keyed on the label alone
+  // (not label+branch), since the same physical set can't legitimately
+  // exist under two different branch assignments simultaneously either.
+  const bestByLabel = {};
+  state.vehicles.forEach(v=>{
+    const key = String(v.label);
+    const existing = bestByLabel[key];
+    if(!existing || new Date(v.updatedAt) > new Date(existing.updatedAt)){
+      bestByLabel[key] = v;
+    }
+  });
+  state.vehicles = state.vehicles.filter(v => bestByLabel[String(v.label)] === v);
+
   // A Green Line fleet number (Type 7/8/9/10, PCC) showing up on Red,
   // Orange, or Blue is a data error, not a real train — car numbers don't
   // overlap between lines in reality.
@@ -6836,6 +6898,9 @@ async function init(){
 
   refreshOperatorSearchCache();
   setInterval(refreshOperatorSearchCache, 60000);
+
+  refreshEnhancedTripData();
+  setInterval(refreshEnhancedTripData, 15000);
 
   refreshSoloType7OverrideCache();
   setInterval(refreshSoloType7OverrideCache, 60000);
