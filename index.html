@@ -3124,6 +3124,24 @@ async function showCarModal(v){
     const infoMap = lineCarInfoMap();
     const info = infoMap[type] || infoMap['Unknown'];
 
+    // Per-car Out of Service control — distinct from the consolidated
+    // "Mark this train Out of Service" button above, which applies to every
+    // car in the consist at once. This one only ever touches this single
+    // car, so a report about one bad car doesn't force-flag the rest of an
+    // otherwise-fine train.
+    const carOOSData = oosByCar[carNum];
+    const carIsOOS = !!(carOOSData && carOOSData.outOfService);
+    const carOOSBlock = state.signedIn
+      ? `<div class="modal-row-spacer"></div>
+         ${carIsOOS
+           ? `<div class="modal-row"><span>Status</span><strong style="color:#D64545;">Out of Service</strong></div>
+              ${carOOSData.reason ? `<div class="modal-row"><span>Reason</span><strong>${carOOSData.reason.replace(/</g,'&lt;')}</strong></div>` : ''}
+              <span class="signin-note">Marked by ${liveName(carOOSData.markedBy, carOOSData.markedByUid, userInfoMap)} today — clears at end of service day</span>
+              <button class="account-btn" data-oos-car="${carNum}" data-oos-car-current="1" style="margin-top:6px; background:#0F8A4B;">Mark this car back in service</button>`
+           : `<input type="text" class="roster-input" data-oos-car-reason="${carNum}" data-enter-target="oosCarBtn-${carNum}" placeholder="Reason (optional) &mdash; e.g. mechanical issue, door problem" style="margin-top:6px;">
+              <button class="account-btn" id="oosCarBtn-${carNum}" data-oos-car="${carNum}" data-oos-car-current="0" style="margin-top:6px; background:#D64545;">Mark this car Out of Service</button>`}`
+      : (carIsOOS ? `<div class="modal-row-spacer"></div><div class="modal-row"><span>Status</span><strong style="color:#D64545;">Out of Service</strong></div>` : '');
+
     if(!isGreenLine){
       const crowdingStatus = getCrowdingForCar(v, carNum);
       const capacityPercent = getCapacityPercentForCar(v, carNum);
@@ -3146,6 +3164,7 @@ async function showCarModal(v){
             <div class="modal-row"><span>Year built</span><strong>${info.year}</strong></div>
             ${crowdingRow}
             ${capacityRow}
+            ${carOOSBlock}
           </div>
         </div>`;
     }
@@ -3196,6 +3215,7 @@ async function showCarModal(v){
           <div class="modal-row"><span>GLTPS</span><strong style="${gltpsColor}">${gltpsText}</strong></div>
           ${gltpsButtons}
           ${operatorBlock}
+          ${carOOSBlock}
         </div>
       </div>`;
   }).join('');
@@ -3699,6 +3719,26 @@ async function showCarModal(v){
       showCarModal(v);
     });
   }
+
+  // Per-car Out of Service toggle — separate from oosToggleAllBtn above.
+  // That button always applies to every car in the consist; these apply to
+  // exactly one car number each, so flagging a single bad car never marks
+  // its otherwise-fine neighbors.
+  document.querySelectorAll('[data-oos-car]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const carNum = btn.dataset.oosCar;
+      const isCurrentlyOOS = btn.dataset.oosCarCurrent === '1';
+      if(isCurrentlyOOS){
+        await clearCarOutOfService(carNum);
+      }else{
+        const reasonInput = document.querySelector(`[data-oos-car-reason="${carNum}"]`);
+        const reason = reasonInput ? reasonInput.value.trim() : '';
+        await markCarOutOfService(carNum, reason);
+        awardPoints(1);
+      }
+      showCarModal(v);
+    });
+  });
 
   const hideTrainBtn = document.getElementById('hideTrainBtn');
   if(hideTrainBtn){
