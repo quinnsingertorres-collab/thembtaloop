@@ -2763,7 +2763,7 @@ async function refreshOutOfServiceCache(){
     const staleDocs = [];
     snap.forEach(doc=>{
       const d = doc.data();
-      if(d.date === today && d.outOfService) map[doc.id] = true;
+      if(d.date === today && d.outOfService) map[doc.id] = { reason: d.reason || '', markedBy: d.markedBy || '' };
       else staleDocs.push(doc.ref);
     });
     outOfServiceCarsCache = map;
@@ -2827,15 +2827,15 @@ async function unhideTrain(vehicleId){
   try{ await fbDb.collection('hidden_trains').doc(vehicleId).delete(); }catch(e){ console.error(e); }
   delete hiddenTrainsCache[vehicleId];
 }
-async function markCarOutOfService(carNum){
+async function markCarOutOfService(carNum, reason){
   if(!firebaseReady) return;
   try{
     await fbDb.collection('car_out_of_service').doc(carNum).set({
-      outOfService: true, markedBy: state.userName, markedByUid: state.uid || null,
+      outOfService: true, reason: reason || '', markedBy: state.userName, markedByUid: state.uid || null,
       ts: Date.now(), date: todayDateString()
     });
-    outOfServiceCarsCache[carNum] = true;
-    logEdit(state.userName, state.uid, `Marked car ${carNum} out of service`);
+    outOfServiceCarsCache[carNum] = { reason: reason || '', markedBy: state.userName };
+    logEdit(state.userName, state.uid, `Marked car ${carNum} out of service${reason ? `: "${reason.slice(0,60)}"` : ''}`);
   }catch(e){ console.error(e); }
 }
 async function clearCarOutOfService(carNum){
@@ -3043,10 +3043,14 @@ async function showCarModal(v){
       <h4>Out of service</h4>
       ${allCarsOOS
         ? `<div class="modal-row"><span>Status</span><strong style="color:#D64545;">Out of Service</strong></div>
+           ${oosMarkedByEntry.reason ? `<div class="modal-row"><span>Reason</span><strong>${oosMarkedByEntry.reason.replace(/</g,'&lt;')}</strong></div>` : ''}
            <span class="signin-note">Marked by ${liveName(oosMarkedByEntry.markedBy, oosMarkedByEntry.markedByUid, userInfoMap)} today \u2014 clears at end of service day</span>`
         : (anyCarOOS ? `<div class="signin-note">Some but not all cars in this set are currently marked Out of Service.</div>` : '')}
       ${state.signedIn
-        ? `<button class="account-btn" id="oosToggleAllBtn" data-oos-all-current="${allCarsOOS ? '1' : '0'}" style="margin-top:8px; ${allCarsOOS ? 'background:#0F8A4B;' : 'background:#D64545;'}">${allCarsOOS ? 'Mark this train back in service' : 'Mark this train Out of Service'}</button>`
+        ? (allCarsOOS
+            ? `<button class="account-btn" id="oosToggleAllBtn" data-oos-all-current="1" style="margin-top:8px; background:#0F8A4B;">Mark this train back in service</button>`
+            : `<input type="text" class="roster-input" id="oosReasonInput" data-enter-target="oosToggleAllBtn" placeholder="Reason (optional) &mdash; e.g. mechanical issue, door problem" style="margin-top:8px;">
+               <button class="account-btn" id="oosToggleAllBtn" data-oos-all-current="0" style="margin-top:8px; background:#D64545;">Mark this train Out of Service</button>`)
         : `<div class="signin-note">Sign in to report a train's service status.</div>`}
     </div>
   `;
@@ -3670,7 +3674,9 @@ async function showCarModal(v){
       if(isCurrentlyAllOOS){
         await Promise.all(carParts.map(c => clearCarOutOfService(c)));
       }else{
-        await Promise.all(carParts.map(c => markCarOutOfService(c)));
+        const reasonInput = document.getElementById('oosReasonInput');
+        const reason = reasonInput ? reasonInput.value.trim() : '';
+        await Promise.all(carParts.map(c => markCarOutOfService(c, reason)));
         awardPoints(1);
       }
       showCarModal(v);
