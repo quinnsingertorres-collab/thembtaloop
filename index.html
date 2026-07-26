@@ -922,6 +922,23 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
 </div>
 
 <script>
+/* ---------------- Back-navigation guard ---------------- */
+/* This is a single-page app with no internal routing of its own (no
+   pushState anywhere below), so on Android the edge-swipe "go back"
+   gesture — or the hardware/nav-bar back button — has nowhere real to go.
+   It tries to navigate the tab to whatever was before this page in
+   history (often nothing, or a blank intermediate page), and Firefox
+   renders that as a solid black screen mid-gesture with no way back
+   except a manual reload. Confirmed repro: swiping back on Android is
+   exactly what triggers the black screen.
+   Fix: keep a dummy history entry in place at all times. If the browser
+   ever pops it (via popstate), immediately push it right back — the
+   gesture becomes a same-page no-op instead of navigating away. */
+history.pushState({appGuard:true}, '', location.href);
+window.addEventListener('popstate', ()=>{
+  history.pushState({appGuard:true}, '', location.href);
+});
+
 /* ---------------- Page + stop data ---------------- */
 /* Each list runs from downtown/the shared trunk (index 0) outward to the
    terminus (last index), per branch. */
