@@ -290,8 +290,21 @@ body.dark .stop-dot{background:var(--bg);}
   box-shadow:0 1px 3px rgba(0,0,0,0.25); z-index:3; cursor:pointer;
   transition:top 1s ease, left 1s ease;
 }
-.train-leader-line{transition:x1 1s ease, y1 1s ease, x2 1s ease, y2 1s ease;}
-.train-leader-dot, .train-leader-start-dot{transition:cx 1s ease, cy 1s ease;}
+/* Leader lines are plain divs (not SVG <line>s) specifically so they can be
+   animated with CSS transitions — x1/y1/x2/y2 on an SVG <line> have no
+   corresponding CSS property in any browser, so a transition on them is
+   silently a no-op and the line used to snap instantly to its new position
+   while the bubble glided smoothly, visibly detaching mid-animation. left/
+   top/width/transform are all real, animatable CSS properties, so this
+   stays visually connected to the bubble (and the end dot, whose cx/cy
+   *do* transition correctly since <circle> geometry is CSS-animatable)
+   throughout the full glide. */
+.leader-connector{
+  position:absolute; height:3px; border-radius:2px; z-index:1;
+  transform-origin:0 50%; pointer-events:none;
+  transition:left 1s ease, top 1s ease, width 1s ease, transform 1s ease;
+}
+.train-leader-dot{transition:cx 1s ease, cy 1s ease;}
 .train-bubble.bubble-search-highlight{
   outline:2px solid #3B82F6; outline-offset:2px;
 }
@@ -2468,6 +2481,20 @@ function computeDisplayY(idx, direction, status, stopYArr, vehicle, stopCoordsAr
   return stopYArr[idx] + fraction * (stopYArr[prevIdx] - stopYArr[idx]);
 }
 
+// Positions a div-based connector as a rotated bar from (x1,y1) to (x2,y2).
+// Used instead of an SVG <line> so left/top/width/transform — all real,
+// CSS-transitionable properties — carry the glide animation, keeping the
+// connector visually attached to the bubble/dot at every point mid-glide.
+function positionConnector(div, x1, y1, x2, y2){
+  const dx = x2 - x1, dy = y2 - y1;
+  const length = Math.sqrt(dx*dx + dy*dy);
+  const angleDeg = Math.atan2(dy, dx) * 180 / Math.PI;
+  div.style.left = x1 + 'px';
+  div.style.top = (y1 - 1.5) + 'px'; // half of the 3px height, so it sits centered on the line
+  div.style.width = length + 'px';
+  div.style.transform = `rotate(${angleDeg}deg)`;
+}
+
 function renderTrainDots(){
   if(!layout || layout.key !== state.currentPage) buildLadder();
   const key = state.currentPage;
@@ -2487,13 +2514,16 @@ function renderTrainDots(){
   const existingLines = {};
   const existingElbowLines = {};
   const existingEndDots = {};
-  const existingStartDots = {};
+  // The connector lines are plain divs living directly in the ladder
+  // container (see positionConnector) so their left/top/width/transform can
+  // actually be CSS-transitioned — only the end dot stays an SVG <circle>,
+  // since cx/cy transitions on a circle work correctly, unlike x1/y1/x2/y2
+  // on a <line>.
+  ladder.querySelectorAll('.train-leader-line').forEach(el => { existingLines[el.dataset.vehicleId] = el; });
+  ladder.querySelectorAll('.train-leader-elbow').forEach(el => { existingElbowLines[el.dataset.vehicleId] = el; });
   const svg = document.getElementById('ladderLines');
   if(svg){
-    svg.querySelectorAll('.train-leader-line').forEach(el => { existingLines[el.dataset.vehicleId] = el; });
-    svg.querySelectorAll('.train-leader-elbow').forEach(el => { existingElbowLines[el.dataset.vehicleId] = el; });
     svg.querySelectorAll('.train-leader-dot').forEach(el => { existingEndDots[el.dataset.vehicleId] = el; });
-    svg.querySelectorAll('.train-leader-start-dot').forEach(el => { existingStartDots[el.dataset.vehicleId] = el; });
   }
 
   // Clear any "occupied" fill from stop dots before recomputing which ones
@@ -2673,10 +2703,10 @@ function renderTrainDots(){
       const anchorX = side === 'west' ? (staggeredBubbleX + layout.BUBBLE_W) : staggeredBubbleX;
       let line = existingLines[entry.v.id];
       if(!line){
-        line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-        line.setAttribute('class', 'train-leader-line');
+        line = document.createElement('div');
+        line.className = 'train-leader-line leader-connector';
         line.dataset.vehicleId = entry.v.id;
-        if(svg) svg.appendChild(line);
+        ladder.appendChild(line);
       }
       // Normally a single straight segment from the bubble to its stop dot.
       // When staggering is on, that same single segment would often look
@@ -2686,48 +2716,23 @@ function renderTrainDots(){
       // separate vertical segment (below) covers the rest of the way down
       // to the stop dot itself. Neither segment is ever diagonal.
       const line1Y2 = state.staggerBunchedTrains ? bubbleY : displayY;
-      line.setAttribute('x1', anchorX);
-      line.setAttribute('y1', bubbleY);
-      line.setAttribute('x2', trackX);
-      line.setAttribute('y2', line1Y2);
-      line.setAttribute('stroke', branchHex);
+      positionConnector(line, anchorX, bubbleY, trackX, line1Y2);
+      line.style.background = branchHex;
       // Thicker and more opaque than before — with many trains on screen at
-      // once the old thin, faint lines got lost in a tangle. A dot at the
-      // bubble end (to match the one already at the track end) also helps
-      // the eye anchor which line belongs to which bubble when several
-      // cross near each other.
-      line.setAttribute('stroke-width', '3');
-      line.setAttribute('opacity', '0.9');
-
-      let startDot = existingStartDots[entry.v.id];
-      if(!startDot){
-        startDot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-        startDot.setAttribute('class', 'train-leader-start-dot');
-        startDot.dataset.vehicleId = entry.v.id;
-        startDot.setAttribute('r', 3.5);
-        startDot.setAttribute('stroke', '#fff');
-        startDot.setAttribute('stroke-width', '1');
-        if(svg) svg.appendChild(startDot);
-      }
-      startDot.setAttribute('cx', anchorX);
-      startDot.setAttribute('cy', bubbleY);
-      startDot.setAttribute('fill', branchHex);
+      // once the old thin, faint lines got lost in a tangle.
+      line.style.opacity = '0.9';
 
       let elbowLine = existingElbowLines[entry.v.id];
       if(state.staggerBunchedTrains){
         if(!elbowLine){
-          elbowLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-          elbowLine.setAttribute('class', 'train-leader-elbow train-leader-line');
+          elbowLine = document.createElement('div');
+          elbowLine.className = 'train-leader-elbow leader-connector';
           elbowLine.dataset.vehicleId = entry.v.id;
-          if(svg) svg.appendChild(elbowLine);
+          ladder.appendChild(elbowLine);
         }
-        elbowLine.setAttribute('x1', trackX);
-        elbowLine.setAttribute('y1', bubbleY);
-        elbowLine.setAttribute('x2', trackX);
-        elbowLine.setAttribute('y2', displayY);
-        elbowLine.setAttribute('stroke', branchHex);
-        elbowLine.setAttribute('stroke-width', '3');
-        elbowLine.setAttribute('opacity', '0.9');
+        positionConnector(elbowLine, trackX, bubbleY, trackX, displayY);
+        elbowLine.style.background = branchHex;
+        elbowLine.style.opacity = '0.9';
       }else if(elbowLine){
         elbowLine.remove();
         delete existingElbowLines[entry.v.id];
@@ -2759,9 +2764,6 @@ function renderTrainDots(){
   });
   Object.keys(existingEndDots).forEach(vid=>{
     if(!seenVehicleIds.has(vid)) existingEndDots[vid].remove();
-  });
-  Object.keys(existingStartDots).forEach(vid=>{
-    if(!seenVehicleIds.has(vid)) existingStartDots[vid].remove();
   });
 
   // Remove bubbles for vehicles that are no longer relevant (left the branch,
