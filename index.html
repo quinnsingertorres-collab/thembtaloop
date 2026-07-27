@@ -5555,13 +5555,23 @@ async function refreshVehicles(){
 
   // Any car number that doesn't fall in a known range for this line (i.e.
   // getCarType/getRedCarType/getOrangeCarType/getBlueCarType would call it
-  // "Unknown") is dropped rather than tracked — most likely bad/garbled
-  // label data from the feed, not a real train, and showing it risks
-  // displaying wrong type/seat/GLTPS info under a car number that was never
-  // actually verified. Note: this also hides any legitimately new car
-  // numbers MBTA adds to the fleet until the range tables above are updated
-  // to include them.
-  state.vehicles = state.vehicles.filter(v => !String(v.label).split('-').some(carNum => lineCarType(carNum) === 'Unknown'));
+  // "Unknown") is most likely bad/garbled label data from the feed, not a
+  // real car — showing it risks displaying wrong type/seat/GLTPS info under
+  // a number that was never actually verified. If it's riding alongside
+  // recognized cars in the same set, just drop that one car number and keep
+  // tracking the train under its remaining (recognized) cars; only drop the
+  // whole train if none of its cars are recognized. Note: this also hides
+  // any legitimately new car numbers MBTA adds to the fleet until the range
+  // tables above are updated to include them.
+  state.vehicles = state.vehicles
+    .map(v=>{
+      const parts = String(v.label).split('-');
+      const recognized = parts.filter(carNum => lineCarType(carNum) !== 'Unknown');
+      if(recognized.length === parts.length) return v;
+      if(recognized.length === 0) return null;
+      return Object.assign({}, v, { label: recognized.join('-') });
+    })
+    .filter(v => v !== null);
 
   if(state.live) updateLastSeenTracking(state.vehicles);
   if(state.live) checkTrainNotifications(state.vehicles);
