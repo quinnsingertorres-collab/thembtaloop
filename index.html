@@ -2343,8 +2343,14 @@ function buildLadder(){
   const MARGIN = 2;
   const westTrackX = W * 0.30;
   const eastTrackX = W * 0.70;
-  const westBubbleX = MARGIN;
-  const eastBubbleX = W - MARGIN - BUBBLE_W;
+  // Bubbles used to pin all the way out to the container edges, leaving a
+  // long leader line across most of the outer third of the width. Anchoring
+  // them a small fixed gap off their own track instead keeps the line short
+  // and the train visually close to the track map, while MARGIN is still the
+  // floor for very narrow screens where the track sits close to the edge.
+  const BUBBLE_GAP = isMobileLadder ? 10 : 16;
+  const westBubbleX = Math.max(MARGIN, westTrackX - BUBBLE_W - BUBBLE_GAP);
+  const eastBubbleX = Math.min(W - MARGIN - BUBBLE_W, eastTrackX + BUBBLE_GAP);
   const labelLeft = westTrackX + 8;
   const labelWidth = Math.max(40, eastTrackX - westTrackX - 16);
 
