@@ -740,7 +740,7 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
 
     <div class="roster-row">
       <div class="roster-row-head"><span class="roster-car-chip">Disruption Mode</span></div>
-      <div class="roster-edited-by">During major disruptions (shuttle buses, single-tracking, etc.), trains can legitimately drop out of MBTA's live feed for longer stretches. Enabling this extends how long a train stays visible at its last known position after going quiet &mdash; from 5 minutes up to 15 &mdash; for everyone using the app.</div>
+      <div class="roster-edited-by">During major disruptions (shuttle buses, single-tracking, etc.), trains can legitimately drop out of MBTA's live feed for longer stretches. Enabling this extends how long a train stays visible at its last known position after going quiet &mdash; from 10 minutes up to 25 &mdash; for everyone using the app.</div>
       <button class="account-btn" id="disruptionModeToggleBtn" style="margin-top:8px;">Enable Disruption Mode</button>
       <span class="roster-submit-note" id="disruptionModeNote"></span>
     </div>
@@ -5253,8 +5253,8 @@ const REAL_TERMINUS_STOPS = [
   'Government Center', 'Boston College', 'Cleveland Circle', 'Union Square',
   'Riverside', 'Medford/Tufts', 'Heath Street'
 ];
-const NON_TERMINUS_KEEP_ALIVE_MS = 5 * 60 * 1000; // 5 minutes
-const NON_TERMINUS_KEEP_ALIVE_DISRUPTION_MS = 15 * 60 * 1000; // 15 minutes, when disruption mode is on
+const NON_TERMINUS_KEEP_ALIVE_MS = 10 * 60 * 1000; // 10 minutes
+const NON_TERMINUS_KEEP_ALIVE_DISRUPTION_MS = 25 * 60 * 1000; // 25 minutes, when disruption mode is on
 
 // Shared, moderator-controlled setting — when on, non-terminus trains get a
 // much longer grace period before disappearing, since a real disruption
@@ -5287,7 +5287,7 @@ function updateDisruptionModeUI(){
   if(disruptionModeCache){
     btn.textContent = 'Disable Disruption Mode';
     btn.style.background = '#D64545';
-    note.textContent = 'Disruption Mode is ON \u2014 trains stay visible for up to 15 minutes after going quiet.';
+    note.textContent = 'Disruption Mode is ON \u2014 trains stay visible for up to 25 minutes after going quiet.';
   }else{
     btn.textContent = 'Enable Disruption Mode';
     btn.style.background = '';
@@ -6791,8 +6791,8 @@ document.getElementById('editLogsBackBtn').addEventListener('click', ()=> switch
 document.getElementById('disruptionModeToggleBtn').addEventListener('click', async ()=>{
   const turningOn = !disruptionModeCache;
   const confirmMsg = turningOn
-    ? 'Enable Disruption Mode? Trains away from a terminus will stay on the map for up to 15 minutes after going quiet (instead of 5), for every user.'
-    : 'Disable Disruption Mode? Trains will go back to the normal 5-minute grace period.';
+    ? 'Enable Disruption Mode? Trains away from a terminus will stay on the map for up to 25 minutes after going quiet (instead of 10), for every user.'
+    : 'Disable Disruption Mode? Trains will go back to the normal 10-minute grace period.';
   if(!window.confirm(confirmMsg)) return;
   await setDisruptionMode(turningOn);
 });
