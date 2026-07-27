@@ -5553,6 +5553,16 @@ async function refreshVehicles(){
     state.vehicles = state.vehicles.filter(v => !hasGreenLineFleetNumber(v));
   }
 
+  // Any car number that doesn't fall in a known range for this line (i.e.
+  // getCarType/getRedCarType/getOrangeCarType/getBlueCarType would call it
+  // "Unknown") is dropped rather than tracked — most likely bad/garbled
+  // label data from the feed, not a real train, and showing it risks
+  // displaying wrong type/seat/GLTPS info under a car number that was never
+  // actually verified. Note: this also hides any legitimately new car
+  // numbers MBTA adds to the fleet until the range tables above are updated
+  // to include them.
+  state.vehicles = state.vehicles.filter(v => !String(v.label).split('-').some(carNum => lineCarType(carNum) === 'Unknown'));
+
   if(state.live) updateLastSeenTracking(state.vehicles);
   if(state.live) checkTrainNotifications(state.vehicles);
 
