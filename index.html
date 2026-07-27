@@ -1482,14 +1482,19 @@ function getCapacityPercentForCar(v, carNum){
 // MBTA's V3 API (used for everything else in this app) doesn't expose these
 // two fields — they're only available via the enhanced GTFS-realtime feed:
 // https://github.com/mbta/gtfs-documentation/blob/master/reference/gtfs-realtime.md#enhanced-json-feeds
-// So this is a separate, additional fetch, merged onto state.vehicles by
-// vehicle id once it comes back. If this fetch fails for any reason (CORS,
-// network, MBTA changing the feed), it should fail silently — none of the
-// rest of the app depends on this data being present.
+// cdn.mbta.com doesn't send Access-Control-Allow-Origin, so browsers block a
+// direct fetch outright (not something client code can catch around) — this
+// goes through our own /api/enhanced-vehicle-positions proxy instead, which
+// fetches it server-side (no CORS involved there) and hands back the same
+// JSON from our own origin. This is a separate, additional fetch, merged
+// onto state.vehicles by vehicle id once it comes back. If this fetch fails
+// for any reason (network blip, MBTA changing the feed, proxy down), it
+// should fail silently — none of the rest of the app depends on this data
+// being present.
 let enhancedTripDataCache = {};
 async function refreshEnhancedTripData(){
   try{
-    const res = await fetch('https://cdn.mbta.com/realtime/VehiclePositions_enhanced.json');
+    const res = await fetch('/api/enhanced-vehicle-positions');
     if(!res.ok) return;
     const data = await res.json();
     const next = {};
