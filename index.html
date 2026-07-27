@@ -291,7 +291,7 @@ body.dark .stop-dot{background:var(--bg);}
   transition:top 1s ease, left 1s ease;
 }
 .train-leader-line{transition:x1 1s ease, y1 1s ease, x2 1s ease, y2 1s ease;}
-.train-leader-dot{transition:cx 1s ease, cy 1s ease;}
+.train-leader-dot, .train-leader-start-dot{transition:cx 1s ease, cy 1s ease;}
 .train-bubble.bubble-search-highlight{
   outline:2px solid #3B82F6; outline-offset:2px;
 }
@@ -2343,14 +2343,15 @@ function buildLadder(){
   const MARGIN = 2;
   const westTrackX = W * 0.30;
   const eastTrackX = W * 0.70;
-  // Bubbles used to pin all the way out to the container edges, leaving a
-  // long leader line across most of the outer third of the width. Anchoring
-  // them a small fixed gap off their own track instead keeps the line short
-  // and the train visually close to the track map, while MARGIN is still the
-  // floor for very narrow screens where the track sits close to the edge.
-  const BUBBLE_GAP = isMobileLadder ? 10 : 16;
-  const westBubbleX = Math.max(MARGIN, westTrackX - BUBBLE_W - BUBBLE_GAP);
-  const eastBubbleX = Math.min(W - MARGIN - BUBBLE_W, eastTrackX + BUBBLE_GAP);
+  // On mobile there's little enough horizontal room that pinning bubbles to
+  // the container edges (the original behavior) still reads fine and keeps
+  // the widest possible label column in between. On desktop there's room to
+  // spare, so bubbles anchor a fixed gap off their own track instead of
+  // sitting all the way out at the edge — keeps the leader line short
+  // without crowding it right against the track dots.
+  const BUBBLE_GAP = 32;
+  const westBubbleX = isMobileLadder ? MARGIN : Math.max(MARGIN, westTrackX - BUBBLE_W - BUBBLE_GAP);
+  const eastBubbleX = isMobileLadder ? (W - MARGIN - BUBBLE_W) : Math.min(W - MARGIN - BUBBLE_W, eastTrackX + BUBBLE_GAP);
   const labelLeft = westTrackX + 8;
   const labelWidth = Math.max(40, eastTrackX - westTrackX - 16);
 
@@ -2486,11 +2487,13 @@ function renderTrainDots(){
   const existingLines = {};
   const existingElbowLines = {};
   const existingEndDots = {};
+  const existingStartDots = {};
   const svg = document.getElementById('ladderLines');
   if(svg){
     svg.querySelectorAll('.train-leader-line').forEach(el => { existingLines[el.dataset.vehicleId] = el; });
     svg.querySelectorAll('.train-leader-elbow').forEach(el => { existingElbowLines[el.dataset.vehicleId] = el; });
     svg.querySelectorAll('.train-leader-dot').forEach(el => { existingEndDots[el.dataset.vehicleId] = el; });
+    svg.querySelectorAll('.train-leader-start-dot').forEach(el => { existingStartDots[el.dataset.vehicleId] = el; });
   }
 
   // Clear any "occupied" fill from stop dots before recomputing which ones
@@ -2688,8 +2691,27 @@ function renderTrainDots(){
       line.setAttribute('x2', trackX);
       line.setAttribute('y2', line1Y2);
       line.setAttribute('stroke', branchHex);
-      line.setAttribute('stroke-width', '2.5');
-      line.setAttribute('opacity', '0.65');
+      // Thicker and more opaque than before — with many trains on screen at
+      // once the old thin, faint lines got lost in a tangle. A dot at the
+      // bubble end (to match the one already at the track end) also helps
+      // the eye anchor which line belongs to which bubble when several
+      // cross near each other.
+      line.setAttribute('stroke-width', '3');
+      line.setAttribute('opacity', '0.9');
+
+      let startDot = existingStartDots[entry.v.id];
+      if(!startDot){
+        startDot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        startDot.setAttribute('class', 'train-leader-start-dot');
+        startDot.dataset.vehicleId = entry.v.id;
+        startDot.setAttribute('r', 3.5);
+        startDot.setAttribute('stroke', '#fff');
+        startDot.setAttribute('stroke-width', '1');
+        if(svg) svg.appendChild(startDot);
+      }
+      startDot.setAttribute('cx', anchorX);
+      startDot.setAttribute('cy', bubbleY);
+      startDot.setAttribute('fill', branchHex);
 
       let elbowLine = existingElbowLines[entry.v.id];
       if(state.staggerBunchedTrains){
@@ -2704,8 +2726,8 @@ function renderTrainDots(){
         elbowLine.setAttribute('x2', trackX);
         elbowLine.setAttribute('y2', displayY);
         elbowLine.setAttribute('stroke', branchHex);
-        elbowLine.setAttribute('stroke-width', '2.5');
-        elbowLine.setAttribute('opacity', '0.65');
+        elbowLine.setAttribute('stroke-width', '3');
+        elbowLine.setAttribute('opacity', '0.9');
       }else if(elbowLine){
         elbowLine.remove();
         delete existingElbowLines[entry.v.id];
@@ -2737,6 +2759,9 @@ function renderTrainDots(){
   });
   Object.keys(existingEndDots).forEach(vid=>{
     if(!seenVehicleIds.has(vid)) existingEndDots[vid].remove();
+  });
+  Object.keys(existingStartDots).forEach(vid=>{
+    if(!seenVehicleIds.has(vid)) existingStartDots[vid].remove();
   });
 
   // Remove bubbles for vehicles that are no longer relevant (left the branch,
