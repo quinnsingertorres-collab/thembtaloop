@@ -5261,11 +5261,33 @@ const NON_TERMINUS_KEEP_ALIVE_DISRUPTION_MS = 25 * 60 * 1000; // 25 minutes, whe
 // (shuttle buses, single-tracking) can knock a train out of MBTA's live
 // feed for a long stretch even though it's still genuinely running.
 let disruptionModeCache = false;
+// Auto-disable after this long so a moderator forgetting to turn it back
+// off (after the actual disruption clears) doesn't leave every non-terminus
+// train sticking around for 25 minutes indefinitely.
+const DISRUPTION_MODE_MAX_MS = 60 * 60 * 1000; // 1 hour
 async function refreshDisruptionModeCache(){
   if(!firebaseReady) return;
   try{
     const doc = await fbDb.collection('mod_settings').doc('disruption_mode').get();
-    disruptionModeCache = !!(doc.exists && doc.data().enabled);
+    const data = doc.exists ? doc.data() : null;
+    const isEnabled = !!(data && data.enabled);
+    if(isEnabled && data.ts && (Date.now() - data.ts) > DISRUPTION_MODE_MAX_MS){
+      // Whichever signed-in user's browser happens to poll past the 1-hour
+      // mark first turns it off for everyone — same shared-setting pattern
+      // as the manual toggle, just triggered by a timeout instead of a
+      // click. Requires being signed in (same as any mod_settings write),
+      // so this silently no-ops for signed-out sessions until a signed-in
+      // one is open to actually flip it.
+      try{
+        await fbDb.collection('mod_settings').doc('disruption_mode').set({
+          enabled: false, setBy: 'Auto (1hr timeout)', setByUid: null, ts: Date.now()
+        });
+        logEdit('Auto (1hr timeout)', null, 'Disabled Disruption Mode (1-hour auto-timeout)');
+      }catch(e){ /* likely signed out — another session will catch it */ }
+      disruptionModeCache = false;
+    }else{
+      disruptionModeCache = isEnabled;
+    }
     updateDisruptionModeUI();
   }catch(e){ console.error(e); }
 }
