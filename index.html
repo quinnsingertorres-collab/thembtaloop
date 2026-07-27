@@ -873,6 +873,10 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
         <span>Type 9 cars</span>
         <div class="switch" id="notifType9Switch"><div class="knob"></div></div>
       </div>
+      <div class="menu-row">
+        <span>Cars back in service</span>
+        <div class="switch" id="notifCarBackInServiceSwitch"><div class="knob"></div></div>
+      </div>
       <div class="menu-row" style="flex-direction:column; align-items:flex-start; gap:8px;">
         <span>Push notifications for moderator alerts <span style="color:var(--text-faint); font-weight:400;">(arrives even when the app is closed)</span></span>
         <button class="account-btn" id="pushEnableBtn" style="margin-top:0; width:100%;">Enable push notifications</button>
@@ -1570,7 +1574,7 @@ function buildRosterCarList(){
 }
 const ROSTER_CARS = buildRosterCarList();
 
-let state = { vehicles: [], currentPage: 'B', lastMainPage: 'B', live: null, abbreviate: false, staggerBunchedTrains: false, signedIn: false, userName: '', photoURL: '', isModerator: false, isTrustedMember: false, filterDirection: 'ALL', filterType: 'ALL', rosterSearch: '', rosterTypeFilter: 'ALL', notifMaster: true, notifDoubleType8: false, notifPride: false, notifType9: false, activeLine: 'green', otherBranchesVisible: { B:false, C:false, D:false, E:false, ashmont:false, braintree:false } };
+let state = { vehicles: [], currentPage: 'B', lastMainPage: 'B', live: null, abbreviate: false, staggerBunchedTrains: false, signedIn: false, userName: '', photoURL: '', isModerator: false, isTrustedMember: false, filterDirection: 'ALL', filterType: 'ALL', rosterSearch: '', rosterTypeFilter: 'ALL', notifMaster: true, notifDoubleType8: false, notifPride: false, notifType9: false, notifCarBackInService: false, activeLine: 'green', otherBranchesVisible: { B:false, C:false, D:false, E:false, ashmont:false, braintree:false } };
 let layout = null; // computed pixel layout for the current ladder
 
 /* ---------------- Community-reported data ----------------
@@ -2003,6 +2007,7 @@ async function savePrefs(){
       notifDoubleType8: state.notifDoubleType8,
       notifPride: state.notifPride,
       notifType9: state.notifType9,
+      notifCarBackInService: state.notifCarBackInService,
       otherBranchesVisible: state.otherBranchesVisible
     }));
   }catch(e){ console.error(e); }
@@ -2857,8 +2862,43 @@ async function markCarOutOfService(carNum, reason){
 }
 async function clearCarOutOfService(carNum){
   if(!firebaseReady) return;
-  try{ await fbDb.collection('car_out_of_service').doc(carNum).delete(); }catch(e){ console.error(e); }
+  try{
+    await fbDb.collection('car_out_of_service').doc(carNum).delete();
+    await fbDb.collection('car_back_in_service').add({
+      carNum, clearedBy: state.userName, clearedByUid: state.uid || null, ts: Date.now(), date: todayDateString()
+    });
+    logEdit(state.userName, state.uid, `Marked car ${carNum} back in service`);
+  }catch(e){ console.error(e); }
   delete outOfServiceCarsCache[carNum];
+}
+
+// Follow-up notes on an Out of Service car — separate from the one-line
+// "reason" set when it's first marked, this is a running log so multiple
+// people can add context (parts status, sightings, updates) while it
+// stays OOS. Lives on the same car_out_of_service doc, so it only exists
+// while the car is actually marked out of service; clearing the car back
+// to service (or the doc's daily expiry) clears the notes with it.
+async function addOOSNote(carNum, text){
+  if(!firebaseReady || !text) return;
+  const entry = { text, author: state.userName, authorUid: state.uid || null, ts: Date.now() };
+  try{
+    const ref = fbDb.collection('car_out_of_service').doc(carNum);
+    const doc = await ref.get();
+    if(!doc.exists || !doc.data().outOfService) return; // car isn't OOS anymore — nothing to attach the note to
+    await ref.update({ notes: firebase.firestore.FieldValue.arrayUnion(entry) });
+    logEdit(state.userName, state.uid, `Added a note to car ${carNum}'s Out of Service report: "${text.slice(0,60)}"`);
+  }catch(e){ console.error(e); }
+}
+async function deleteOOSNote(carNum, entryTs){
+  if(!firebaseReady) return;
+  try{
+    const ref = fbDb.collection('car_out_of_service').doc(carNum);
+    const doc = await ref.get();
+    if(!doc.exists) return;
+    const updatedNotes = (doc.data().notes || []).filter(n => n.ts !== entryTs);
+    await ref.update({ notes: updatedNotes });
+    logEdit(state.userName, state.uid, `Removed a note from car ${carNum}'s Out of Service report`);
+  }catch(e){ console.error(e); }
 }
 
 async function loadVehicleOperator(vehicleId, carNum){
@@ -3131,16 +3171,39 @@ async function showCarModal(v){
     // otherwise-fine train.
     const carOOSData = oosByCar[carNum];
     const carIsOOS = !!(carOOSData && carOOSData.outOfService);
+    // Notes are a running log on top of the one-line "reason" set when the
+    // car was first marked OOS — anyone signed in can add one, moderators
+    // can remove them. Only meaningful while the car is actually OOS, since
+    // the notes live on the same car_out_of_service doc.
+    const canModerateOOSNotes = state.isModerator || state.isTrustedMember;
+    const carOOSNotes = (carOOSData && carOOSData.notes) || [];
+    const carOOSNotesListHtml = carOOSNotes.length
+      ? carOOSNotes.map(entry => `
+          <div class="roster-row" style="margin-bottom:6px;">
+            <div>${(entry.text || '').replace(/</g,'&lt;')}</div>
+            <div class="roster-edited-by">— <strong>${liveName(entry.author, entry.authorUid, userInfoMap)}</strong>, ${timeAgo(new Date(entry.ts).toISOString())}</div>
+            ${canModerateOOSNotes ? `<button class="roster-reset-btn" data-remove-oos-note="${carNum}:${entry.ts}" style="margin-top:4px; font-size:11px; padding:4px 8px;">Remove</button>` : ''}
+          </div>`).join('')
+      : '';
+    const carOOSNotesSection = carIsOOS
+      ? `<div class="roster-field-label" style="margin-top:10px;">Notes</div>
+         ${carOOSNotesListHtml || `<div class="signin-note">No notes yet.</div>`}
+         ${state.signedIn
+           ? `<textarea class="roster-textarea" id="oosNoteInput-${carNum}" placeholder="Add a note &mdash; e.g. parts status, latest sighting&hellip;" style="margin-top:6px;"></textarea>
+              <button class="account-btn" id="oosNoteSaveBtn-${carNum}" data-oos-note-save="${carNum}" style="margin-top:6px;">Add note</button>`
+           : ''}`
+      : '';
     const carOOSBlock = state.signedIn
       ? `<div class="modal-row-spacer"></div>
          ${carIsOOS
            ? `<div class="modal-row"><span>Status</span><strong style="color:#D64545;">Out of Service</strong></div>
               ${carOOSData.reason ? `<div class="modal-row"><span>Reason</span><strong>${carOOSData.reason.replace(/</g,'&lt;')}</strong></div>` : ''}
               <span class="signin-note">Marked by ${liveName(carOOSData.markedBy, carOOSData.markedByUid, userInfoMap)} today — clears at end of service day</span>
-              <button class="account-btn" data-oos-car="${carNum}" data-oos-car-current="1" style="margin-top:6px; background:#0F8A4B;">Mark this car back in service</button>`
+              <button class="account-btn" data-oos-car="${carNum}" data-oos-car-current="1" style="margin-top:6px; background:#0F8A4B;">Mark this car back in service</button>
+              ${carOOSNotesSection}`
            : `<input type="text" class="roster-input" data-oos-car-reason="${carNum}" data-enter-target="oosCarBtn-${carNum}" placeholder="Reason (optional) &mdash; e.g. mechanical issue, door problem" style="margin-top:6px;">
               <button class="account-btn" id="oosCarBtn-${carNum}" data-oos-car="${carNum}" data-oos-car-current="0" style="margin-top:6px; background:#D64545;">Mark this car Out of Service</button>`}`
-      : (carIsOOS ? `<div class="modal-row-spacer"></div><div class="modal-row"><span>Status</span><strong style="color:#D64545;">Out of Service</strong></div>` : '');
+      : (carIsOOS ? `<div class="modal-row-spacer"></div><div class="modal-row"><span>Status</span><strong style="color:#D64545;">Out of Service</strong></div>${carOOSNotesSection}` : '');
 
     if(!isGreenLine){
       const crowdingStatus = getCrowdingForCar(v, carNum);
@@ -3736,6 +3799,24 @@ async function showCarModal(v){
         await markCarOutOfService(carNum, reason);
         awardPoints(1);
       }
+      showCarModal(v);
+    });
+  });
+
+  document.querySelectorAll('[data-oos-note-save]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const carNum = btn.dataset.oosNoteSave;
+      const input = document.getElementById(`oosNoteInput-${carNum}`);
+      const text = input ? input.value.trim() : '';
+      if(!text) return;
+      await addOOSNote(carNum, text);
+      showCarModal(v);
+    });
+  });
+  document.querySelectorAll('[data-remove-oos-note]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const [carNum, entryTs] = btn.dataset.removeOosNote.split(':');
+      await deleteOOSNote(carNum, parseFloat(entryTs));
       showCarModal(v);
     });
   });
@@ -4835,6 +4916,57 @@ async function checkForNotifications(){
       showToast(title, body);
       try{ localStorage.setItem(NOTIF_ALERTED_KEY, String(newest.ts || Date.now())); }catch(e){ /* ignore */ }
     }
+  }catch(e){ console.error(e); }
+}
+
+// Notifies on cars going *back* into service (car_back_in_service is
+// written by clearCarOutOfService, for both the single-car and
+// whole-train-at-once toggles). Opt-in, gated behind the master switch
+// like the train-spotting notifications below. Bootstraps quietly on the
+// very first check (no stored watermark yet) instead of blasting out one
+// notification per pre-existing doc in the collection.
+//
+// Also doubles as this collection's cleanup pass, same idea as
+// refreshOutOfServiceCache/refreshHiddenTrainsCache: since entries are
+// only ever added (clearCarOutOfService has no reason to delete its own
+// log entry), anything not from today's service day is stale and gets
+// swept here so the collection doesn't grow forever. This runs even when
+// notifications are turned off, so cleanup still happens either way.
+const NOTIF_CARBACK_SEEN_KEY = 'notif_last_carback_ts_v1';
+async function checkCarBackInServiceNotifications(){
+  if(!firebaseReady) return;
+  try{
+    const snap = await fbDb.collection('car_back_in_service').get();
+    if(snap.empty) return;
+    const today = todayDateString();
+    const docs = [];
+    const staleDocs = [];
+    snap.forEach(doc=>{
+      const d = doc.data();
+      if(d.date === today) docs.push(d);
+      else staleDocs.push(doc.ref);
+    });
+    staleDocs.forEach(ref => ref.delete().catch(e => console.error(e)));
+
+    if(!state.notifMaster || !state.notifCarBackInService || docs.length === 0) return;
+
+    let lastSeen = 0, hasCheckedBefore = true;
+    try{
+      const stored = localStorage.getItem(NOTIF_CARBACK_SEEN_KEY);
+      hasCheckedBefore = stored !== null;
+      lastSeen = parseInt(stored || '0', 10) || 0;
+    }catch(e){ /* ignore */ }
+    const newest = docs.reduce((max, d) => Math.max(max, d.ts || 0), 0);
+    if(hasCheckedBefore){
+      const newOnes = docs.filter(d => (d.ts || 0) > lastSeen).sort((a,b) => (a.ts || 0) - (b.ts || 0));
+      newOnes.forEach(d=>{
+        const title = 'Car back in service';
+        const body = `Car ${formatCarNumberForDisplay(d.carNum)} marked back in service by ${d.clearedBy || 'Unknown'}`;
+        fireLocalNotification(title, body);
+        showToast(title, body);
+      });
+    }
+    try{ localStorage.setItem(NOTIF_CARBACK_SEEN_KEY, String(newest)); }catch(e){ /* ignore */ }
   }catch(e){ console.error(e); }
 }
 
@@ -6682,6 +6814,7 @@ wireNotifToggle('notifMasterSwitch', 'notifMaster');
 wireNotifToggle('notifDoubleType8Switch', 'notifDoubleType8');
 wireNotifToggle('notifPrideSwitch', 'notifPride');
 wireNotifToggle('notifType9Switch', 'notifType9');
+wireNotifToggle('notifCarBackInServiceSwitch', 'notifCarBackInService');
 
 /* ---------------- Filters ---------------- */
 
@@ -6907,10 +7040,12 @@ async function init(){
   state.notifDoubleType8 = !!prefs.notifDoubleType8;
   state.notifPride = !!prefs.notifPride;
   state.notifType9 = !!prefs.notifType9;
+  state.notifCarBackInService = !!prefs.notifCarBackInService;
   document.getElementById('notifMasterSwitch').classList.toggle('on', state.notifMaster);
   document.getElementById('notifDoubleType8Switch').classList.toggle('on', state.notifDoubleType8);
   document.getElementById('notifPrideSwitch').classList.toggle('on', state.notifPride);
   document.getElementById('notifType9Switch').classList.toggle('on', state.notifType9);
+  document.getElementById('notifCarBackInServiceSwitch').classList.toggle('on', state.notifCarBackInService);
 
   state.otherBranchesVisible = Object.assign({ B:false, C:false, D:false, E:false, ashmont:false, braintree:false }, prefs.otherBranchesVisible || {});
 
@@ -6931,6 +7066,9 @@ async function init(){
 
   checkForNotifications();
   setInterval(checkForNotifications, 60000);
+
+  checkCarBackInServiceNotifications();
+  setInterval(checkCarBackInServiceNotifications, 60000);
 
   document.getElementById('pushEnableBtn').addEventListener('click', subscribeToPushNotifications);
   checkPushSubscriptionStatus();
