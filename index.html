@@ -2584,6 +2584,15 @@ function computeDisplayY(idx, direction, status, stopYArr, vehicle, stopCoordsAr
     }
   }
 
+  // "Arriving at X" should always read as visually close to X — but MBTA
+  // can flag a train INCOMING_AT well before it's actually near the stop by
+  // real distance, especially on longer segments, and GPS interpolation
+  // above was letting that push an "arriving" train much further from the
+  // station than the status text implies. Capping (not replacing) keeps
+  // GPS free to show it even closer than the flat 0.2 guess, just never
+  // further out than that.
+  if(status === 'INCOMING_AT') fraction = Math.min(fraction, 0.2);
+
   return stopYArr[idx] + fraction * (stopYArr[prevIdx] - stopYArr[idx]);
 }
 
