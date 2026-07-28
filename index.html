@@ -255,7 +255,7 @@ body.dark .discord-banner{background:#5865F2; border-color:#5865F2; color:#fff;}
 }
 
 /* ---------- Ladder diagram (absolute-positioned) ---------- */
-.ladder{position:relative; width:100%;}
+.ladder{position:relative; width:100%; transition:opacity 0.18s ease;}
 
 .track-line-v{position:absolute; width:7px; background:var(--line-black); border-radius:3px; top:2px;}
 
@@ -484,15 +484,17 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
     transition:margin-left 0.22s ease;
   }
 }
-/* Keeps the title (and, via .modal-section-sticky-info below, the key
-   train-info rows) pinned to the top of the modal card's own scroll area —
-   scrolling up always shows the title, scrolling down through the report
-   forms further below still leaves the train info visible. Needs its own
-   background since sticky content still has stuff scrolling underneath it. */
+/* Keeps the title AND the key train-info rows (moved in here by JS right
+   after they're rendered — see .modal-section-sticky-info) pinned to the
+   top of the modal card's own scroll area: scrolling up always shows the
+   title, scrolling down through the report forms further below still
+   leaves the train info visible. This used to be two independent sticky
+   elements coordinated by a JS-computed pixel offset between them, which
+   turned out to drift apart from each other at some scroll depths —
+   folding them into a single sticky container removes that coordination
+   problem entirely, since there's now only one "stuck" position to get
+   right. Needs its own background since content still scrolls underneath. */
 .modal-sticky-header{position:sticky; top:0; z-index:5; background:var(--panel);}
-/* Set by JS (right below the sticky header's own height) so it stacks
-   correctly under the title instead of overlapping it. */
-.modal-section-sticky-info{position:sticky; z-index:4; background:var(--panel);}
 .modal-close-x{
   position:absolute; top:12px; right:12px;
   width:28px; height:28px; border-radius:50%; border:none;
@@ -501,6 +503,15 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
   cursor:pointer; transition:background 0.15s ease, color 0.15s ease;
 }
 .modal-close-x:hover{background:var(--border); color:var(--text);}
+/* Mobile shows the X (a centered dialog, closing it dismisses it). Desktop
+   shows a "<" instead — closing there collapses the docked panel back off
+   the left edge rather than dismissing an overlay, so the icon reads as
+   "hide" rather than "close". */
+.modal-close-icon-chevron{display:none;}
+@media (min-width:900px){
+  .modal-close-icon-x{display:none;}
+  .modal-close-icon-chevron{display:block;}
+}
 .modal-card::-webkit-scrollbar{display:none;}
 .modal-card h3{margin:0 0 12px; padding-left:32px; padding-right:32px; text-align:center; font-family:'Space Grotesk', sans-serif; font-size:16px; color:var(--text);}
 .modal-row{display:flex; justify-content:space-between; gap:12px; padding:7px 0; border-bottom:1px solid var(--border); font-size:13px; color:var(--text); flex-wrap:wrap; min-width:0;}
@@ -996,7 +1007,8 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
     <div class="modal-card">
       <div class="modal-sticky-header">
         <button class="modal-close-x" id="carModalCloseX" title="Close" aria-label="Close">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <svg class="modal-close-icon-x" width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <svg class="modal-close-icon-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M15 5l-7 7 7 7" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
         <h3 id="carModalTitle">Details</h3>
       </div>
@@ -3630,14 +3642,17 @@ async function showCarModal(v){
     </div>
   `;
 
-  // Stack the sticky train-info block directly under the sticky title
-  // instead of overlapping it — CSS alone can't do this since both are
-  // position:sticky at the same scroll container, so the second one's
-  // "top" offset needs to equal the first one's actual rendered height.
+  // Move the train-info block into the sticky title wrapper so title +
+  // info are one single sticky element instead of two independently-sticky
+  // ones (that approach relied on a JS-computed pixel gap between them,
+  // which could drift out of sync — see the .modal-sticky-header CSS
+  // comment). Clear out any leftover info block from a previous render of
+  // this same modal first, so repeated refreshes don't stack duplicates.
   const stickyHeaderEl = document.querySelector('#carModalOverlay .modal-sticky-header');
   const stickyInfoEl = document.querySelector('#carModalBody .modal-section-sticky-info');
   if(stickyHeaderEl && stickyInfoEl){
-    stickyInfoEl.style.top = stickyHeaderEl.offsetHeight + 'px';
+    stickyHeaderEl.querySelectorAll('.modal-section-sticky-info').forEach(el => el.remove());
+    stickyHeaderEl.appendChild(stickyInfoEl);
   }
 
   const tripNotesSaveBtn = document.getElementById('tripNotesSaveBtn');
@@ -7279,7 +7294,19 @@ if(carModalOverlayEl){
     panelRelayoutTimer = setTimeout(()=>{
       const mainGrid = document.querySelector('.main-grid');
       if(!mainGrid || mainGrid.style.display === 'none') return;
-      buildLadder(); renderTrainDots(); alignMainGridPanels();
+      // buildLadder() wipes and fully rebuilds the ladder's DOM, so there's
+      // no way for the track lines/bubbles to smoothly transition from
+      // their old positions to the new (condensed) ones — same elements
+      // don't exist on both sides of the rebuild for a CSS transition to
+      // animate between. A quick cross-fade around the rebuild reads as a
+      // smooth change instead of a hard pop, without needing to track and
+      // animate every individual element's old vs. new position.
+      const ladderEl = document.getElementById('ladder');
+      if(ladderEl) ladderEl.style.opacity = '0';
+      setTimeout(()=>{
+        buildLadder(); renderTrainDots(); alignMainGridPanels();
+        if(ladderEl) requestAnimationFrame(()=>{ ladderEl.style.opacity = '1'; });
+      }, 180);
     }, 260);
   });
   carModalRelayoutObserver.observe(carModalOverlayEl, { attributes:true, attributeFilter:['class'] });
