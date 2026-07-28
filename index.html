@@ -510,19 +510,19 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
    sticky) so the JS that moves the info rows in here doesn't need to
    change, only how this container itself behaves. */
 .modal-sticky-header{background:var(--panel);}
+/* Its own row (rather than positioning the close button relative to the
+   whole header, which also contains the train-info block now that it's
+   moved in here) so the button can center against just the title's own
+   height via top:50% — lines it up with the car numbers/title text exactly
+   regardless of font metrics, instead of a guessed fixed pixel offset that
+   only worked for one specific title height. */
+.modal-title-row{position:relative;}
 .modal-close-x{
-  position:absolute; top:12px; right:12px;
+  position:absolute; top:50%; right:12px; transform:translateY(-50%);
   width:28px; height:28px; border-radius:50%; border:none;
   background:transparent; color:var(--text-faint);
   display:flex; align-items:center; justify-content:center;
   cursor:pointer; transition:background 0.15s ease, color 0.15s ease;
-}
-@media (min-width:900px){
-  /* The desktop-docked panel's header is compact enough that top:12px put
-     the chevron right up against the divider line below it (the train-info
-     block's own top border, now that it lives inside the sticky header).
-     Nudged up to leave it some breathing room. */
-  .modal-close-x{top:2px;}
 }
 .modal-close-x:hover{background:var(--border); color:var(--text);}
 /* Mobile shows the X (a centered dialog, closing it dismisses it). Desktop
@@ -1028,11 +1028,13 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
   <div class="modal-slide-wrap">
     <div class="modal-card">
       <div class="modal-sticky-header">
-        <button class="modal-close-x" id="carModalCloseX" title="Close" aria-label="Close">
-          <svg class="modal-close-icon-x" width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          <svg class="modal-close-icon-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M15 5l-7 7 7 7" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>
-        <h3 id="carModalTitle">Details</h3>
+        <div class="modal-title-row">
+          <button class="modal-close-x" id="carModalCloseX" title="Close" aria-label="Close">
+            <svg class="modal-close-icon-x" width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <svg class="modal-close-icon-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M15 5l-7 7 7 7" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <h3 id="carModalTitle">Details</h3>
+        </div>
       </div>
       <div id="carModalBody"></div>
       <button class="modal-close" id="carModalClose">Close</button>
