@@ -6785,8 +6785,18 @@ function revealApp(line){
   rebuildTypeFilterOptions();
   updateDirectionLabels();
   if(line === 'red') refreshRedOriginLogCache();
+  // This resolves after switchPage() below has already done its own
+  // synchronous buildLadder()+renderTrainDots() pass (a stop-id fetch is
+  // always slower than the rest of this function), and buildLadder()
+  // unconditionally wipes and rebuilds the whole ladder — including the
+  // train bubbles that pass had already drawn in. Without also calling
+  // renderTrainDots() here, this either quietly erased those bubbles right
+  // after page load (nothing repopulates them until the next 15s
+  // auto-refresh) or, if it landed before that pass's refreshVehicles()
+  // call ever completed, left the ladder with no bubbles until then either
+  // way — both read as "the track map is blank after reload."
   ensureStopIdMap(line).then(()=>{
-    if(state.activeLine === line) buildLadder();
+    if(state.activeLine === line){ buildLadder(); renderTrainDots(); }
   });
   checkForAlerts();
   let savedPage = null;
