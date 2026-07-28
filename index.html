@@ -456,14 +456,23 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
     visibility:visible; pointer-events:auto;
     transition:visibility 0s linear 0s;
   }
-  .modal-card{
+  /* The slide transform lives on this wrapper rather than on .modal-card
+     itself — a transform on the same element that's also the sticky
+     scroll container (overflow-y:auto, holding .modal-sticky-header /
+     .modal-section-sticky-info) is a known way to make position:sticky
+     stop sticking in some browsers. Keeping transform and scroll/sticky
+     on two separate elements sidesteps that entirely. */
+  .modal-slide-wrap{
     width:420px; max-height:calc(100vh - 32px);
-    border:1px solid var(--border); border-left:none; border-radius:0 var(--radius) var(--radius) 0; box-shadow:none;
     transform:translateX(-100%);
     transition:transform 0.22s ease;
   }
-  .modal-overlay.show .modal-card{
+  .modal-overlay.show .modal-slide-wrap{
     transform:translateX(0);
+  }
+  .modal-card{
+    width:100%; height:100%; max-height:none;
+    border:1px solid var(--border); border-left:none; border-radius:0 var(--radius) var(--radius) 0; box-shadow:none;
   }
   body:has(#carModalOverlay.show) .wrap{
     margin-left:436px; margin-right:16px; width:auto;
@@ -978,15 +987,17 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
 </div>
 
 <div class="modal-overlay" id="carModalOverlay">
-  <div class="modal-card">
-    <div class="modal-sticky-header">
-      <button class="modal-close-x" id="carModalCloseX" title="Close" aria-label="Close">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      </button>
-      <h3 id="carModalTitle">Details</h3>
+  <div class="modal-slide-wrap">
+    <div class="modal-card">
+      <div class="modal-sticky-header">
+        <button class="modal-close-x" id="carModalCloseX" title="Close" aria-label="Close">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <h3 id="carModalTitle">Details</h3>
+      </div>
+      <div id="carModalBody"></div>
+      <button class="modal-close" id="carModalClose">Close</button>
     </div>
-    <div id="carModalBody"></div>
-    <button class="modal-close" id="carModalClose">Close</button>
   </div>
 </div>
 
@@ -7237,23 +7248,36 @@ window.addEventListener('resize', ()=>{
 });
 
 // The desktop-docked info panel (#carModalOverlay) pushes `.wrap` over via
-// a pure-CSS margin-left transition (see the `:has()` rule above) — that
-// never fires a `resize` event, so without this the ladder keeps using the
+// a pure-CSS margin-left rule (see the `:has()` rule above) — that never
+// fires a `resize` event, so without this the ladder keeps using the
 // clientWidth it had before the panel opened. Since track spacing and
 // bubble positions are computed as fractions of that width, they'd end up
 // sized for more room than actually remains once the panel narrows the
 // track map's column, spilling bubbles into the vehicle-list panel next to
-// it. Re-running the layout once the transition settles fixes that: the
-// track columns and bubbles are recalculated against the real, now-current
-// width, so they shrink to fit instead of overlapping the neighboring panel.
-const wrapEl = document.querySelector('.wrap');
-if(wrapEl){
-  wrapEl.addEventListener('transitionend', (e)=>{
-    if(e.propertyName !== 'margin-left') return;
-    const mainGrid = document.querySelector('.main-grid');
-    if(!mainGrid || mainGrid.style.display === 'none') return;
-    buildLadder(); renderTrainDots(); alignMainGridPanels();
+// it.
+//
+// This originally listened for `transitionend` on `.wrap`'s margin-left,
+// but `.wrap`'s resting margin is `0 auto` (auto-resolved for centering) —
+// CSS can't interpolate to/from `auto`, so the "transition" is really an
+// instant jump and `transitionend` never actually fires. Watching the
+// overlay's own class instead sidesteps that: it flips synchronously the
+// moment the panel opens or closes, regardless of whether anything else
+// animated smoothly.
+let panelRelayoutTimer;
+const carModalOverlayEl = document.getElementById('carModalOverlay');
+if(carModalOverlayEl){
+  const carModalRelayoutObserver = new MutationObserver(()=>{
+    clearTimeout(panelRelayoutTimer);
+    // Wait out the panel's own slide duration (0.22s) plus a small buffer
+    // so this runs once the layout has actually settled into its new width,
+    // not mid-slide.
+    panelRelayoutTimer = setTimeout(()=>{
+      const mainGrid = document.querySelector('.main-grid');
+      if(!mainGrid || mainGrid.style.display === 'none') return;
+      buildLadder(); renderTrainDots(); alignMainGridPanels();
+    }, 260);
   });
+  carModalRelayoutObserver.observe(carModalOverlayEl, { attributes:true, attributeFilter:['class'] });
 }
 
 /* ---------------- Init ---------------- */
