@@ -7558,7 +7558,13 @@ async function init(){
   fetchWeather();
   setInterval(fetchWeather, 600000);
   refreshVehicles();
-  setInterval(refreshVehicles, 15000);
+  // MBTA's underlying vehicle position data (reported via each train's AVL
+  // system) itself typically only refreshes every ~10-15s at the source,
+  // so polling much faster than that wouldn't reliably return newer data —
+  // this is close to the fastest that's actually useful, without adding
+  // request volume for no benefit. Their v3 API's rate limit with a
+  // registered key has plenty of headroom above this.
+  setInterval(refreshVehicles, 10000);
 
   updateDiscordBanner();
 
@@ -7607,7 +7613,10 @@ async function init(){
   setInterval(refreshOperatorSearchCache, 60000);
 
   refreshEnhancedTripData();
-  setInterval(refreshEnhancedTripData, 15000);
+  // Matches the edge cache's s-maxage=10 on /api/enhanced-vehicle-positions
+  // (see that file) — polling any faster wouldn't get fresher data than
+  // what's already sitting in the cache, just more requests to it.
+  setInterval(refreshEnhancedTripData, 10000);
 
   refreshSoloType7OverrideCache();
   setInterval(refreshSoloType7OverrideCache, 60000);

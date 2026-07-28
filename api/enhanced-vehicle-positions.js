@@ -19,7 +19,7 @@ module.exports = async function handler(req, res) {
       return;
     }
     const data = await upstream.json();
-    // Short edge cache so a burst of client polls (every 15s per browser tab)
+    // Short edge cache so a burst of client polls (every 10s per browser tab)
     // doesn't turn into a 1:1 hit on MBTA's feed for every single one.
     res.setHeader('Cache-Control', 's-maxage=10, stale-while-revalidate=30');
     res.status(200).json(data);
