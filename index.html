@@ -484,17 +484,14 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
     transition:margin-left 0.22s ease;
   }
 }
-/* Keeps the title AND the key train-info rows (moved in here by JS right
-   after they're rendered — see .modal-section-sticky-info) pinned to the
-   top of the modal card's own scroll area: scrolling up always shows the
-   title, scrolling down through the report forms further below still
-   leaves the train info visible. This used to be two independent sticky
-   elements coordinated by a JS-computed pixel offset between them, which
-   turned out to drift apart from each other at some scroll depths —
-   folding them into a single sticky container removes that coordination
-   problem entirely, since there's now only one "stuck" position to get
-   right. Needs its own background since content still scrolls underneath. */
-.modal-sticky-header{position:sticky; top:0; z-index:5; background:var(--panel); will-change:transform;}
+/* This used to pin the title + train-info rows to the top of the card
+   while the rest scrolled underneath (position:sticky). Reverted per
+   feedback — this content should scroll away with everything else like a
+   normal part of the panel, not stay fixed in place. Left as a plain
+   wrapper (title + close button still grouped together, just no longer
+   sticky) so the JS that moves the info rows in here doesn't need to
+   change, only how this container itself behaves. */
+.modal-sticky-header{background:var(--panel);}
 .modal-close-x{
   position:absolute; top:12px; right:12px;
   width:28px; height:28px; border-radius:50%; border:none;
