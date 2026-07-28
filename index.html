@@ -429,6 +429,20 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
 .modal-overlay{position:fixed; inset:0; background:rgba(0,0,0,0.45); display:none; align-items:center; justify-content:center; z-index:100; padding:16px;}
 .modal-overlay.show{display:flex;}
 .modal-card{background:var(--panel); border-radius:14px; padding:20px; width:420px; max-width:100%; box-shadow:0 12px 40px rgba(0,0,0,0.35); max-height:80vh; overflow-y:auto; overflow-x:hidden; scrollbar-width:none; -ms-overflow-style:none; position:relative;}
+@media (min-width:900px){
+  /* On desktop there's room to dock this as a left-side panel instead of
+     centering it over everything — it used to sit right on top of the
+     track map. The backdrop goes transparent (it's no longer covering
+     content that needs dimming) and .wrap gets pushed right by the panel's
+     width so the track map genuinely isn't underneath it, rather than just
+     visually not-obscured while still occupying the same layout space. */
+  .modal-overlay{justify-content:flex-start; align-items:stretch; background:transparent;}
+  .modal-card{width:420px; max-height:calc(100vh - 32px);}
+  body:has(#carModalOverlay.show) .wrap{
+    margin-left:452px; margin-right:16px; width:auto;
+    transition:margin-left 0.2s ease;
+  }
+}
 .modal-close-x{
   position:absolute; top:12px; right:12px;
   width:28px; height:28px; border-radius:50%; border:none;
