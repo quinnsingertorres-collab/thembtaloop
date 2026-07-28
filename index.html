@@ -502,6 +502,13 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
   display:flex; align-items:center; justify-content:center;
   cursor:pointer; transition:background 0.15s ease, color 0.15s ease;
 }
+@media (min-width:900px){
+  /* The desktop-docked panel's header is compact enough that top:12px put
+     the chevron right up against the divider line below it (the train-info
+     block's own top border, now that it lives inside the sticky header).
+     Nudged up to leave it some breathing room. */
+  .modal-close-x{top:2px;}
+}
 .modal-close-x:hover{background:var(--border); color:var(--text);}
 /* Mobile shows the X (a centered dialog, closing it dismisses it). Desktop
    shows a "<" instead — closing there collapses the docked panel back off
