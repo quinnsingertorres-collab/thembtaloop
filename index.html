@@ -1948,8 +1948,14 @@ async function saveExpressReport(v, startStation, endStation, intermediateStop){
 }
 async function clearExpressReport(vehicleId){
   if(!firebaseReady) return;
+  // Anyone signed in can cancel an express report, not just whoever posted it —
+  // e.g. someone else on board who sees the train is actually stopping normally.
+  const existing = expressReportCache[vehicleId];
   try{ await fbDb.collection('express_reports').doc(vehicleId).delete(); }catch(e){ console.error(e); }
   delete expressReportCache[vehicleId];
+  if(existing){
+    logEdit(state.userName, state.uid, `Cancelled express report (${displayName(existing.startStation)} → ${displayName(existing.endStation)}), originally reported by ${existing.reportedBy || 'Unknown'}`);
+  }
 }
 
 async function saveDestinationOverride(v, destination){
@@ -3603,7 +3609,7 @@ async function showCarModal(v){
         ${existingExpress.intermediateStop ? `<div class="modal-row"><span>Still stops at</span><strong>${displayName(existingExpress.intermediateStop)}</strong></div>` : ''}
         <div class="modal-row"><span>To</span><strong>${displayName(existingExpress.endStation)}</strong></div>
         <div class="signin-note">Reported by ${existingExpress.reportedBy || 'Unknown'} \u2014 clears automatically once the train reaches ${displayName(existingExpress.endStation)}.</div>
-        ${state.signedIn ? `<button class="roster-reset-btn" id="clearExpressBtn" style="margin-top:8px;">Clear this report</button>` : ''}
+        ${state.signedIn ? `<button class="roster-reset-btn" id="clearExpressBtn" style="margin-top:8px;">Cancel express</button>` : ''}
       </div>`
     : (state.signedIn ? `<div class="modal-section">
         <h4>Running express</h4>
