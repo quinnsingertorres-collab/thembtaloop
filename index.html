@@ -449,7 +449,15 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
   .modal-overlay{
     display:flex; visibility:hidden; pointer-events:none;
     justify-content:flex-start; align-items:stretch; background:transparent;
-    padding:16px 16px 0 0;
+    /* Top padding starts below the site logo/"In the Loop" header bar
+       instead of at the very top of the viewport, so the panel — which is
+       position:fixed and would otherwise paint over anything in that same
+       screen region, logo included, since normal in-flow content has no
+       elevated z-index to compete with it — never covers it. --top-bar-h
+       is kept in sync with that bar's real height the same way
+       --bottom-nav-h is (see below), so this doesn't drift if the header's
+       own height ever changes (auth icons wrapping, font changes, etc). */
+    padding:calc(16px + var(--top-bar-h, 60px)) 16px 0 0;
     transition:visibility 0s linear 0.22s;
   }
   .modal-overlay.show{
@@ -468,7 +476,7 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
      current height by a ResizeObserver (see below), with a sane fallback
      for the instant before that first measurement lands. */
   .modal-slide-wrap{
-    width:420px; max-height:calc(100vh - 16px - var(--bottom-nav-h, 76px));
+    width:420px; max-height:calc(100vh - 16px - var(--top-bar-h, 60px) - var(--bottom-nav-h, 76px));
     transform:translateX(-100%);
     transition:transform 0.22s ease;
   }
@@ -7409,6 +7417,18 @@ if(bottomNavEl){
   };
   updateBottomNavHeightVar();
   new ResizeObserver(updateBottomNavHeightVar).observe(bottomNavEl);
+}
+
+// Same reasoning as the bottom bar above, but for the site logo/"In the
+// Loop" header — the desktop info panel starts below its real height
+// instead of a guessed one, so it can never end up covering the logo.
+const topBarEl = document.querySelector('.top-bar');
+if(topBarEl){
+  const updateTopBarHeightVar = ()=>{
+    document.documentElement.style.setProperty('--top-bar-h', topBarEl.offsetHeight + 'px');
+  };
+  updateTopBarHeightVar();
+  new ResizeObserver(updateTopBarHeightVar).observe(topBarEl);
 }
 
 /* ---------------- Init ---------------- */
