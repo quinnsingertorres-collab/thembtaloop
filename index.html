@@ -3274,7 +3274,7 @@ async function showCarModal(v){
     const hasOpData = !!(opData && opData.operator);
     const canManageOperators = state.isModerator || state.isTrustedMember;
     const opEditForm = canManageOperators
-      ? `<input type="text" class="roster-input" data-op-car="${carNum}" value="${(opData && opData.operator) || ''}" placeholder="Operator name/badge">
+      ? `<input type="text" class="roster-input" data-op-car="${carNum}" value="${(opData && opData.operator) || ''}" placeholder="Operator name">
          <button class="account-btn" data-op-save="${carNum}" style="margin-top:6px;">Save operator</button>
          ${hasOpData ? `<button class="roster-reset-btn" data-op-remove="${carNum}" style="margin-top:6px;">Remove operator</button>` : ''}`
       : '';
@@ -4244,7 +4244,7 @@ function operatorFieldHtml(tripId, position, pred, userInfoMap){
     ? `<div class="modal-row"><span>${position} car operator</span><strong>${value}</strong></div><span class="signin-note">Set by ${liveName(setBy, setByUid, userInfoMap)}</span>`
     : '';
   const editForm = state.isModerator
-    ? `<input type="text" class="roster-input" data-op-trip="${tripId}" data-op-pos="${position}" value="${value || ''}" placeholder="${position} car operator name/badge">
+    ? `<input type="text" class="roster-input" data-op-trip="${tripId}" data-op-pos="${position}" value="${value || ''}" placeholder="${position} car operator name">
        <button class="account-btn" data-save-op="${tripId}" data-save-op-pos="${position}" style="margin-top:6px;">Save</button>
        ${value ? `<button class="roster-reset-btn" data-remove-op="${tripId}" data-remove-op-pos="${position}" style="margin-top:6px;">Remove</button>` : ''}`
     : '';
