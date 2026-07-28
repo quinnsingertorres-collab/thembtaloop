@@ -435,9 +435,12 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
      track map. The backdrop goes transparent (it's no longer covering
      content that needs dimming) and .wrap gets pushed right by the panel's
      width so the track map genuinely isn't underneath it, rather than just
-     visually not-obscured while still occupying the same layout space. */
+     visually not-obscured while still occupying the same layout space.
+     Styled to match the other main-grid panels (flat border, same radius,
+     no drop shadow) instead of a floating card, so it reads as a docked
+     panel like "On this branch" rather than an overlay sitting on top. */
   .modal-overlay{justify-content:flex-start; align-items:stretch; background:transparent;}
-  .modal-card{width:420px; max-height:calc(100vh - 32px);}
+  .modal-card{width:420px; max-height:calc(100vh - 32px); border:1px solid var(--border); border-radius:var(--radius); box-shadow:none;}
   body:has(#carModalOverlay.show) .wrap{
     margin-left:452px; margin-right:16px; width:auto;
     transition:margin-left 0.2s ease;
@@ -7187,6 +7190,26 @@ window.addEventListener('resize', ()=>{
   clearTimeout(resizeTimer);
   resizeTimer = setTimeout(()=>{ buildLadder(); renderTrainDots(); alignMainGridPanels(); }, 150);
 });
+
+// The desktop-docked info panel (#carModalOverlay) pushes `.wrap` over via
+// a pure-CSS margin-left transition (see the `:has()` rule above) — that
+// never fires a `resize` event, so without this the ladder keeps using the
+// clientWidth it had before the panel opened. Since track spacing and
+// bubble positions are computed as fractions of that width, they'd end up
+// sized for more room than actually remains once the panel narrows the
+// track map's column, spilling bubbles into the vehicle-list panel next to
+// it. Re-running the layout once the transition settles fixes that: the
+// track columns and bubbles are recalculated against the real, now-current
+// width, so they shrink to fit instead of overlapping the neighboring panel.
+const wrapEl = document.querySelector('.wrap');
+if(wrapEl){
+  wrapEl.addEventListener('transitionend', (e)=>{
+    if(e.propertyName !== 'margin-left') return;
+    const mainGrid = document.querySelector('.main-grid');
+    if(!mainGrid || mainGrid.style.display === 'none') return;
+    buildLadder(); renderTrainDots(); alignMainGridPanels();
+  });
+}
 
 /* ---------------- Init ---------------- */
 
