@@ -449,7 +449,7 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
   .modal-overlay{
     display:flex; visibility:hidden; pointer-events:none;
     justify-content:flex-start; align-items:stretch; background:transparent;
-    padding:16px 16px 16px 0;
+    padding:16px 16px 0 0;
     transition:visibility 0s linear 0.22s;
   }
   .modal-overlay.show{
@@ -461,9 +461,14 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
      scroll container (overflow-y:auto, holding .modal-sticky-header /
      .modal-section-sticky-info) is a known way to make position:sticky
      stop sticking in some browsers. Keeping transform and scroll/sticky
-     on two separate elements sidesteps that entirely. */
+     on two separate elements sidesteps that entirely.
+     Height is capped so the panel's bottom edge lands exactly where the
+     bottom bar (clock/weather/line selection) begins, instead of running
+     underneath it — --bottom-nav-h is kept in sync with that bar's real,
+     current height by a ResizeObserver (see below), with a sane fallback
+     for the instant before that first measurement lands. */
   .modal-slide-wrap{
-    width:420px; max-height:calc(100vh - 32px);
+    width:420px; max-height:calc(100vh - 16px - var(--bottom-nav-h, 76px));
     transform:translateX(-100%);
     transition:transform 0.22s ease;
   }
@@ -7278,6 +7283,20 @@ if(carModalOverlayEl){
     }, 260);
   });
   carModalRelayoutObserver.observe(carModalOverlayEl, { attributes:true, attributeFilter:['class'] });
+}
+
+// The bottom bar's real height varies (safe-area insets, font, and how many
+// nav pills wrap onto a second row), so instead of guessing a fixed pixel
+// value, track it live and expose it as a CSS variable — the desktop info
+// panel's height is capped against this so its bottom edge lands exactly
+// where the bottom bar begins, rather than running underneath it.
+const bottomNavEl = document.querySelector('.bottom-nav');
+if(bottomNavEl){
+  const updateBottomNavHeightVar = ()=>{
+    document.documentElement.style.setProperty('--bottom-nav-h', bottomNavEl.offsetHeight + 'px');
+  };
+  updateBottomNavHeightVar();
+  new ResizeObserver(updateBottomNavHeightVar).observe(bottomNavEl);
 }
 
 /* ---------------- Init ---------------- */
