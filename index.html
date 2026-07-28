@@ -255,7 +255,7 @@ body.dark .discord-banner{background:#5865F2; border-color:#5865F2; color:#fff;}
 }
 
 /* ---------- Ladder diagram (absolute-positioned) ---------- */
-.ladder{position:relative; width:100%; transition:opacity 0.18s ease;}
+.ladder{position:relative; width:100%;}
 
 .track-line-v{position:absolute; width:7px; background:var(--line-black); border-radius:3px; top:2px;}
 
@@ -2459,12 +2459,14 @@ function buildLadder(){
 
   const westLine = document.createElement('div');
   westLine.className = 'track-line-v';
+  westLine.dataset.side = 'west';
   westLine.style.left = (westTrackX - 3.5) + 'px';
   westLine.style.height = (height - 16) + 'px';
   ladder.appendChild(westLine);
 
   const eastLine = document.createElement('div');
   eastLine.className = 'track-line-v';
+  eastLine.dataset.side = 'east';
   eastLine.style.left = (eastTrackX - 3.5) + 'px';
   eastLine.style.height = (height - 16) + 'px';
   ladder.appendChild(eastLine);
@@ -7283,6 +7285,96 @@ window.addEventListener('resize', ()=>{
 // overlay's own class instead sidesteps that: it flips synchronously the
 // moment the panel opens or closes, regardless of whether anything else
 // animated smoothly.
+// Animates a single track-structure element (track line, stop dot, or stop
+// label) from wherever it used to be (beforeRect) to wherever buildLadder()
+// just put it, using the FLIP technique: jump it back to the old spot with
+// no transition, force the browser to register that, then release it with
+// a transition so it glides to the real (new) spot instead of popping
+// there. .stop-dot already carries a permanent translate(-50%,-50%) (it's
+// how it centers on its own left/top anchor), so the animation has to be
+// layered on top of that rather than overwrite it, or the dot would jump
+// sideways by half its own size for the duration of the glide.
+function flipStaticElement(el, beforeRect){
+  const after = el.getBoundingClientRect();
+  const dx = beforeRect.left - after.left;
+  const dy = beforeRect.top - after.top;
+  if(Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
+  const isDot = el.classList.contains('stop-dot');
+  const invertTransform = isDot
+    ? `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`
+    : `translate(${dx}px, ${dy}px)`;
+  const restTransform = isDot ? 'translate(-50%, -50%)' : '';
+  el.style.transition = 'none';
+  el.style.transform = invertTransform;
+  void el.offsetWidth; // force a reflow so the inverted position actually renders before it's released
+  el.style.transition = 'transform 0.4s ease';
+  el.style.transform = restTransform;
+  el.addEventListener('transitionend', function handler(e){
+    if(e.propertyName !== 'transform') return;
+    el.style.transition = '';
+    el.style.transform = '';
+    el.removeEventListener('transitionend', handler);
+  });
+}
+
+// Rebuilds the ladder for a new (condensed/expanded) width while animating
+// the change instead of popping straight to it.
+//
+// Vehicle bubbles, leader lines/elbows, and their end dots already know how
+// to glide smoothly (renderTrainDots() reuses the same DOM node by vehicle
+// id and lets its existing CSS transition carry the position change) — but
+// only if that same node survives. buildLadder() always wipes the whole
+// ladder first, which would destroy them and force renderTrainDots() to
+// recreate everything from scratch with no "before" state to transition
+// from. Detaching them beforehand and reattaching them straight after
+// keeps that reuse mechanism intact.
+//
+// The static track structure (lines, stop dots, labels) doesn't have that
+// luxury — buildLadder() always creates fresh elements for those, so
+// there's no persisted node for a CSS transition to animate. FLIP-ing them
+// (see flipStaticElement above) gets the same smooth result anyway.
+function relayoutLadderSmoothly(){
+  const ladderEl = document.getElementById('ladder');
+  if(!ladderEl) return;
+
+  const beforeStatic = {};
+  ladderEl.querySelectorAll('.track-line-v').forEach(el=>{
+    beforeStatic['line:' + el.dataset.side] = el.getBoundingClientRect();
+  });
+  ladderEl.querySelectorAll('.stop-dot').forEach(el=>{
+    beforeStatic['dot:' + el.dataset.side + ':' + el.dataset.stopIdx] = el.getBoundingClientRect();
+  });
+  ladderEl.querySelectorAll('.stop-label').forEach((el, i)=>{
+    beforeStatic['label:' + i] = el.getBoundingClientRect();
+  });
+
+  const svgBefore = document.getElementById('ladderLines');
+  const preservedVehicles = Array.from(ladderEl.querySelectorAll('.train-bubble, .train-leader-line, .train-leader-elbow'));
+  const preservedDots = svgBefore ? Array.from(svgBefore.querySelectorAll('.train-leader-dot')) : [];
+
+  buildLadder();
+
+  preservedVehicles.forEach(el => ladderEl.appendChild(el));
+  const svgAfter = document.getElementById('ladderLines');
+  if(svgAfter) preservedDots.forEach(el => svgAfter.appendChild(el));
+
+  renderTrainDots();
+  alignMainGridPanels();
+
+  ladderEl.querySelectorAll('.track-line-v').forEach(el=>{
+    const before = beforeStatic['line:' + el.dataset.side];
+    if(before) flipStaticElement(el, before);
+  });
+  ladderEl.querySelectorAll('.stop-dot').forEach(el=>{
+    const before = beforeStatic['dot:' + el.dataset.side + ':' + el.dataset.stopIdx];
+    if(before) flipStaticElement(el, before);
+  });
+  ladderEl.querySelectorAll('.stop-label').forEach((el, i)=>{
+    const before = beforeStatic['label:' + i];
+    if(before) flipStaticElement(el, before);
+  });
+}
+
 let panelRelayoutTimer;
 const carModalOverlayEl = document.getElementById('carModalOverlay');
 if(carModalOverlayEl){
@@ -7294,19 +7386,7 @@ if(carModalOverlayEl){
     panelRelayoutTimer = setTimeout(()=>{
       const mainGrid = document.querySelector('.main-grid');
       if(!mainGrid || mainGrid.style.display === 'none') return;
-      // buildLadder() wipes and fully rebuilds the ladder's DOM, so there's
-      // no way for the track lines/bubbles to smoothly transition from
-      // their old positions to the new (condensed) ones — same elements
-      // don't exist on both sides of the rebuild for a CSS transition to
-      // animate between. A quick cross-fade around the rebuild reads as a
-      // smooth change instead of a hard pop, without needing to track and
-      // animate every individual element's old vs. new position.
-      const ladderEl = document.getElementById('ladder');
-      if(ladderEl) ladderEl.style.opacity = '0';
-      setTimeout(()=>{
-        buildLadder(); renderTrainDots(); alignMainGridPanels();
-        if(ladderEl) requestAnimationFrame(()=>{ ladderEl.style.opacity = '1'; });
-      }, 180);
+      relayoutLadderSmoothly();
     }, 260);
   });
   carModalRelayoutObserver.observe(carModalOverlayEl, { attributes:true, attributeFilter:['class'] });
