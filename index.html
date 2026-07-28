@@ -4133,6 +4133,46 @@ async function saveCarPrediction(tripId, carNumber){
   }catch(e){ console.error(e); }
 }
 
+// Trips someone has manually dropped from the schedule (e.g. MBTA's
+// published schedule shows a departure that isn't actually going to run,
+// like a cancelled trip during a disruption). Shared across everyone,
+// same as the other collaborative moderation actions in this app.
+// Cleared automatically once a real train shows up tracking on that exact
+// trip ID — see showTerminusSchedule, which treats a live match as
+// overriding a drop, since that's real confirmation the trip does exist.
+let droppedTripsCache = {};
+async function refreshDroppedTripsCache(){
+  if(!firebaseReady) return;
+  try{
+    const snap = await fbDb.collection('dropped_trips').get();
+    const map = {};
+    const today = todayDateString();
+    const staleDocs = [];
+    snap.forEach(doc=>{
+      const d = doc.data();
+      if(d.date === today) map[doc.id] = d;
+      else staleDocs.push(doc.ref);
+    });
+    droppedTripsCache = map;
+    staleDocs.forEach(ref => ref.delete().catch(e => console.error(e)));
+  }catch(e){ console.error(e); }
+}
+async function dropTrip(tripId){
+  if(!firebaseReady) return;
+  try{
+    await fbDb.collection('dropped_trips').doc(tripId).set({
+      droppedBy: state.userName, droppedByUid: state.uid || null, ts: Date.now(), date: todayDateString()
+    });
+    droppedTripsCache[tripId] = { droppedBy: state.userName, droppedByUid: state.uid || null, ts: Date.now() };
+    logEdit(state.userName, state.uid, `Dropped a scheduled trip from the departures list`);
+  }catch(e){ console.error(e); }
+}
+async function undropTrip(tripId){
+  if(!firebaseReady) return;
+  try{ await fbDb.collection('dropped_trips').doc(tripId).delete(); }catch(e){ console.error(e); }
+  delete droppedTripsCache[tripId];
+}
+
 async function saveDepartureTimeOverride(tripId, departureTimeIso){
   if(!firebaseReady) return;
   try{
@@ -4257,6 +4297,17 @@ async function showTerminusSchedule(branchKey, stopName, directionId){
   const liveVehicleByTripId = {};
   state.vehicles.forEach(v => { if(v.tripId) liveVehicleByTripId[v.tripId] = v; });
 
+  // A dropped trip comes back automatically the moment a real train starts
+  // tracking on it — a live tripId match is solid proof it's actually
+  // running after all, so the drop no longer applies. undropTrip() clears
+  // it in Firestore for everyone else too, not just this session; the
+  // filter below uses the live match directly rather than waiting on that
+  // write, so it reappears in this render immediately either way.
+  trips.forEach(trip=>{
+    if(droppedTripsCache[trip.tripId] && liveVehicleByTripId[trip.tripId]) undropTrip(trip.tripId);
+  });
+  trips = trips.filter(trip => !droppedTripsCache[trip.tripId] || liveVehicleByTripId[trip.tripId]);
+
   const rows = trips.map(trip=>{
     const pred = predictions[trip.tripId];
     const liveMatch = liveVehicleByTripId[trip.tripId];
@@ -4275,6 +4326,13 @@ async function showTerminusSchedule(branchKey, stopName, directionId){
     const removeManualBtn = (trip.isManual || trip.manualDocId)
       ? `<button class="roster-reset-btn" data-remove-manual="${trip.manualDocId}" style="width:auto; display:inline-block; margin-top:6px;">Remove this added departure</button>`
       : '';
+    // Drops this specific trip out of the schedule entirely (e.g. it's on
+    // MBTA's published schedule but isn't actually going to run today).
+    // Comes back on its own — see the undropTrip() call above — the moment
+    // a live train is confirmed tracking on this exact trip ID.
+    const dropTripBtn = state.signedIn
+      ? `<button class="account-btn" data-drop-trip="${trip.tripId}" style="width:auto; display:inline-block; margin-top:6px; margin-left:6px; background:#D64545;">Drop trip</button>`
+      : '';
 
     if(!withinPredictionWindow){
       return `
@@ -4284,6 +4342,7 @@ async function showTerminusSchedule(branchKey, stopName, directionId){
           ${timeCorrectionNote}
           ${timeEditControl}
           ${removeManualBtn}
+          ${dropTripBtn}
         </div>`;
     }
 
@@ -4309,6 +4368,7 @@ async function showTerminusSchedule(branchKey, stopName, directionId){
         ${timeCorrectionNote}
         ${timeEditControl}
         ${removeManualBtn}
+        ${dropTripBtn}
         ${operatorsHtml}
       </div>`;
   }).join('');
@@ -4354,6 +4414,14 @@ async function showTerminusSchedule(branchKey, stopName, directionId){
     btn.addEventListener('click', async ()=>{
       if(!window.confirm('Remove this community-added departure?')) return;
       await deleteManualDeparture(btn.dataset.removeManual);
+      showTerminusSchedule(branchKey, stopName, directionId, true);
+    });
+  });
+
+  document.querySelectorAll('[data-drop-trip]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      if(!window.confirm("Drop this trip from the schedule? It'll disappear from this list for everyone unless a real train later starts tracking on it.")) return;
+      await dropTrip(btn.dataset.dropTrip);
       showTerminusSchedule(branchKey, stopName, directionId, true);
     });
   });
@@ -5317,7 +5385,14 @@ function updateDisruptionModeUI(){
   }
 }
 
+const HEATH_STREET_TURNBACK_KEEP_ALIVE_MS = 7 * 60 * 1000; // 7 minutes
 function keepAliveDurationFor(v){
+  // Longer window specifically for the Heath Street turnback (see the
+  // eastbound flip above) — it's a real terminus already covered by
+  // VEHICLE_KEEP_ALIVE_MS below, but that ~100s window is too short to
+  // reliably bridge the feed gap while a train lays over and starts its
+  // next eastbound trip.
+  if(v.stopName && normName(v.stopName) === normName('Heath Street')) return HEATH_STREET_TURNBACK_KEEP_ALIVE_MS;
   if(v.stopName && !REAL_TERMINUS_STOPS.some(s => normName(s) === normName(v.stopName))){
     return disruptionModeCache ? NON_TERMINUS_KEEP_ALIVE_DISRUPTION_MS : NON_TERMINUS_KEEP_ALIVE_MS;
   }
@@ -5495,6 +5570,21 @@ async function refreshVehicles(){
       const r = branchReassignmentCache[v.id];
       if(r && r.line === 'green') v.branch = r.correctBranch;
     });
+
+    // A train arriving at Heath Street (the E branch's western terminus) is
+    // about to turn back eastbound, but MBTA's feed can lag — or briefly
+    // stop reporting the vehicle altogether — during that turnaround before
+    // it shows up again on the new eastbound trip. Rather than wait on the
+    // feed (and have it sit shown westbound, or vanish, in the meantime),
+    // flip it to eastbound the moment it's confirmed stopped there.
+    // keepAliveDurationFor gives Heath Street specifically a longer 7-minute
+    // grace period so it stays on the map — now shown eastbound — until
+    // real data catches up, instead of the normal ~100s terminus window.
+    state.vehicles.forEach(v=>{
+      if(v.branch === 'E' && v.status === 'STOPPED_AT' && normName(v.stopName) === normName('Heath Street')){
+        v.direction = 1;
+      }
+    });
   }
 
   // Update the long-lived last-seen tracker from the actual fresh fetch
@@ -5671,7 +5761,8 @@ function renderVehicleList(){
 
   const titlesByKey = {
     ORANGE: 'Orange Line trains', BLUE: 'Blue Line trains',
-    REDTRUNK: 'Red Line trains', REDASHMONT: 'Ashmont trains', REDBRAINTREE: 'Braintree trains'
+    REDTRUNK: 'Red Line trains', REDASHMONT: 'Ashmont trains', REDBRAINTREE: 'Braintree trains',
+    MATTAPAN: 'Mattapan Line trains'
   };
   document.getElementById('vehicleListTitle').textContent = titlesByKey[key] || (key === 'SUBWAY' ? 'Subway trunk trains' : (page.isMulti ? page.label + ' trains' : key + ' branch trains'));
   document.getElementById('vehicleMeta').textContent = relevant.length + ' shown';
@@ -7175,6 +7266,9 @@ async function init(){
 
   refreshOutOfServiceCache();
   setInterval(refreshOutOfServiceCache, 60000);
+
+  refreshDroppedTripsCache();
+  setInterval(refreshDroppedTripsCache, 60000);
 
   refreshHiddenTrainsCache();
   setInterval(refreshHiddenTrainsCache, 60000);
