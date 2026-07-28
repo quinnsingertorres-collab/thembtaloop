@@ -1913,10 +1913,24 @@ async function saveStandingByReport(v, stationName, holdMinutes, notes){
     logEdit(state.userName, state.uid, `Reported car ${formatCarNumberForDisplay(v.label)} standing by at ${stationName}${holdText}`);
   }catch(e){ console.error(e); }
 }
-async function clearStandingByReport(vehicleId){
+async function clearStandingByReport(vehicleId, isManualCancel){
   if(!firebaseReady) return;
+  // Anyone signed in can cancel a standing-by report, not just whoever posted it —
+  // e.g. someone else on board who sees the train has actually started moving.
+  const existing = standingByCache[vehicleId];
   try{ await fbDb.collection('standing_by_reports').doc(vehicleId).delete(); }catch(e){ console.error(e); }
   delete standingByCache[vehicleId];
+  if(existing){
+    if(isManualCancel){
+      try{
+        await fbDb.collection('standingby_reports_cancelled').add({
+          vehicleId, stationName: existing.stationName,
+          cancelledBy: state.userName, cancelledByUid: state.uid || null, ts: Date.now()
+        });
+      }catch(e){ console.error(e); }
+      logEdit(state.userName, state.uid, `Cancelled standing-by report at ${existing.stationName}, originally reported by ${existing.reportedBy || 'Unknown'}`);
+    }
+  }
 }
 
 // Community "running express" reports — a train skipping stops between a
@@ -3592,7 +3606,7 @@ async function showCarModal(v){
         ${existingStandingBy.holdMinutes ? `<div class="modal-row"><span>Expected hold</span><strong>~${existingStandingBy.holdMinutes} min</strong></div>` : ''}
         ${existingStandingBy.notes ? `<div class="signin-note">"${existingStandingBy.notes}"</div>` : ''}
         <div class="signin-note">Reported by ${existingStandingBy.reportedBy || 'Unknown'} \u2014 clears automatically once the train leaves this station.</div>
-        ${state.signedIn ? `<button class="roster-reset-btn" id="clearStandingByBtn" style="margin-top:8px;">Clear this report</button>` : ''}
+        ${state.signedIn ? `<button class="roster-reset-btn" id="clearStandingByBtn" style="margin-top:8px;">Cancel standing by</button>` : ''}
       </div>`
     : (state.signedIn ? `<div class="modal-section">
         <h4>Standing by</h4>
@@ -3943,7 +3957,7 @@ async function showCarModal(v){
   const clearStandingByBtn = document.getElementById('clearStandingByBtn');
   if(clearStandingByBtn){
     clearStandingByBtn.addEventListener('click', async ()=>{
-      await clearStandingByReport(v.id);
+      await clearStandingByReport(v.id, true);
       showCarModal(v);
     });
   }
