@@ -435,7 +435,7 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
 /* ---------- Modal ---------- */
 .modal-overlay{position:fixed; inset:0; background:rgba(0,0,0,0.45); display:none; align-items:center; justify-content:center; z-index:100; padding:16px;}
 .modal-overlay.show{display:flex;}
-.modal-card{background:var(--panel); border-radius:14px; padding:20px; width:420px; max-width:100%; box-shadow:0 12px 40px rgba(0,0,0,0.35); max-height:80vh; overflow-y:auto; overflow-x:hidden; scrollbar-width:none; -ms-overflow-style:none; position:relative;}
+.modal-card{background:var(--panel); border-radius:14px; padding:20px; width:420px; max-width:100%; box-shadow:0 12px 40px rgba(0,0,0,0.35); max-height:80vh; overflow-y:auto; overflow-x:hidden; scrollbar-width:none; -ms-overflow-style:none; position:relative; overscroll-behavior:contain;}
 @media (min-width:900px){
   /* On desktop this docks as a left-side panel that's actually part of the
      page rather than a modal sitting on top of it. It stays permanently in
@@ -494,7 +494,7 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
    folding them into a single sticky container removes that coordination
    problem entirely, since there's now only one "stuck" position to get
    right. Needs its own background since content still scrolls underneath. */
-.modal-sticky-header{position:sticky; top:0; z-index:5; background:var(--panel);}
+.modal-sticky-header{position:sticky; top:0; z-index:5; background:var(--panel); will-change:transform;}
 .modal-close-x{
   position:absolute; top:12px; right:12px;
   width:28px; height:28px; border-radius:50%; border:none;
