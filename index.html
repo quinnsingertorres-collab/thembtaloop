@@ -1688,6 +1688,17 @@ const ROSTER_CARS = buildRosterCarList();
 let state = { vehicles: [], currentPage: 'B', lastMainPage: 'B', live: null, abbreviate: false, staggerBunchedTrains: false, signedIn: false, userName: '', photoURL: '', isModerator: false, isTrustedMember: false, filterDirection: 'ALL', filterType: 'ALL', rosterSearch: '', rosterTypeFilter: 'ALL', notifMaster: true, notifDoubleType8: false, notifPride: false, notifType9: false, notifCarBackInService: false, activeLine: 'green', otherBranchesVisible: { B:false, C:false, D:false, E:false, ashmont:false, braintree:false } };
 let layout = null; // computed pixel layout for the current ladder
 
+// Tracks, per vehicle id, when it was first observed STOPPED_AT its current
+// stop (keyed so a vehicle that later moves to a different stop resets).
+// The feed itself has no "arrived at" timestamp — only current status — so
+// this is built up locally: the first render that sees a vehicle stopped
+// somewhere records "now" as its arrival, and keeps that same timestamp on
+// every later render as long as it's still stopped at that same spot. Used
+// so that when two trains share a station's dot, the dot shows whichever
+// one actually got there first rather than whichever was simply processed
+// last in the render loop.
+let stopArrivalTracker = {};
+
 /* ---------------- Community-reported data ----------------
    Uses Firestore (a real, shared, cross-visitor backend) when Firebase is
    configured above; falls back to this-browser-only localStorage otherwise
@@ -2647,10 +2658,36 @@ function renderTrainDots(){
   // Fill the station dot with the occupying train's own line/branch color —
   // important on multi-branch views like the Subway tab, where B/C/D/E
   // trains all pass through the same shared stops and need to stay
-  // visually distinguishable from each other.
-  relevant.forEach(({ v, idx })=>{
-    if(v.status !== 'STOPPED_AT') return;
+  // visually distinguishable from each other. When more than one train is
+  // stopped at the same dot (a busy terminus, a holding pattern, etc.), the
+  // dot goes to whichever one got there first — tracked via
+  // stopArrivalTracker since the live feed only reports current status, not
+  // an actual arrival time.
+  const stoppedNow = relevant.filter(x => x.v.status === 'STOPPED_AT');
+  const occupancyByDot = {};
+  stoppedNow.forEach(({ v, idx })=>{
     const side = v.direction === 0 ? 'west' : 'east';
+    const dotKey = idx + ':' + side;
+
+    const prevArrival = stopArrivalTracker[v.id];
+    const arrivedAt = (prevArrival && prevArrival.dotKey === dotKey) ? prevArrival.arrivedAt : Date.now();
+    stopArrivalTracker[v.id] = { dotKey, arrivedAt };
+
+    const existing = occupancyByDot[dotKey];
+    if(!existing || arrivedAt < existing.arrivedAt) occupancyByDot[dotKey] = { v, arrivedAt };
+  });
+
+  // Drop tracker entries for vehicles no longer stopped anywhere on this
+  // page, so stale arrival times don't linger if one leaves and later
+  // returns to the same stop.
+  const stillStoppedIds = new Set(stoppedNow.map(x => x.v.id));
+  Object.keys(stopArrivalTracker).forEach(id=>{
+    if(!stillStoppedIds.has(id)) delete stopArrivalTracker[id];
+  });
+
+  Object.keys(occupancyByDot).forEach(dotKey=>{
+    const { v } = occupancyByDot[dotKey];
+    const [idx, side] = dotKey.split(':');
     const dot = ladder.querySelector(`.stop-dot[data-stop-idx="${idx}"][data-side="${side}"]`);
     if(dot){
       const carPartsForOOS = String(consistOverrideCache[carSetKey(v.label)] || v.label).split('-');
