@@ -96,11 +96,7 @@ html::-webkit-scrollbar, body::-webkit-scrollbar{display:none;}
   100%{opacity:1; transform:scale(1) translateY(0);}
 }
 
-/* Bottom padding covers the fixed bottom-nav bar plus the fixed footer
-   that now sits just above it (see footer{} below) — tall pages need this
-   much clearance so their last real row of content doesn't end up hidden
-   underneath either fixed element. */
-body{padding:16px 16px 132px;}
+body{padding:16px 16px 96px;}
 .wrap{max-width:760px; margin:0 auto;}
 
 @media (min-width:900px){
@@ -481,22 +477,6 @@ body.dark .stop-dot{background:var(--bg);}
 .vcard .status{text-align:right; font-family:'IBM Plex Mono', monospace; font-size:10.5px; color:var(--text-faint); white-space:nowrap;}
 
 .empty-state{text-align:center; padding:24px 10px; color:var(--text-faint); font-family:'IBM Plex Mono', monospace; font-size:12.5px;}
-
-/* Fixed (rather than in the normal document flow) so it's reliably
-   centered on the actual viewport and pinned just above the bottom bar on
-   every page — previously it just sat at the end of .wrap's content, so on
-   desktop it inherited .wrap's off-center margins (shifted to make room
-   for the docked side panels) and on tall pages (Settings, Fleet Roster,
-   etc.) it could end up scrolled far below the visible screen instead of
-   "at the bottom." pointer-events:none so it never blocks clicks on
-   whatever content ends up underneath it. */
-footer{
-  position:fixed; left:0; right:0; bottom:var(--bottom-nav-h, 76px);
-  text-align:center; font-size:11px; color:var(--text-faint);
-  padding:6px 10px; line-height:1.6;
-  pointer-events:none;
-  z-index:59;
-}
 
 /* ---------- Bottom nav ---------- */
 .bottom-nav{
@@ -1137,9 +1117,6 @@ footer{
     </div>
   </div>
 
-  <footer>
-    By Quinn Willow &mdash; not affiliated with the MBTA.
-  </footer>
 
 </div>
 
