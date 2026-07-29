@@ -539,9 +539,19 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
     transition:visibility 0s linear 0.22s;
   }
   .modal-overlay.show{
-    visibility:visible; pointer-events:auto;
+    /* Stays pointer-events:none even though it's "shown" — this element
+       is transparent and spans the FULL viewport (inset:0) purely to lay
+       out the docked card at the left edge via flex. Without this, that
+       invisible full-bleed box sits above everything else (z-index:100)
+       and silently swallows every click anywhere on the page — including
+       clicks on train bubbles nowhere near the visible card — since a
+       real mouse click hit-tests against whatever's on top, unlike
+       calling .click() directly on an element. Only the actual visible
+       card (.modal-slide-wrap below) re-enables pointer events. */
+    visibility:visible;
     transition:visibility 0s linear 0s;
   }
+  .modal-slide-wrap{pointer-events:auto;}
   /* The slide transform lives on this wrapper rather than on .modal-card
      itself — a transform on the same element that's also the sticky
      scroll container (overflow-y:auto, holding .modal-sticky-header /
