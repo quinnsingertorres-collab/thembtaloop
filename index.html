@@ -7678,14 +7678,31 @@ if(bottomNavEl){
 // "resting" value — the panels are position:fixed and shouldn't chase the
 // page as it scrolls, just start wherever the labels sit normally.
 const trackColLabelsEl = document.querySelector('.track-col-labels');
+let panelDockRestTop = 220;
+const recomputePanelDockRestTop = ()=>{
+  if(!trackColLabelsEl) return;
+  const rect = trackColLabelsEl.getBoundingClientRect();
+  panelDockRestTop = rect.top + window.scrollY;
+};
+// The panels track the labels row up the page as the user scrolls (rather
+// than staying pinned forever at wherever the labels started), so scrolling
+// down slides them up in lockstep — same math as the labels' own viewport
+// position, since they're in normal flow: currentTop = restTop - scrollY.
+// Floored just below the top bar so they never end up sliding underneath
+// it once the labels themselves have scrolled out of view.
+const applyPanelDockTop = ()=>{
+  const topBarH = document.querySelector('.top-bar')?.offsetHeight || 66;
+  const minTop = topBarH + 16;
+  const top = Math.max(minTop, panelDockRestTop - window.scrollY);
+  document.documentElement.style.setProperty('--panel-dock-top', top + 'px');
+};
 if(trackColLabelsEl){
-  const updatePanelDockTopVar = ()=>{
-    const rect = trackColLabelsEl.getBoundingClientRect();
-    document.documentElement.style.setProperty('--panel-dock-top', (rect.top + window.scrollY) + 'px');
-  };
-  updatePanelDockTopVar();
-  new ResizeObserver(updatePanelDockTopVar).observe(document.body);
-  window.addEventListener('resize', updatePanelDockTopVar);
+  recomputePanelDockRestTop();
+  applyPanelDockTop();
+  new ResizeObserver(()=>{ recomputePanelDockRestTop(); applyPanelDockTop(); }).observe(document.body);
+  window.addEventListener('resize', ()=>{ recomputePanelDockRestTop(); applyPanelDockTop(); });
+} else {
+  applyPanelDockTop();
 }
 
 // Both docked panels' tops are permanently locked in place (position:fixed,
@@ -7719,7 +7736,14 @@ let dockedPanelScrollQueued = false;
 window.addEventListener('scroll', ()=>{
   if(dockedPanelScrollQueued) return;
   dockedPanelScrollQueued = true;
-  requestAnimationFrame(()=>{ dockedPanelScrollQueued = false; syncDockedPanelScroll(); });
+  requestAnimationFrame(()=>{
+    dockedPanelScrollQueued = false;
+    // Dock position first — the panels' own height (and therefore how much
+    // headroom there is left to reveal) depends on --panel-dock-top, so it
+    // has to be current before the content-offset math below runs.
+    applyPanelDockTop();
+    syncDockedPanelScroll();
+  });
 }, { passive: true });
 window.addEventListener('resize', syncDockedPanelScroll);
 // Content height changes constantly (switching cars, the vehicle list
