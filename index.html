@@ -3252,6 +3252,21 @@ function getCarPositionLabel(i, isGreenLine){
 
 let expandedCarDetailKeys = new Set();
 
+// The car-detail modal moves a ".modal-section-sticky-info" block (Status/
+// Destination/Left origin at/etc.) up into the modal's sticky header —
+// see the cleanup inside showCarModal() below. That block lives outside
+// #carModalBody, so any OTHER function sharing this same modal (alerts,
+// notifications, station departures, bypass notices) needs to explicitly
+// remove it too, or it's left stuck in the header showing stale train
+// info underneath whatever new content just loaded. Call this at the top
+// of any such function before setting carModalTitle/carModalBody.
+function clearStaleModalStickyInfo(){
+  const stickyHeaderEl = document.querySelector('#carModalOverlay .modal-sticky-header');
+  if(stickyHeaderEl){
+    stickyHeaderEl.querySelectorAll('.modal-section-sticky-info').forEach(el => el.remove());
+  }
+}
+
 async function showCarModal(v){
   const myModalToken = ++modalRefreshToken;
   const alreadyOpen = document.getElementById('carModalOverlay').classList.contains('show');
@@ -4684,6 +4699,7 @@ async function showTerminusSchedule(branchKey, stopName, directionId){
 }
 
 function showBypassNotice(stopName, info){
+  clearStaleModalStickyInfo();
   modalRefreshToken++;
   info = info || { reason: 'All trains will bypass this station.' };
   document.getElementById('carModalTitle').textContent = displayName(stopName);
@@ -4697,6 +4713,7 @@ function showBypassNotice(stopName, info){
 }
 
 async function showStationModal(pageKey, idx, stopName, side){
+  clearStaleModalStickyInfo();
   const myToken = ++modalRefreshToken;
   const direction = side === 'west' ? 0 : 1;
   const upcoming = getUpcoming(pageKey, idx, direction).filter(({v}) => !isVehicleAtTerminus(pageKey, v));
@@ -4767,6 +4784,7 @@ document.getElementById('carModalOverlay').addEventListener('click', (e)=>{
 const DEPARTURE_LOOKUP_PAGES = ['B','C','D','E','SUBWAY','MATTAPAN'];
 
 async function showStationDeparturesByName(stopName){
+  clearStaleModalStickyInfo();
   const myToken = ++modalRefreshToken;
   let found = null;
   for(const key of DEPARTURE_LOOKUP_PAGES){
@@ -4884,6 +4902,7 @@ function timeSincePosted(iso){
 }
 
 async function showAlertsModal(){
+  clearStaleModalStickyInfo();
   const lineTitle = state.activeLine === 'green' ? 'Green Line & Mattapan'
     : `${lineDisplayName(state.activeLine)} Line`;
   document.getElementById('carModalTitle').textContent = `Service Alerts \u2014 ${lineTitle}`;
@@ -4990,6 +5009,7 @@ async function loadAllModItems(){
 }
 
 async function showNotificationsPanel(){
+  clearStaleModalStickyInfo();
   document.getElementById('carModalTitle').textContent = 'Notifications';
   document.getElementById('carModalBody').innerHTML = '<div class="modal-row"><span>Loading&hellip;</span><strong></strong></div>';
   document.getElementById('carModalOverlay').classList.add('show');
