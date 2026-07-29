@@ -135,12 +135,13 @@ body{padding:16px 16px 96px;}
   .top-bar{
     max-width:1440px; width:94%;
     position:fixed; top:0; left:0; right:0; margin:0 auto; z-index:60;
+    padding-top:14px;
     box-shadow:0 4px 12px -4px rgba(0,0,0,0.25);
   }
   /* Fixed removes the bar from flow, so compensate with matching space
      at the top of the page — the bar's own live-measured height plus
      the original 16px breathing room body's top padding used to give it. */
-  body{padding-top:calc(var(--top-bar-h, 52px) + 16px);}
+  body{padding-top:calc(var(--top-bar-h, 66px) + 16px);}
 }
 .auth-corner{display:flex; align-items:center; gap:8px; flex:0 0 auto;}
 .google-btn{
