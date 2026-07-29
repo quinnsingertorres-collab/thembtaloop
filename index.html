@@ -31,8 +31,12 @@
   --text:#F0F4F2;
   --text-dim:#A9BAB2;
   --text-faint:#6E8177;
-  --accent:#2FBE72;
-  --accent-soft:#173224;
+  /* Fenway Park green (the Green Monster's own shade) rather than the
+     previous bright mint/emerald — deeper, more muted. This is the single
+     shared accent used for buttons, toggles, and links across the whole
+     site, not just Green Line pages. */
+  --accent:#146C43;
+  --accent-soft:#12301F;
   --line-black:#EDEDED;
   --nav-bg:#14253B;
   --radius:12px;
@@ -46,8 +50,8 @@ body.dark{
   --text:#F0F4F2;
   --text-dim:#A9BAB2;
   --text-faint:#6E8177;
-  --accent:#2FBE72;
-  --accent-soft:#173224;
+  --accent:#146C43;
+  --accent-soft:#12301F;
   --line-black:#EDEDED;
   --nav-bg:#14253B;
 }
@@ -7028,7 +7032,12 @@ const LINE_PAGE_KEYS = {
   blue: ['BLUE'],
   green: ['B','C','D','E','SUBWAY','MATTAPAN']
 };
-const LINE_ACCENT = { red:'#FA2D27', orange:'#ED8B00', blue:'#003DA5', green:null };
+// Every line now shares the same accent (the Green Line's own green,
+// see --accent in :root) for buttons/toggles/links instead of switching
+// to each line's own brand color — the line-specific colors (train
+// bubbles, the line-select buttons themselves, etc.) are untouched, this
+// only affects the shared UI accent.
+const LINE_ACCENT = { red:null, orange:null, blue:null, green:null };
 
 function revealApp(line){
   hideAllGateScreens();
