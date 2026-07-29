@@ -568,38 +568,41 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
   }
   .modal-slide-wrap{pointer-events:auto;}
   /* The slide transform lives on this wrapper rather than on .modal-card
-     itself — a transform on the same element that's also the sticky
-     scroll container (overflow-y:auto, holding .modal-sticky-header /
-     .modal-section-sticky-info) is a known way to make position:sticky
-     stop sticking in some browsers. Keeping transform and scroll/sticky
-     on two separate elements sidesteps that entirely.
+     itself — a transform on the same element that's ALSO the native
+     scroll container (overflow-y:auto) is a known way to break scrolling
+     in this exact codebase: it's the same underlying issue that used to
+     make position:sticky stop sticking here (see the old sticky-header
+     removal). An earlier version of this scroll-reveal feature put both
+     the transform and overflow-y:auto on this one wrap element, which
+     reintroduced that bug — trackpad/wheel scroll would visibly register
+     (wheel events firing, not prevented) but scrollTop would never move.
+     Keeping transform here and scroll down on .modal-card sidesteps it,
+     same as the rest of this codebase already does.
      Height is capped so the panel's bottom edge lands exactly where the
      bottom bar (clock/weather/line selection) begins, instead of running
      underneath it — --bottom-nav-h is kept in sync with that bar's real,
      current height by a ResizeObserver (see below), with a sane fallback
-     for the instant before that first measurement lands.
-     The box's own top climbs with page scroll and grows taller as it does
-     (see applyPanelDockTop in JS), but content can still run past even
-     that grown height — scroll inside the box to reach it. Scrollbar
-     hidden to match .modal-card's own convention below; overscroll-behavior
-     stops the scroll from chaining into the main page at either end. */
+     for the instant before that first measurement lands. Its own top
+     climbs with page scroll and grows taller as it does (see
+     applyPanelDockTop in JS); .modal-card's own scroll (below) reaches
+     whatever content still doesn't fit even once fully grown. */
   .modal-slide-wrap{
     width:420px; height:calc(100vh - var(--panel-dock-top, 220px) - var(--bottom-nav-h, 76px));
-    overflow-y:auto; overflow-x:hidden;
-    scrollbar-width:none; -ms-overflow-style:none;
-    overscroll-behavior:contain;
+    overflow:hidden;
     transform:translateX(-100%);
     transition:transform 0.22s ease;
   }
-  .modal-slide-wrap::-webkit-scrollbar{display:none;}
   .modal-overlay.show .modal-slide-wrap{
     transform:translateX(0);
   }
   .modal-card{
-    width:100%; height:auto; min-height:100%; max-height:none;
-    overflow-y:visible; overflow-x:hidden;
+    width:100%; height:100%; max-height:100%;
+    overflow-y:auto; overflow-x:hidden;
+    scrollbar-width:none; -ms-overflow-style:none;
+    overscroll-behavior:contain;
     border:1px solid var(--border); border-left:none; border-radius:0 var(--radius) var(--radius) 0; box-shadow:none;
   }
+  .modal-card::-webkit-scrollbar{display:none;}
   body:has(#carModalOverlay.show) .wrap{
     margin-left:436px; margin-right:16px; width:auto;
     transition:margin-left 0.22s ease;
