@@ -36,11 +36,9 @@
      shared accent used for buttons, toggles, and links across the whole
      site, not just Green Line pages. */
   --accent:#146C43;
-  --accent-soft:#12301F;
   --line-black:#EDEDED;
   --nav-bg:#14253B;
   --radius:12px;
-  --row-h:30px;
 }
 
 body.dark{
@@ -51,7 +49,6 @@ body.dark{
   --text-dim:#A9BAB2;
   --text-faint:#6E8177;
   --accent:#146C43;
-  --accent-soft:#12301F;
   --line-black:#EDEDED;
   --nav-bg:#14253B;
 }
@@ -86,7 +83,6 @@ html::-webkit-scrollbar, body::-webkit-scrollbar{display:none;}
   box-shadow:0 2px 10px rgba(0,0,0,0.25); transition:transform 0.15s;
 }
 .line-select-btn:hover{transform:translateY(-2px);}
-.gate-note{font-size:12.5px; color:var(--text-faint); line-height:1.5; margin:0;}
 .welcome-text{
   font-size:32px !important; margin:0 !important;
   animation:welcomePop 0.6s cubic-bezier(0.22, 1, 0.36, 1);
@@ -128,7 +124,23 @@ body{padding:16px 16px 96px;}
   max-width:760px; margin:0 auto;
 }
 @media (min-width:900px){
-  /* position:sticky doesn't actually stick here — this page's <body>
+  /* Full width instead of the content column's own 94%/1440px cap — the
+     logo and menu icons used to inherit that same proportional margin,
+     which left a large, growing empty gap on wider screens instead of a
+     normal fixed edge margin like the rest of the web. A small flat
+     horizontal padding replaces it so the bar always sits close to the
+     browser edge regardless of window width. This part applies on every
+     page; only the pinning below is track-map-specific. */
+  .top-bar{
+    width:100%; max-width:none; margin:0;
+    padding:0 24px 14px;
+  }
+  /* Pinned in place only while the track map itself is showing — on every
+     other page (Settings, Fleet Roster, Alerts, etc.) the bar just sits
+     in normal flow and scrolls away like the rest of that page's content,
+     since there's nothing on those pages time-sensitive enough to need a
+     permanent header. switchPage() toggles this class in JS.
+     position:sticky doesn't actually stick here — this page's <body>
      reports overflow-y:auto in its computed style (a root-scroller
      reporting quirk, not anything we authored), which makes browsers
      treat body as the sticky containing block even though the real
@@ -136,16 +148,16 @@ body{padding:16px 16px 96px;}
      chain, so the bar just scrolls away with the rest of the page.
      position:fixed sidesteps the whole issue and is what .bottom-nav
      already uses successfully elsewhere in this file. */
-  .top-bar{
-    max-width:1440px; width:94%;
-    position:fixed; top:0; left:0; right:0; margin:0 auto; z-index:60;
+  body.track-map-page .top-bar{
+    position:fixed; top:0; left:0; right:0; z-index:60;
     padding-top:14px;
     box-shadow:0 4px 12px -4px rgba(0,0,0,0.25);
   }
   /* Fixed removes the bar from flow, so compensate with matching space
      at the top of the page — the bar's own live-measured height plus
-     the original 16px breathing room body's top padding used to give it. */
-  body{padding-top:calc(var(--top-bar-h, 66px) + 16px);}
+     the original 16px breathing room body's top padding used to give it.
+     Only needed while it's actually pinned. */
+  body.track-map-page{padding-top:calc(var(--top-bar-h, 66px) + 16px);}
 }
 .auth-corner{display:flex; align-items:center; gap:8px; flex:0 0 auto;}
 .google-btn{
@@ -457,8 +469,6 @@ body.dark .stop-dot{background:var(--bg);}
 /* ---------- Vehicle list ---------- */
 .vehicle-list{display:flex; flex-direction:column; gap:7px; max-height:520px; overflow-y:auto; padding-right:4px; scrollbar-width:none; -ms-overflow-style:none;}
 .vehicle-list::-webkit-scrollbar{display:none;}
-.vehicle-list::-webkit-scrollbar{width:6px;}
-.vehicle-list::-webkit-scrollbar-thumb{background:var(--border); border-radius:4px;}
 @media (min-width:900px){
   /* The trains panel itself now scrolls as a whole fixed-height dock (see
      .main-grid > .panel:last-child above) — letting this inner list keep
@@ -486,6 +496,18 @@ body.dark .stop-dot{background:var(--bg);}
   background:none;
   box-shadow:none;
   z-index:60;
+  /* Forces its own GPU compositing layer — works around a real, long-
+     standing iOS Safari bug where a position:fixed element elsewhere on
+     the page visually detaches and scrolls along with a NESTED
+     overflow:auto container (here, .vehicle-list's own internal scroll
+     on mobile) during a touch-scroll gesture, ending up stuck wherever
+     the touch let go instead of staying pinned to the bottom of the
+     screen. Without its own layer, iOS occasionally fails to recomposite
+     the fixed element correctly mid-touch-scroll of an unrelated
+     scrollable descendant. */
+  transform:translateZ(0);
+  -webkit-transform:translateZ(0);
+  will-change:transform;
 }
 .bottom-nav-inner{display:flex; gap:6px; background:var(--nav-bg); border:1px solid var(--border); border-radius:20px; padding:6px; box-shadow:0 6px 20px rgba(20,40,30,0.12); flex-wrap:wrap; max-width:100%; justify-content:center;}
 .bottom-left-info{
@@ -494,15 +516,23 @@ body.dark .stop-dot{background:var(--bg);}
   line-height:1.5; text-align:left;
 }
 .bottom-left-info .weather-line{font-size:10px; text-align:left; justify-self:start;}
-.top-mobile-info{
+/* On phones this same clock/weather info moves down into the bottom bar
+   (see .bottom-mobile-info below) instead of sitting above the title —
+   it used to live there as its own stacked, centered block, which pushed
+   the title and track map down and felt like the least important thing
+   on the page was given the most prominent spot. Tucked in above the
+   line-selector pill instead, condensed onto one line each, it reads more
+   like a compact status strip than a headline. */
+.bottom-mobile-info{
   display:none;
-  font-family:'IBM Plex Mono', monospace; font-size:11px; color:#FFFFFF;
-  line-height:1.5; text-align:center; padding:4px 16px 0;
+  font-family:'IBM Plex Mono', monospace; font-size:10px; color:var(--text-dim);
+  gap:10px; justify-content:center;
 }
-.top-mobile-info .weather-line{font-size:10.5px;}
+.bottom-mobile-info #clockTop, .bottom-mobile-info #weatherDisplayTop{display:flex; gap:5px;}
 @media (max-width:480px){
   .bottom-left-info{display:none;}
-  .top-mobile-info{display:block;}
+  .bottom-nav{flex-direction:column; align-items:center; gap:5px; padding-top:8px;}
+  .bottom-mobile-info{display:flex;}
   .bottom-nav-inner{flex-wrap:nowrap; gap:2px; padding:4px; overflow-x:auto; -webkit-overflow-scrolling:touch; max-width:calc(100vw - 24px); scrollbar-width:none;}
   .bottom-nav-inner::-webkit-scrollbar{display:none;}
   .nav-btn{padding:5px 8px; font-size:10px; gap:1px; border-radius:11px;}
@@ -691,8 +721,6 @@ body.dark .stop-dot{background:var(--bg);}
 
 .roster-list{display:flex; flex-direction:column; gap:10px; max-height:640px; overflow-y:auto; padding-right:4px; scrollbar-width:none; -ms-overflow-style:none;}
 .roster-list::-webkit-scrollbar{display:none;}
-.roster-list::-webkit-scrollbar{width:6px;}
-.roster-list::-webkit-scrollbar-thumb{background:var(--border); border-radius:4px;}
 
 .roster-row{background:var(--bg); border:1px solid var(--border); border-radius:10px; padding:12px;}
 .roster-row-head{display:flex; align-items:center; gap:8px; margin-bottom:8px; flex-wrap:wrap;}
@@ -833,11 +861,6 @@ body.dark .stop-dot{background:var(--bg);}
 
 <div class="wrap">
 
-  <div class="top-mobile-info" id="topMobileInfo">
-    <div id="clockTop">--:--:-- ET</div>
-    <div class="weather-line" id="weatherDisplayTop">Loading weather&hellip;</div>
-  </div>
-
   <header>
     <div class="title-block">
       <h1><span id="pageTitle">Boston College</span></h1>
@@ -853,10 +876,10 @@ body.dark .stop-dot{background:var(--bg);}
     <span class="alert-toast-body" id="alertToastBody"></span>
   </div>
 
-  <div class="banner" id="noTrainsBanner">All trains have gone to sleep for the night &#128564;. If you think this is a mistake, please report it in the Discord server: <a href="https://discord.gg/KmGGY75rn4" target="_blank" rel="noopener" style="color:inherit; text-decoration:underline; font-weight:700;">discord.gg/KmGGY75rn4</a></div>
+  <div class="banner" id="noTrainsBanner">No trains are currently running for the night. If this seems incorrect, report it in the Discord server: <a href="https://discord.gg/KmGGY75rn4" target="_blank" rel="noopener" style="color:inherit; text-decoration:underline; font-weight:700;">discord.gg/KmGGY75rn4</a></div>
 
   <div class="banner discord-banner" id="discordBanner">
-    <span>To submit bug reports, join the Discord server! <a href="https://discord.gg/RYckv4jz8n" target="_blank" rel="noopener" style="color:#fff; text-decoration:underline; font-weight:700;">discord.gg/RYckv4jz8n</a></span>
+    <span>Report bugs in the Discord server: <a href="https://discord.gg/RYckv4jz8n" target="_blank" rel="noopener" style="color:#fff; text-decoration:underline; font-weight:700;">discord.gg/RYckv4jz8n</a></span>
     <button id="discordBannerClose" aria-label="Dismiss">&times;</button>
   </div>
 
@@ -1050,7 +1073,7 @@ body.dark .stop-dot{background:var(--bg);}
     </div>
     <div class="back-link" id="bugsBackBtn">&lsaquo; Back</div>
     <div class="empty-state" style="text-align:left; padding:10px 4px;">
-      Found a bug or have a feature request? Let me know in the In the Loop Discord server. No promises on feature requests!
+      Report bugs or suggest features in the In the Loop Discord server. Feature requests aren't guaranteed to be implemented.
       <br><br>
       <a href="https://discord.gg/RYckv4jz8n" target="_blank" rel="noopener" style="color:var(--accent); font-weight:700; text-decoration:underline;">discord.gg/RYckv4jz8n</a>
     </div>
@@ -1086,7 +1109,7 @@ body.dark .stop-dot{background:var(--bg);}
         <div class="switch" id="notifMasterSwitch"><div class="knob"></div></div>
       </div>
       <div class="menu-row">
-        <span>Duced Type 8s</span>
+        <span>Double Type 8s</span>
         <div class="switch" id="notifDoubleType8Switch"><div class="knob"></div></div>
       </div>
       <div class="menu-row">
@@ -1121,6 +1144,10 @@ body.dark .stop-dot{background:var(--bg);}
 </div>
 
 <div class="bottom-nav">
+  <div class="bottom-mobile-info" id="bottomMobileInfo">
+    <div id="clockTop">--:--:-- ET</div>
+    <div class="weather-line" id="weatherDisplayTop">Loading weather&hellip;</div>
+  </div>
   <div class="bottom-left-info">
     <div id="clock">--:--:-- ET</div>
     <div class="weather-line" id="weatherDisplay">Loading weather&hellip;</div>
@@ -2548,6 +2575,13 @@ function switchPage(key){
   bugsPanel.style.display = 'none';
   inspectorsPanel.style.display = 'none';
   settingsPanel.style.display = 'none';
+  // The top bar is only pinned (position:fixed on desktop) while the
+  // track map itself is on screen — every other page (Settings, Fleet
+  // Roster, etc.) removes this class and lets it scroll away normally,
+  // since there's nothing time-sensitive on those pages worth keeping a
+  // permanent header for. Default to "not pinned" here; the one branch
+  // below that actually shows the track map turns it back on.
+  document.body.classList.remove('track-map-page');
 
   if(page.isRoster){
     rosterPanel.style.display = 'block';
@@ -2589,6 +2623,7 @@ function switchPage(key){
   }
 
   mainGrid.style.display = '';
+  document.body.classList.add('track-map-page');
   if(trainsPanelToggleBtn) trainsPanelToggleBtn.style.display = '';
   buildLadder();
   renderTrainDots();
@@ -4721,7 +4756,7 @@ async function showTerminusSchedule(branchKey, stopName, directionId){
 
   const addDepartureForm = state.signedIn
     ? `<div class="modal-section">
-        <h4>Add a departure MBTA's schedule is missing</h4>
+        <h4>Add a departure missing from MBTA's schedule</h4>
         <input type="time" class="roster-input" id="addDepartureTime" style="width:110px; display:inline-block;">
         <input type="text" class="roster-input" id="addDepartureHeadsign" placeholder="Destination" style="width:150px; display:inline-block; margin-left:6px;">
         <button class="account-btn" id="addDepartureBtn" style="margin-top:6px;">Add departure</button>
@@ -5459,7 +5494,7 @@ function checkTrainNotifications(vehicles){
         doubleType8Ids.add(v.id);
         if(!notifiedDoubleType8.has(v.id)){
           notifiedDoubleType8.add(v.id);
-          fireLocalNotification('Duced Type 8s spotted', formatTrainNotifBody(v));
+          fireLocalNotification('Double Type 8s spotted', formatTrainNotifBody(v));
         }
       }
     });
@@ -7281,7 +7316,7 @@ document.getElementById('modAlertSendBtn').addEventListener('click', async ()=>{
   const expiryEl = document.getElementById('modAlertExpiry');
   const note = document.getElementById('modAlertNote');
   const text = textEl.value.trim();
-  if(!text){ note.textContent = 'Write something first'; setTimeout(()=>{ note.textContent=''; }, 2000); return; }
+  if(!text){ note.textContent = 'Enter a message first.'; setTimeout(()=>{ note.textContent=''; }, 2000); return; }
   if(!firebaseReady){ note.textContent = 'Firebase not configured'; return; }
   if(!window.confirm('Send this alert to all users right now?')) return;
   const expiryHours = parseInt(expiryEl.value, 10);
@@ -7292,7 +7327,7 @@ document.getElementById('modAlertSendBtn').addEventListener('click', async ()=>{
     });
     logEdit(state.userName, state.uid, `Posted alert: "${text.slice(0,60)}"`);
     textEl.value = '';
-    note.textContent = 'Alert sent!';
+    note.textContent = 'Alert sent.';
     setTimeout(()=>{ note.textContent=''; }, 3000);
   }catch(e){ console.error(e); note.textContent = 'Failed to send \u2014 check Firestore rules'; }
 });
@@ -7316,7 +7351,7 @@ document.getElementById('modNotifSendBtn').addEventListener('click', async ()=>{
     logEdit(state.userName, state.uid, `Posted notification: "${subject.slice(0,60)}"`);
     subjectEl.value = '';
     bodyEl.value = '';
-    note.textContent = 'Notification sent!';
+    note.textContent = 'Notification sent.';
     setTimeout(()=>{ note.textContent=''; }, 3000);
   }catch(e){ console.error(e); note.textContent = 'Failed to send \u2014 check Firestore rules'; }
 });
