@@ -252,13 +252,13 @@ body.dark .discord-banner{background:#5865F2; border-color:#5865F2; color:#fff;}
      own padding-right below reserves the matching space so the track map
      never runs underneath it. */
   .main-grid > .panel:last-child{
-    position:fixed; top:calc(var(--top-bar-h, 60px) + 16px); right:0;
+    position:fixed; top:var(--panel-dock-top, 220px); right:0;
     bottom:calc(var(--bottom-nav-h, 76px) + 16px);
     width:380px; overflow-y:auto; overscroll-behavior:contain;
     scrollbar-width:none; -ms-overflow-style:none;
     border-radius:var(--radius) 0 0 var(--radius); border-right:none;
     transform:translateX(0);
-    transition:transform 0.22s ease;
+    transition:transform 0.22s ease, top 0.22s ease;
     z-index:55;
   }
   .main-grid > .panel:last-child::-webkit-scrollbar{display:none;}
@@ -277,12 +277,18 @@ body.dark .discord-banner{background:#5865F2; border-color:#5865F2; color:#fff;}
 @media (min-width:900px){
   .trains-panel-toggle{
     display:flex; align-items:center; justify-content:center;
-    position:fixed; top:50%; right:380px; transform:translateY(-50%);
+    position:fixed;
+    /* Vertically centered against the panel's own real span (dock-top to
+       the bottom bar) rather than the full viewport — the panel starts
+       well below the top of the screen now, so a plain 50% would sit
+       noticeably above its actual middle. */
+    top:calc((var(--panel-dock-top, 220px) + 100vh - var(--bottom-nav-h, 76px) - 16px) / 2);
+    right:380px; transform:translateY(-50%);
     width:28px; height:56px; border-radius:8px 0 0 8px;
     background:var(--panel); border:1px solid var(--border); border-right:none;
     color:var(--text-dim); cursor:pointer; padding:0;
     box-shadow:-2px 0 8px rgba(0,0,0,0.15);
-    transition:right 0.22s ease, color 0.15s ease;
+    transition:right 0.22s ease, color 0.15s ease, top 0.22s ease;
     z-index:56;
   }
   .trains-panel-toggle:hover{color:var(--text);}
@@ -535,8 +541,8 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
        is kept in sync with that bar's real height the same way
        --bottom-nav-h is (see below), so this doesn't drift if the header's
        own height ever changes (auth icons wrapping, font changes, etc). */
-    padding:calc(16px + var(--top-bar-h, 60px)) 16px 0 0;
-    transition:visibility 0s linear 0.22s;
+    padding:var(--panel-dock-top, 220px) 16px 0 0;
+    transition:visibility 0s linear 0.22s, padding-top 0.22s ease;
   }
   .modal-overlay.show{
     /* Stays pointer-events:none even though it's "shown" — this element
@@ -564,7 +570,7 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
      current height by a ResizeObserver (see below), with a sane fallback
      for the instant before that first measurement lands. */
   .modal-slide-wrap{
-    width:420px; max-height:calc(100vh - 16px - var(--top-bar-h, 60px) - var(--bottom-nav-h, 76px));
+    width:420px; max-height:calc(100vh - var(--panel-dock-top, 220px) - var(--bottom-nav-h, 76px));
     transform:translateX(-100%);
     transition:transform 0.22s ease;
   }
@@ -2728,7 +2734,25 @@ function computeDisplayY(idx, direction, status, stopYArr, vehicle, stopCoordsAr
 function positionConnector(div, x1, y1, x2, y2){
   const dx = x2 - x1, dy = y2 - y1;
   const length = Math.sqrt(dx*dx + dy*dy);
-  const angleDeg = Math.atan2(dy, dx) * 180 / Math.PI;
+  let angleDeg = Math.atan2(dy, dx) * 180 / Math.PI;
+  // atan2 always returns a value in (-180, 180], so a line whose angle
+  // happens to cross that boundary between renders (e.g. 179deg one frame,
+  // -179deg the next — a barely-perceptible 2deg visual change) gets a
+  // transform:rotate() value that's numerically ~358deg away from the
+  // last one. The CSS transition on transform interpolates that literal
+  // numeric distance, not the shortest path around the circle, so the
+  // line visibly spins almost all the way around instead of just nudging.
+  // Fix: "unwrap" the new angle by shifting it by a multiple of 360deg so
+  // it lands as close as possible to the previous angle for this same
+  // element, letting the numbers grow past +-180 instead of resetting —
+  // rotate(185deg) and rotate(-175deg) render identically, but only one
+  // of them transitions smoothly from a previous value of 179deg.
+  const prevAngle = parseFloat(div.dataset.prevAngle);
+  if(!isNaN(prevAngle)){
+    const delta = ((angleDeg - prevAngle + 180) % 360 + 360) % 360 - 180;
+    angleDeg = prevAngle + delta;
+  }
+  div.dataset.prevAngle = angleDeg;
   div.style.left = x1 + 'px';
   div.style.top = (y1 - 1.5) + 'px'; // half of the 3px height, so it sits centered on the line
   div.style.width = length + 'px';
@@ -7628,6 +7652,26 @@ if(bottomNavEl){
 // Same reasoning as the bottom bar above, but for the site logo/"In the
 // Loop" header — the desktop info panel starts below its real height
 // instead of a guessed one, so it can never end up covering the logo.
+// Both docked side panels (car info on the left, trains-on-line on the
+// right) used to start right under the top bar, well above the actual
+// Westbound/Eastbound labels — noticeably taller than the ladder's own
+// content start, and shifting depending on whether the bug-report banner
+// happened to be showing. Anchor their top edge to the labels row's real
+// position instead. getBoundingClientRect().top is relative to the
+// current scroll position, so add scrollY to get a scroll-independent
+// "resting" value — the panels are position:fixed and shouldn't chase the
+// page as it scrolls, just start wherever the labels sit normally.
+const trackColLabelsEl = document.querySelector('.track-col-labels');
+if(trackColLabelsEl){
+  const updatePanelDockTopVar = ()=>{
+    const rect = trackColLabelsEl.getBoundingClientRect();
+    document.documentElement.style.setProperty('--panel-dock-top', (rect.top + window.scrollY) + 'px');
+  };
+  updatePanelDockTopVar();
+  new ResizeObserver(updatePanelDockTopVar).observe(document.body);
+  window.addEventListener('resize', updatePanelDockTopVar);
+}
+
 const trainsPanelToggle = document.getElementById('trainsPanelToggle');
 if(trainsPanelToggle){
   trainsPanelToggle.addEventListener('click', ()=>{
