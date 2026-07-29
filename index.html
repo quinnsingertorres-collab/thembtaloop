@@ -415,11 +415,11 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
   position:fixed; left:0; right:0; bottom:0;
   display:flex; justify-content:center;
   padding:12px 16px calc(12px + env(safe-area-inset-bottom));
-  background:var(--bg);
-  box-shadow:0 -8px 16px -4px rgba(20,40,30,0.08);
+  background:none;
+  box-shadow:none;
   z-index:60;
 }
-.bottom-nav-inner{display:flex; gap:6px; background:none; border:none; border-radius:20px; padding:6px; box-shadow:none; flex-wrap:wrap; max-width:100%; justify-content:center;}
+.bottom-nav-inner{display:flex; gap:6px; background:var(--nav-bg); border:1px solid var(--border); border-radius:20px; padding:6px; box-shadow:0 6px 20px rgba(20,40,30,0.12); flex-wrap:wrap; max-width:100%; justify-content:center;}
 .bottom-left-info{
   position:absolute; left:16px; bottom:14px;
   font-family:'IBM Plex Mono', monospace; font-size:10.5px; color:#FFFFFF;
