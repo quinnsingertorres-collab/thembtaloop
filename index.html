@@ -124,7 +124,11 @@ body{padding:16px 16px 96px;}
   max-width:760px; margin:0 auto;
 }
 @media (min-width:900px){
-  .top-bar{max-width:1440px; width:94%;}
+  .top-bar{
+    max-width:1440px; width:94%;
+    position:sticky; top:0; z-index:60;
+    box-shadow:0 4px 12px -4px rgba(0,0,0,0.25);
+  }
 }
 .auth-corner{display:flex; align-items:center; gap:8px; flex:0 0 auto;}
 .google-btn{
