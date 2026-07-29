@@ -189,7 +189,7 @@ body{padding:16px 16px 96px;}
 
 /* ---------- Header ---------- */
 header{display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap:16px; margin-bottom:14px; position:relative; min-height:56px;}
-.title-block{position:absolute; left:50%; top:50%; transform:translate(-50%, -50%); text-align:center; max-width:calc(100% - 24px); z-index:1;}
+.title-block{position:absolute; left:var(--title-center-x, 50%); top:50%; transform:translate(-50%, -50%); text-align:center; max-width:calc(100% - 24px); z-index:1;}
 .title-block h1{font-family:'Space Grotesk', sans-serif; font-size:23px; font-weight:700; margin:0 0 3px; letter-spacing:-0.01em; display:flex; align-items:center; justify-content:center; gap:9px;}
 .title-block p{margin:0; color:var(--text-dim); font-size:13px; max-width:440px;}
 
@@ -7547,6 +7547,29 @@ if(topBarEl){
   };
   updateTopBarHeightVar();
   new ResizeObserver(updateTopBarHeightVar).observe(topBarEl);
+}
+
+// The page title is centered within <header>, but on desktop <header>
+// spans the full width of .main-grid — track map column AND the vehicle
+// list column combined — so centering on 50% visually looks off, skewed
+// toward the vehicle list. Center it over just the track map column
+// instead by measuring that column's real position and writing it as a
+// CSS var, same live-measurement pattern as --top-bar-h/--bottom-nav-h
+// above. Falls back to true 50% (via the CSS var's own fallback) if
+// either element isn't present, e.g. on non-map pages.
+const headerEl = document.querySelector('header');
+const trackMapPanel = document.querySelector('.main-grid > .panel--plain');
+if(headerEl && trackMapPanel){
+  const updateTitleCenterVar = ()=>{
+    const headerRect = headerEl.getBoundingClientRect();
+    const panelRect = trackMapPanel.getBoundingClientRect();
+    const centerX = (panelRect.left + panelRect.width / 2) - headerRect.left;
+    document.documentElement.style.setProperty('--title-center-x', centerX + 'px');
+  };
+  updateTitleCenterVar();
+  new ResizeObserver(updateTitleCenterVar).observe(trackMapPanel);
+  new ResizeObserver(updateTitleCenterVar).observe(headerEl);
+  window.addEventListener('resize', updateTitleCenterVar);
 }
 
 /* ---------------- Init ---------------- */
