@@ -7704,57 +7704,29 @@ if(trackColLabelsEl){
 } else {
   applyPanelDockTop();
 }
-
-// Both docked panels' tops are permanently locked in place (position:fixed,
-// never moves) and no longer scroll internally with their own scrollbar.
-// Instead, whatever overflows the visible box is revealed by scrolling the
-// main page itself, in lockstep with window.scrollY — clamped once each
-// panel's own bottom comes into view, so it "lingers" pinned at the top
-// rather than being clipped with no way to reach the rest of it.
-// Deliberately NOT position:sticky: this exact codebase has a documented,
-// confirmed Chrome/WebKit rendering bug where a sticky element sharing an
-// ancestor with a CSS transform (which both these panels have, for their
-// slide/collapse animation) can visually glitch during fast scrolling —
-// see the removal of sticky from the car-info panel's header earlier.
-// A plain scroll-linked transform on a position:fixed element sidesteps
-// that bug class entirely since no position:sticky is involved anywhere.
-function syncDockedPanelScroll(){
-  const isDesktop = window.innerWidth >= 900;
-  const pairs = [
-    [document.querySelector('.modal-slide-wrap'), document.querySelector('.modal-card')],
-    [document.querySelector('.main-grid > .panel:last-child'), document.getElementById('trainsPanelScrollInner')],
-  ];
-  pairs.forEach(([outer, inner])=>{
-    if(!outer || !inner) return;
-    if(!isDesktop){ inner.style.transform = ''; return; }
-    const maxOffset = Math.max(0, inner.scrollHeight - outer.clientHeight);
-    const offset = Math.min(window.scrollY, maxOffset);
-    inner.style.transform = offset > 0 ? `translateY(-${offset}px)` : '';
-  });
-}
-let dockedPanelScrollQueued = false;
+let panelDockScrollQueued = false;
 window.addEventListener('scroll', ()=>{
-  if(dockedPanelScrollQueued) return;
-  dockedPanelScrollQueued = true;
-  requestAnimationFrame(()=>{
-    dockedPanelScrollQueued = false;
-    // Dock position first — the panels' own height (and therefore how much
-    // headroom there is left to reveal) depends on --panel-dock-top, so it
-    // has to be current before the content-offset math below runs.
-    applyPanelDockTop();
-    syncDockedPanelScroll();
-  });
+  if(panelDockScrollQueued) return;
+  panelDockScrollQueued = true;
+  requestAnimationFrame(()=>{ panelDockScrollQueued = false; applyPanelDockTop(); });
 }, { passive: true });
-window.addEventListener('resize', syncDockedPanelScroll);
-// Content height changes constantly (switching cars, the vehicle list
-// re-rendering on every refresh, filters changing how many rows show) —
-// re-run the sync whenever either panel's actual content size changes,
-// not just on scroll/resize, so maxOffset never goes stale.
-const dockedPanelContentEls = [document.querySelector('.modal-card'), document.getElementById('trainsPanelScrollInner')];
-dockedPanelContentEls.forEach(el=>{
-  if(el) new ResizeObserver(syncDockedPanelScroll).observe(el);
-});
-syncDockedPanelScroll();
+
+// Both docked panels are position:fixed and their top edge tracks the
+// labels row via applyPanelDockTop above — as the page scrolls, the box
+// itself moves up (not its content). Its bottom stays anchored to the
+// bottom bar the whole time, so as the top climbs, the box simply gets
+// taller, naturally bringing more of its content into view. No content
+// transform/scroll of any kind is applied here on purpose — previously
+// this also shifted the content up in lockstep with scroll (independent
+// of the box moving), and stacking both movements together made rows
+// scroll past the visible area faster than the box was actually growing.
+// Deliberately NOT position:sticky either, for the box positioning itself:
+// this exact codebase has a documented, confirmed Chrome/WebKit rendering
+// bug where a sticky element sharing an ancestor with a CSS transform
+// (which both these panels have, for their slide/collapse animation) can
+// visually glitch during fast scrolling — see the removal of sticky from
+// the car-info panel's header earlier. Plain position:fixed + a JS-driven
+// top offset sidesteps that bug class entirely.
 
 const trainsPanelToggle = document.getElementById('trainsPanelToggle');
 if(trainsPanelToggle){
