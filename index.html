@@ -254,14 +254,18 @@ body.dark .discord-banner{background:#5865F2; border-color:#5865F2; color:#fff;}
   .main-grid > .panel:last-child{
     position:fixed; top:var(--panel-dock-top, 220px); right:0;
     bottom:calc(var(--bottom-nav-h, 76px) + 16px);
-    width:380px; overflow-y:auto; overscroll-behavior:contain;
-    scrollbar-width:none; -ms-overflow-style:none;
+    width:380px; overflow:hidden; padding:0;
     border-radius:var(--radius) 0 0 var(--radius); border-right:none;
     transform:translateX(0);
     transition:transform 0.22s ease, top 0.22s ease;
     z-index:55;
   }
-  .main-grid > .panel:last-child::-webkit-scrollbar{display:none;}
+  /* Same reasoning as .modal-card above — this is the box's real content,
+     kept its natural (possibly taller-than-the-box) height and moved by
+     the same scroll-linked JS instead of getting its own scrollbar, so
+     the whole panel top stays locked while the main page scroll reveals
+     the rest of it. */
+  #trainsPanelScrollInner{padding:16px;}
   /* Collapsed: slides right until only a peek strip (matching the toggle
      tab's width) is left on-screen — not fully hidden, so there's always
      something to grab to bring it back rather than a vanished panel. */
@@ -570,15 +574,25 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
      current height by a ResizeObserver (see below), with a sane fallback
      for the instant before that first measurement lands. */
   .modal-slide-wrap{
-    width:420px; max-height:calc(100vh - var(--panel-dock-top, 220px) - var(--bottom-nav-h, 76px));
+    width:420px; height:calc(100vh - var(--panel-dock-top, 220px) - var(--bottom-nav-h, 76px));
+    overflow:hidden;
     transform:translateX(-100%);
     transition:transform 0.22s ease;
   }
   .modal-overlay.show .modal-slide-wrap{
     transform:translateX(0);
   }
+  /* No longer its own scroll container (overflow-y:auto) — its top is
+     locked in place by the fixed-position wrapper above, and instead of
+     an internal scrollbar, its full (possibly taller-than-the-window)
+     content is revealed by scrolling the main page itself: a scroll
+     listener below translates this element up in lockstep with
+     window.scrollY, clamped once the bottom of its content comes into
+     view, so it visually "lingers" pinned at the top rather than
+     scrolling out of the viewport with everything else. */
   .modal-card{
-    width:100%; height:100%; max-height:none;
+    width:100%; height:auto; min-height:100%; max-height:none;
+    overflow-y:visible; overflow-x:hidden;
     border:1px solid var(--border); border-left:none; border-radius:0 var(--radius) var(--radius) 0; box-shadow:none;
   }
   body:has(#carModalOverlay.show) .wrap{
@@ -847,6 +861,7 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
     </div>
 
     <div class="panel">
+      <div class="panel-scroll-inner" id="trainsPanelScrollInner">
       <div class="panel-head">
         <h2 id="vehicleListTitle">On this branch</h2>
         <span class="note" id="vehicleMeta">&mdash;</span>
@@ -873,6 +888,7 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
         </select>
       </div>
       <div class="vehicle-list" id="vehicleList"><div class="empty-state">Loading vehicles&hellip;</div></div>
+      </div>
     </div>
   </div>
 
@@ -7671,6 +7687,50 @@ if(trackColLabelsEl){
   new ResizeObserver(updatePanelDockTopVar).observe(document.body);
   window.addEventListener('resize', updatePanelDockTopVar);
 }
+
+// Both docked panels' tops are permanently locked in place (position:fixed,
+// never moves) and no longer scroll internally with their own scrollbar.
+// Instead, whatever overflows the visible box is revealed by scrolling the
+// main page itself, in lockstep with window.scrollY — clamped once each
+// panel's own bottom comes into view, so it "lingers" pinned at the top
+// rather than being clipped with no way to reach the rest of it.
+// Deliberately NOT position:sticky: this exact codebase has a documented,
+// confirmed Chrome/WebKit rendering bug where a sticky element sharing an
+// ancestor with a CSS transform (which both these panels have, for their
+// slide/collapse animation) can visually glitch during fast scrolling —
+// see the removal of sticky from the car-info panel's header earlier.
+// A plain scroll-linked transform on a position:fixed element sidesteps
+// that bug class entirely since no position:sticky is involved anywhere.
+function syncDockedPanelScroll(){
+  const isDesktop = window.innerWidth >= 900;
+  const pairs = [
+    [document.querySelector('.modal-slide-wrap'), document.querySelector('.modal-card')],
+    [document.querySelector('.main-grid > .panel:last-child'), document.getElementById('trainsPanelScrollInner')],
+  ];
+  pairs.forEach(([outer, inner])=>{
+    if(!outer || !inner) return;
+    if(!isDesktop){ inner.style.transform = ''; return; }
+    const maxOffset = Math.max(0, inner.scrollHeight - outer.clientHeight);
+    const offset = Math.min(window.scrollY, maxOffset);
+    inner.style.transform = offset > 0 ? `translateY(-${offset}px)` : '';
+  });
+}
+let dockedPanelScrollQueued = false;
+window.addEventListener('scroll', ()=>{
+  if(dockedPanelScrollQueued) return;
+  dockedPanelScrollQueued = true;
+  requestAnimationFrame(()=>{ dockedPanelScrollQueued = false; syncDockedPanelScroll(); });
+}, { passive: true });
+window.addEventListener('resize', syncDockedPanelScroll);
+// Content height changes constantly (switching cars, the vehicle list
+// re-rendering on every refresh, filters changing how many rows show) —
+// re-run the sync whenever either panel's actual content size changes,
+// not just on scroll/resize, so maxOffset never goes stale.
+const dockedPanelContentEls = [document.querySelector('.modal-card'), document.getElementById('trainsPanelScrollInner')];
+dockedPanelContentEls.forEach(el=>{
+  if(el) new ResizeObserver(syncDockedPanelScroll).observe(el);
+});
+syncDockedPanelScroll();
 
 const trainsPanelToggle = document.getElementById('trainsPanelToggle');
 if(trainsPanelToggle){
