@@ -244,8 +244,51 @@ body.dark .discord-banner{background:#5865F2; border-color:#5865F2; color:#fff;}
 .main-grid{display:flex; flex-direction:column; gap:28px;}
 @media (min-width:900px){
   .main-grid{flex-direction:row; align-items:flex-start; gap:32px;}
-  .main-grid > .panel:first-child{flex:1 1 62%; min-width:0;}
-  .main-grid > .panel:last-child{flex:1 1 38%; min-width:0; align-self:center; position:sticky; top:16px;}
+  .main-grid > .panel:first-child{flex:1 1 auto; min-width:0;}
+  /* Docked the same way the car-info panel is on the left — fixed to the
+     edge, height bounded between the top bar and bottom bar (using the
+     same --top-bar-h/--bottom-nav-h vars kept live by the ResizeObservers
+     below), and takes itself out of the flex flow entirely. .main-grid's
+     own padding-right below reserves the matching space so the track map
+     never runs underneath it. */
+  .main-grid > .panel:last-child{
+    position:fixed; top:calc(var(--top-bar-h, 60px) + 16px); right:0;
+    bottom:calc(var(--bottom-nav-h, 76px) + 16px);
+    width:380px; overflow-y:auto; overscroll-behavior:contain;
+    scrollbar-width:none; -ms-overflow-style:none;
+    border-radius:var(--radius) 0 0 var(--radius); border-right:none;
+    transform:translateX(0);
+    transition:transform 0.22s ease;
+    z-index:55;
+  }
+  .main-grid > .panel:last-child::-webkit-scrollbar{display:none;}
+  /* Collapsed: slides right until only a peek strip (matching the toggle
+     tab's width) is left on-screen — not fully hidden, so there's always
+     something to grab to bring it back rather than a vanished panel. */
+  body.trains-panel-collapsed .main-grid > .panel:last-child{
+    transform:translateX(calc(100% - 44px));
+  }
+  .main-grid{padding-right:412px; transition:padding-right 0.22s ease;}
+  body.trains-panel-collapsed .main-grid{padding-right:60px;}
+}
+.trains-panel-toggle{
+  display:none;
+}
+@media (min-width:900px){
+  .trains-panel-toggle{
+    display:flex; align-items:center; justify-content:center;
+    position:fixed; top:50%; right:380px; transform:translateY(-50%);
+    width:28px; height:56px; border-radius:8px 0 0 8px;
+    background:var(--panel); border:1px solid var(--border); border-right:none;
+    color:var(--text-dim); cursor:pointer; padding:0;
+    box-shadow:-2px 0 8px rgba(0,0,0,0.15);
+    transition:right 0.22s ease, color 0.15s ease;
+    z-index:56;
+  }
+  .trains-panel-toggle:hover{color:var(--text);}
+  .trains-panel-toggle svg{transition:transform 0.22s ease;}
+  body.trains-panel-collapsed .trains-panel-toggle{right:44px;}
+  body.trains-panel-collapsed .trains-panel-toggle svg{transform:rotate(180deg);}
 }
 
 /* ---------- Panels ---------- */
@@ -397,6 +440,14 @@ body.dark .stop-dot{background:var(--bg);}
 .vehicle-list::-webkit-scrollbar{display:none;}
 .vehicle-list::-webkit-scrollbar{width:6px;}
 .vehicle-list::-webkit-scrollbar-thumb{background:var(--border); border-radius:4px;}
+@media (min-width:900px){
+  /* The trains panel itself now scrolls as a whole fixed-height dock (see
+     .main-grid > .panel:last-child above) — letting this inner list keep
+     its own separate max-height/scroll on top of that would nest two
+     independent scrollbars in the same panel. Let it grow naturally here
+     and leave the single outer scroll to do the job. */
+  .vehicle-list{max-height:none; overflow-y:visible;}
+}
 
 .vcard{display:grid; grid-template-columns:26px 1fr auto; align-items:center; gap:10px; padding:8px 10px; background:var(--bg); border:1px solid var(--border); border-radius:8px; cursor:pointer;}
 .dir-badge{width:24px; height:24px; border-radius:6px; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700;}
@@ -808,6 +859,10 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
       <div class="vehicle-list" id="vehicleList"><div class="empty-state">Loading vehicles&hellip;</div></div>
     </div>
   </div>
+
+  <button class="trains-panel-toggle" id="trainsPanelToggle" title="Collapse trains panel" aria-label="Collapse trains panel">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M9 5l7 7-7 7" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </button>
 
   <div class="panel full-bleed" id="rosterPanel" style="display:none;">
    <div class="full-bleed-inner">
@@ -2444,6 +2499,8 @@ function switchPage(key){
   const settingsPanel = document.getElementById('settingsPanel');
 
   mainGrid.style.display = 'none';
+  const trainsPanelToggleBtn = document.getElementById('trainsPanelToggle');
+  if(trainsPanelToggleBtn) trainsPanelToggleBtn.style.display = 'none';
   rosterPanel.style.display = 'none';
   membersPanel.style.display = 'none';
   modNotifsPanel.style.display = 'none';
@@ -2493,6 +2550,7 @@ function switchPage(key){
   }
 
   mainGrid.style.display = '';
+  if(trainsPanelToggleBtn) trainsPanelToggleBtn.style.display = '';
   buildLadder();
   renderTrainDots();
   renderVehicleList();
@@ -7560,6 +7618,15 @@ if(bottomNavEl){
 // Same reasoning as the bottom bar above, but for the site logo/"In the
 // Loop" header — the desktop info panel starts below its real height
 // instead of a guessed one, so it can never end up covering the logo.
+const trainsPanelToggle = document.getElementById('trainsPanelToggle');
+if(trainsPanelToggle){
+  trainsPanelToggle.addEventListener('click', ()=>{
+    const collapsed = document.body.classList.toggle('trains-panel-collapsed');
+    trainsPanelToggle.title = collapsed ? 'Show trains panel' : 'Collapse trains panel';
+    trainsPanelToggle.setAttribute('aria-label', trainsPanelToggle.title);
+  });
+}
+
 const topBarEl = document.querySelector('.top-bar');
 if(topBarEl){
   const updateTopBarHeightVar = ()=>{
