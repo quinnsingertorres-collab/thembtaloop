@@ -254,17 +254,22 @@ body.dark .discord-banner{background:#5865F2; border-color:#5865F2; color:#fff;}
   .main-grid > .panel:last-child{
     position:fixed; top:var(--panel-dock-top, 220px); right:0;
     bottom:calc(var(--bottom-nav-h, 76px) + 16px);
-    width:380px; overflow:hidden; padding:0;
+    width:380px; padding:0;
+    /* The box's own top already climbs with page scroll (see
+       applyPanelDockTop in JS) and grows taller as it does, but content
+       can still run past even that grown height — scroll inside the box
+       itself to reach it. Scrollbar hidden to match the app's existing
+       convention (see .modal-card below), overscroll-behavior stops the
+       scroll from "chaining" into the main page once it hits the end. */
+    overflow-y:auto; overflow-x:hidden;
+    scrollbar-width:none; -ms-overflow-style:none;
+    overscroll-behavior:contain;
     border-radius:var(--radius) 0 0 var(--radius); border-right:none;
     transform:translateX(0);
     transition:transform 0.22s ease, top 0.22s ease;
     z-index:55;
   }
-  /* Same reasoning as .modal-card above — this is the box's real content,
-     kept its natural (possibly taller-than-the-box) height and moved by
-     the same scroll-linked JS instead of getting its own scrollbar, so
-     the whole panel top stays locked while the main page scroll reveals
-     the rest of it. */
+  .main-grid > .panel:last-child::-webkit-scrollbar{display:none;}
   #trainsPanelScrollInner{padding:16px;}
   /* Collapsed: slides right until only a peek strip (matching the toggle
      tab's width) is left on-screen — not fully hidden, so there's always
@@ -572,24 +577,24 @@ footer{text-align:center; font-size:11px; color:var(--text-faint); padding:6px 1
      bottom bar (clock/weather/line selection) begins, instead of running
      underneath it — --bottom-nav-h is kept in sync with that bar's real,
      current height by a ResizeObserver (see below), with a sane fallback
-     for the instant before that first measurement lands. */
+     for the instant before that first measurement lands.
+     The box's own top climbs with page scroll and grows taller as it does
+     (see applyPanelDockTop in JS), but content can still run past even
+     that grown height — scroll inside the box to reach it. Scrollbar
+     hidden to match .modal-card's own convention below; overscroll-behavior
+     stops the scroll from chaining into the main page at either end. */
   .modal-slide-wrap{
     width:420px; height:calc(100vh - var(--panel-dock-top, 220px) - var(--bottom-nav-h, 76px));
-    overflow:hidden;
+    overflow-y:auto; overflow-x:hidden;
+    scrollbar-width:none; -ms-overflow-style:none;
+    overscroll-behavior:contain;
     transform:translateX(-100%);
     transition:transform 0.22s ease;
   }
+  .modal-slide-wrap::-webkit-scrollbar{display:none;}
   .modal-overlay.show .modal-slide-wrap{
     transform:translateX(0);
   }
-  /* No longer its own scroll container (overflow-y:auto) — its top is
-     locked in place by the fixed-position wrapper above, and instead of
-     an internal scrollbar, its full (possibly taller-than-the-window)
-     content is revealed by scrolling the main page itself: a scroll
-     listener below translates this element up in lockstep with
-     window.scrollY, clamped once the bottom of its content comes into
-     view, so it visually "lingers" pinned at the top rather than
-     scrolling out of the viewport with everything else. */
   .modal-card{
     width:100%; height:auto; min-height:100%; max-height:none;
     overflow-y:visible; overflow-x:hidden;
@@ -7715,15 +7720,19 @@ window.addEventListener('scroll', ()=>{
 // labels row via applyPanelDockTop above — as the page scrolls, the box
 // itself moves up (not its content). Its bottom stays anchored to the
 // bottom bar the whole time, so as the top climbs, the box simply gets
-// taller, naturally bringing more of its content into view. No content
-// transform/scroll of any kind is applied here on purpose — previously
-// this also shifted the content up in lockstep with scroll (independent
-// of the box moving), and stacking both movements together made rows
-// scroll past the visible area faster than the box was actually growing.
-// Deliberately NOT position:sticky either, for the box positioning itself:
-// this exact codebase has a documented, confirmed Chrome/WebKit rendering
-// bug where a sticky element sharing an ancestor with a CSS transform
-// (which both these panels have, for their slide/collapse animation) can
+// taller, naturally bringing more of its content into view first. Once
+// the box has hit its floor (see applyPanelDockTop) and there's still
+// more content than fits, the box's own native overflow-y:auto (see its
+// CSS) takes over so the rest is reachable by scrolling inside it —
+// deliberately plain native scroll, not a second JS-driven transform: an
+// earlier version also shifted the content up in lockstep with the page
+// scroll independently of the box moving, and stacking both movements
+// together made rows fly past the visible area faster than the box was
+// actually growing.
+// Deliberately NOT position:sticky for the box positioning itself: this
+// exact codebase has a documented, confirmed Chrome/WebKit rendering bug
+// where a sticky element sharing an ancestor with a CSS transform (which
+// both these panels have, for their slide/collapse animation) can
 // visually glitch during fast scrolling — see the removal of sticky from
 // the car-info panel's header earlier. Plain position:fixed + a JS-driven
 // top offset sidesteps that bug class entirely.
