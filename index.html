@@ -209,6 +209,22 @@ body{padding:16px 16px 96px;}
 
 /* ---------- Header ---------- */
 header{display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap:16px; margin-bottom:14px; position:relative; min-height:56px;}
+@media (min-width:900px){
+  /* Same break-out .top-bar itself doesn't need (it already lives outside
+     .wrap) — header sits inside .wrap, which keeps its 94%/1440px content
+     cap on every page, so without this the page title and the Live pill
+     stopped short of the real edges everywhere except the track map page,
+     where the docked side panels (position:fixed, independent of .wrap)
+     happened to reach the edges anyway and made it look consistent. This
+     makes header itself reach the same edges as .top-bar above it, with
+     matching 24px side padding, on every page. */
+  header{
+    width:100vw; position:relative; left:50%; right:50%;
+    margin-left:-50vw; margin-right:-50vw;
+    padding-left:24px; padding-right:24px;
+    box-sizing:border-box;
+  }
+}
 .title-block{position:absolute; left:var(--title-center-x, 50%); top:50%; transform:translate(-50%, -50%); text-align:center; max-width:calc(100% - 24px); z-index:1;}
 .title-block h1{font-family:'Space Grotesk', sans-serif; font-size:23px; font-weight:700; margin:0 0 3px; letter-spacing:-0.01em; display:flex; align-items:center; justify-content:center; gap:9px;}
 .title-block p{margin:0; color:var(--text-dim); font-size:13px; max-width:440px;}
@@ -544,13 +560,19 @@ body.dark .stop-dot{background:var(--bg);}
   box-shadow:0 6px 20px rgba(20,40,30,0.12);
   overflow:hidden; max-width:100%;
 }
-.bottom-nav-inner{display:flex; gap:6px; padding:6px; flex-wrap:wrap; max-width:100%; justify-content:center;}
+.bottom-nav-inner{display:flex; gap:6px; padding:6px; flex-wrap:wrap; max-width:100%; justify-content:center; order:0;}
+/* Default is below the route pill — order:1 puts it last in the column,
+   divider on top since it's now the one sitting underneath something.
+   body.status-chip-above (Settings) flips both; body.status-chip-hidden
+   hides it outright. */
 .route-status-chip{
   display:flex; align-items:center; justify-content:center; gap:7px;
   font-family:'Space Grotesk', sans-serif; font-weight:700; font-size:11px; color:var(--text-dim);
-  border-bottom:1px solid var(--border);
+  border-top:1px solid var(--border); order:1;
   padding:5px 14px; white-space:nowrap; max-width:100%; overflow:hidden;
 }
+body.status-chip-above .route-status-chip{border-top:none; border-bottom:1px solid var(--border); order:-1;}
+body.status-chip-hidden .route-status-chip{display:none;}
 .route-status-chip #clock, .route-status-chip #weatherDisplay{display:flex; align-items:center; gap:5px; overflow:hidden; text-overflow:ellipsis;}
 .route-status-chip .weather-line{font-family:'Space Grotesk', sans-serif; font-weight:700; font-size:11px; color:var(--text-dim);}
 .route-status-chip .chip-sep, .route-status-chip .weather-dot{color:var(--text-faint);}
@@ -745,6 +767,10 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
 .signin-note{font-size:12px; color:var(--text-faint); padding:6px 0;}
 .menu-divider{border-top:1px solid var(--border); margin:10px 0;}
 .menu-section-label{font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-faint); font-family:'Space Grotesk', sans-serif; margin-bottom:2px;}
+.section-toggle{display:flex; align-items:center; justify-content:space-between; cursor:pointer; padding:4px 2px; margin-bottom:4px;}
+.section-chevron{flex:0 0 auto; color:var(--text-faint); transition:transform 0.15s ease;}
+.settings-section.collapsed .section-chevron{transform:rotate(-90deg);}
+.settings-section.collapsed .section-body{display:none;}
 
 .filter-bar{display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap;}
 .filter-bar select, .filter-bar input{
@@ -1139,65 +1165,94 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
       </div>
 
       <div class="menu-divider"></div>
-      <div class="menu-section-label">Time &amp; weather</div>
-      <div class="menu-row">
-        <span>Date</span>
-        <div class="switch" id="statusChipDateSwitch"><div class="knob"></div></div>
-      </div>
-      <div class="menu-row">
-        <span>Weather</span>
-        <div class="switch" id="statusChipWeatherSwitch"><div class="knob"></div></div>
-      </div>
-      <div class="menu-row">
-        <span>Show seconds</span>
-        <div class="switch" id="clockSecondsSwitch"><div class="knob"></div></div>
-      </div>
-      <div class="menu-row">
-        <span>24-hour time</span>
-        <div class="switch" id="clock24HourSwitch"><div class="knob"></div></div>
+      <div class="settings-section" data-section="notifications">
+        <div class="menu-section-label section-toggle">
+          <span>Notifications</span>
+          <svg class="section-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+        <div class="section-body">
+          <div class="menu-row" style="flex-direction:column; align-items:flex-start; gap:8px;">
+            <span>Browser notification permission<span class="menu-note">(needed for the toggles below to work)</span></span>
+            <button class="account-btn" id="notifPermissionBtn" style="margin-top:0; width:100%;">Allow notification permission</button>
+            <span class="signin-note" id="notifPermissionNote"></span>
+          </div>
+          <div class="menu-row">
+            <span>Notifications</span>
+            <div class="switch" id="notifMasterSwitch"><div class="knob"></div></div>
+          </div>
+          <div class="menu-row">
+            <span>Double Type 8s</span>
+            <div class="switch" id="notifDoubleType8Switch"><div class="knob"></div></div>
+          </div>
+          <div class="menu-row">
+            <span>Pride train</span>
+            <div class="switch" id="notifPrideSwitch"><div class="knob"></div></div>
+          </div>
+          <div class="menu-row">
+            <span>Type 9 cars</span>
+            <div class="switch" id="notifType9Switch"><div class="knob"></div></div>
+          </div>
+          <div class="menu-row">
+            <span>Cars back in service</span>
+            <div class="switch" id="notifCarBackInServiceSwitch"><div class="knob"></div></div>
+          </div>
+          <div class="menu-row" style="flex-direction:column; align-items:flex-start; gap:8px;">
+            <span>Push notifications for moderator alerts<span class="menu-note">(arrives even when the app is closed)</span></span>
+            <button class="account-btn" id="pushEnableBtn" style="margin-top:0; width:100%;">Enable push notifications</button>
+            <span class="signin-note" id="pushStatusNote"></span>
+          </div>
+        </div>
       </div>
 
       <div class="menu-divider"></div>
-      <div class="menu-section-label">Notifications</div>
-      <div class="menu-row" style="flex-direction:column; align-items:flex-start; gap:8px;">
-        <span>Browser notification permission<span class="menu-note">(needed for the toggles below to work)</span></span>
-        <button class="account-btn" id="notifPermissionBtn" style="margin-top:0; width:100%;">Allow notification permission</button>
-        <span class="signin-note" id="notifPermissionNote"></span>
-      </div>
-      <div class="menu-row">
-        <span>Notifications</span>
-        <div class="switch" id="notifMasterSwitch"><div class="knob"></div></div>
-      </div>
-      <div class="menu-row">
-        <span>Double Type 8s</span>
-        <div class="switch" id="notifDoubleType8Switch"><div class="knob"></div></div>
-      </div>
-      <div class="menu-row">
-        <span>Pride train</span>
-        <div class="switch" id="notifPrideSwitch"><div class="knob"></div></div>
-      </div>
-      <div class="menu-row">
-        <span>Type 9 cars</span>
-        <div class="switch" id="notifType9Switch"><div class="knob"></div></div>
-      </div>
-      <div class="menu-row">
-        <span>Cars back in service</span>
-        <div class="switch" id="notifCarBackInServiceSwitch"><div class="knob"></div></div>
-      </div>
-      <div class="menu-row" style="flex-direction:column; align-items:flex-start; gap:8px;">
-        <span>Push notifications for moderator alerts<span class="menu-note">(arrives even when the app is closed)</span></span>
-        <button class="account-btn" id="pushEnableBtn" style="margin-top:0; width:100%;">Enable push notifications</button>
-        <span class="signin-note" id="pushStatusNote"></span>
+      <div class="settings-section" data-section="time-weather">
+        <div class="menu-section-label section-toggle">
+          <span>Time &amp; weather</span>
+          <svg class="section-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+        <div class="section-body">
+          <div class="menu-row" style="flex-direction:column; align-items:flex-start; gap:8px;">
+            <span>Position</span>
+            <select class="roster-input" id="statusChipPositionSelect" style="width:100%;">
+              <option value="below">Below route selector</option>
+              <option value="above">Above route selector</option>
+              <option value="hidden">Not visible</option>
+            </select>
+          </div>
+          <div class="menu-row" id="statusChipDateRow">
+            <span>Date</span>
+            <div class="switch" id="statusChipDateSwitch"><div class="knob"></div></div>
+          </div>
+          <div class="menu-row" id="statusChipWeatherRow">
+            <span>Weather</span>
+            <div class="switch" id="statusChipWeatherSwitch"><div class="knob"></div></div>
+          </div>
+          <div class="menu-row" id="clockSecondsRow">
+            <span>Show seconds</span>
+            <div class="switch" id="clockSecondsSwitch"><div class="knob"></div></div>
+          </div>
+          <div class="menu-row" id="clock24HourRow">
+            <span>24-hour time</span>
+            <div class="switch" id="clock24HourSwitch"><div class="knob"></div></div>
+          </div>
+        </div>
       </div>
 
       <div id="menuAccountSection" style="display:none;">
         <div class="menu-divider"></div>
-        <div class="menu-section-label">Account</div>
-        <div class="menu-note" style="margin-bottom:6px;">Shown next to any reports, edits, or roster changes you submit.</div>
-        <input type="text" id="accountNameInput" class="account-input" placeholder="Display name">
-        <button id="saveNameBtn" class="account-btn">Save name</button>
-        <div class="menu-divider"></div>
-        <button id="signOutBtn" class="account-btn signout">Sign out</button>
+        <div class="settings-section" data-section="account">
+          <div class="menu-section-label section-toggle">
+            <span>Account</span>
+            <svg class="section-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div class="section-body">
+            <div class="menu-note" style="margin-bottom:6px;">Shown next to any reports, edits, or roster changes you submit.</div>
+            <input type="text" id="accountNameInput" class="account-input" placeholder="Display name">
+            <button id="saveNameBtn" class="account-btn">Save name</button>
+            <div class="menu-divider"></div>
+            <button id="signOutBtn" class="account-btn signout">Sign out</button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -1889,7 +1944,7 @@ function buildRosterCarList(){
 }
 const ROSTER_CARS = buildRosterCarList();
 
-let state = { vehicles: [], currentPage: 'B', lastMainPage: 'B', live: null, abbreviate: false, staggerBunchedTrains: false, signedIn: false, userName: '', photoURL: '', isModerator: false, isTrustedMember: false, filterDirection: 'ALL', filterType: 'ALL', rosterSearch: '', rosterTypeFilter: 'ALL', notifMaster: true, notifDoubleType8: false, notifPride: false, notifType9: false, notifCarBackInService: false, activeLine: 'green', otherBranchesVisible: { B:false, C:false, D:false, E:false, ashmont:false, braintree:false }, statusChipShowDate: true, statusChipShowWeather: true, clockShowSeconds: true, clock24Hour: false };
+let state = { vehicles: [], currentPage: 'B', lastMainPage: 'B', live: null, abbreviate: false, staggerBunchedTrains: false, signedIn: false, userName: '', photoURL: '', isModerator: false, isTrustedMember: false, filterDirection: 'ALL', filterType: 'ALL', rosterSearch: '', rosterTypeFilter: 'ALL', notifMaster: true, notifDoubleType8: false, notifPride: false, notifType9: false, notifCarBackInService: false, activeLine: 'green', otherBranchesVisible: { B:false, C:false, D:false, E:false, ashmont:false, braintree:false }, statusChipShowDate: true, statusChipShowWeather: true, clockShowSeconds: true, clock24Hour: false, statusChipPosition: 'below' };
 let layout = null; // computed pixel layout for the current ladder
 
 // Tracks, per vehicle id, when it was first observed STOPPED_AT its current
@@ -2365,14 +2420,33 @@ async function savePrefs(){
       statusChipShowDate: state.statusChipShowDate,
       statusChipShowWeather: state.statusChipShowWeather,
       clockShowSeconds: state.clockShowSeconds,
-      clock24Hour: state.clock24Hour
+      clock24Hour: state.clock24Hour,
+      statusChipPosition: state.statusChipPosition
     }));
   }catch(e){ console.error(e); }
 }
 
 function applyStatusChipPrefs(){
+  document.body.classList.toggle('status-chip-above', state.statusChipPosition === 'above');
+  document.body.classList.toggle('status-chip-hidden', state.statusChipPosition === 'hidden');
   document.body.classList.toggle('hide-chip-date', !state.statusChipShowDate);
   document.body.classList.toggle('hide-chip-weather', !state.statusChipShowWeather);
+}
+// The date/weather/seconds/24hr sub-toggles are meaningless while the whole
+// chip is hidden — grayed out and non-interactive then, rather than letting
+// them silently do nothing.
+function updateStatusChipSubRowsDisabled(){
+  const disabled = state.statusChipPosition === 'hidden';
+  ['statusChipDateRow', 'statusChipWeatherRow', 'clockSecondsRow', 'clock24HourRow'].forEach(id=>{
+    const row = document.getElementById(id);
+    if(!row) return;
+    row.style.opacity = disabled ? '0.4' : '';
+    const sw = row.querySelector('.switch');
+    if(sw){
+      sw.style.pointerEvents = disabled ? 'none' : '';
+      sw.style.cursor = disabled ? 'default' : '';
+    }
+  });
 }
 
 /* ---------------- Color / branch helpers ---------------- */
@@ -7472,6 +7546,18 @@ document.getElementById('clock24HourSwitch').addEventListener('click', ()=>{
   tickClock();
   savePrefs();
 });
+document.getElementById('statusChipPositionSelect').addEventListener('change', (e)=>{
+  state.statusChipPosition = e.target.value;
+  applyStatusChipPrefs();
+  updateStatusChipSubRowsDisabled();
+  savePrefs();
+});
+document.querySelectorAll('.section-toggle').forEach(toggle=>{
+  toggle.addEventListener('click', ()=>{
+    const section = toggle.closest('.settings-section');
+    if(section) section.classList.toggle('collapsed');
+  });
+});
 function wireNotifToggle(id, stateKey){
   document.getElementById(id).addEventListener('click', ()=>{
     state[stateKey] = !state[stateKey];
@@ -7980,11 +8066,14 @@ async function init(){
   state.statusChipShowWeather = Object.prototype.hasOwnProperty.call(prefs, 'statusChipShowWeather') ? !!prefs.statusChipShowWeather : true;
   state.clockShowSeconds = Object.prototype.hasOwnProperty.call(prefs, 'clockShowSeconds') ? !!prefs.clockShowSeconds : true;
   state.clock24Hour = !!prefs.clock24Hour;
+  state.statusChipPosition = ['below','above','hidden'].includes(prefs.statusChipPosition) ? prefs.statusChipPosition : 'below';
   document.getElementById('statusChipDateSwitch').classList.toggle('on', state.statusChipShowDate);
   document.getElementById('statusChipWeatherSwitch').classList.toggle('on', state.statusChipShowWeather);
   document.getElementById('clockSecondsSwitch').classList.toggle('on', state.clockShowSeconds);
   document.getElementById('clock24HourSwitch').classList.toggle('on', state.clock24Hour);
+  document.getElementById('statusChipPositionSelect').value = state.statusChipPosition;
   applyStatusChipPrefs();
+  updateStatusChipSubRowsDisabled();
 
   buildNav();
   buildLadder();
