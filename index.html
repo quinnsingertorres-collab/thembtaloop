@@ -269,7 +269,12 @@ body.dark .discord-banner{background:#5865F2; border-color:#5865F2; color:#fff;}
      never runs underneath it. */
   .main-grid > .panel:last-child{
     position:fixed; top:var(--panel-dock-top, 220px); right:0;
-    bottom:calc(var(--bottom-nav-h, 76px) + 16px);
+    /* No extra gap above the nav bar — matches .modal-slide-wrap's own
+       height calc (100vh - top - bottom-nav-h) on the left, which never
+       had this padding in the first place. The two docked panels used to
+       stop at different points because of it; now both run all the way
+       down to the same edge. */
+    bottom:var(--bottom-nav-h, 76px);
     width:380px; padding:0;
     /* Scroll lives on #trainsPanelScrollInner below, not here — a transform
        (the collapse slide, right below) on the SAME element as the native
@@ -312,7 +317,7 @@ body.dark .discord-banner{background:#5865F2; border-color:#5865F2; color:#fff;}
        the bottom bar) rather than the full viewport — the panel starts
        well below the top of the screen now, so a plain 50% would sit
        noticeably above its actual middle. */
-    top:calc((var(--panel-dock-top, 220px) + 100vh - var(--bottom-nav-h, 76px) - 16px) / 2);
+    top:calc((var(--panel-dock-top, 220px) + 100vh - var(--bottom-nav-h, 76px)) / 2);
     right:380px; transform:translateY(-50%);
     width:28px; height:56px; border-radius:8px 0 0 8px;
     background:var(--panel); border:1px solid var(--border); border-right:none;
@@ -514,28 +519,34 @@ body.dark .stop-dot{background:var(--bg);}
   -webkit-transform:translateZ(0);
   will-change:transform;
 }
-.bottom-nav-inner{display:flex; gap:6px; background:var(--nav-bg); border:1px solid var(--border); border-radius:20px; padding:6px; box-shadow:0 6px 20px rgba(20,40,30,0.12); flex-wrap:wrap; max-width:100%; justify-content:center;}
-/* Sits directly above the route-selection pill, styled to match it —
-   same background/border/shadow treatment as .bottom-nav-inner and the
-   same font as its nav-btn buttons — so it reads as part of the same
-   control cluster rather than a separate floating label. */
+/* Single connected surface — chip on top, route pill below, one shared
+   background/border/shadow/radius so they read as one control cluster
+   instead of two separate floating pieces with a gap between them.
+   overflow:hidden clips both children to the stack's own rounded corners
+   even though neither has its own radius anymore. */
+.bottom-nav-stack{
+  display:flex; flex-direction:column; align-items:stretch;
+  background:var(--nav-bg); border:1px solid var(--border); border-radius:20px;
+  box-shadow:0 6px 20px rgba(20,40,30,0.12);
+  overflow:hidden; max-width:100%;
+}
+.bottom-nav-inner{display:flex; gap:6px; padding:6px; flex-wrap:wrap; max-width:100%; justify-content:center;}
 .route-status-chip{
   display:flex; align-items:center; justify-content:center; gap:7px;
   font-family:'Space Grotesk', sans-serif; font-weight:700; font-size:11px; color:var(--text-dim);
-  background:var(--nav-bg); border:1px solid var(--border); border-radius:14px;
-  box-shadow:0 6px 20px rgba(20,40,30,0.12);
+  border-bottom:1px solid var(--border);
   padding:5px 14px; white-space:nowrap; max-width:100%; overflow:hidden;
 }
-.route-status-chip #clock, .route-status-chip #weatherDisplay{display:flex; gap:5px; overflow:hidden; text-overflow:ellipsis;}
+.route-status-chip #clock, .route-status-chip #weatherDisplay{display:flex; align-items:center; gap:5px; overflow:hidden; text-overflow:ellipsis;}
 .route-status-chip .weather-line{font-family:'Space Grotesk', sans-serif; font-weight:700; font-size:11px; color:var(--text-dim);}
-.route-status-chip .chip-sep{color:var(--text-faint);}
+.route-status-chip .chip-sep, .route-status-chip .weather-dot{color:var(--text-faint);}
 @media (max-width:480px){
   /* Date and weather condition text are the least essential parts of the
      chip — drop them first as space gets tight, keeping the moment-to-
      moment useful bit (current time, current temperature) on screen. */
   .route-status-chip{font-size:10px; gap:5px; padding:4px 12px;}
-  .route-status-chip #clock > div:first-child{display:none;}
-  .route-status-chip #weatherDisplay > div:last-child{display:none;}
+  .route-status-chip #clock > div:first-child, .route-status-chip #clock .date-dot{display:none;}
+  .route-status-chip #weatherDisplay > div:last-child, .route-status-chip #weatherDisplay .weather-dot{display:none;}
 }
 @media (max-width:480px){
   .bottom-nav{padding-top:8px;}
@@ -544,7 +555,6 @@ body.dark .stop-dot{background:var(--bg);}
   .nav-btn{padding:5px 8px; font-size:10px; gap:1px; border-radius:11px;}
   .nav-btn .swatch{width:6px; height:6px;}
   .nav-count{font-size:8px;}
-  #fullscreenBtn, #fullscreenReloadBtn{display:none;}
 }
 @media (min-width:900px){
   .nav-btn{padding:10px 20px; font-size:15px;}
@@ -1150,19 +1160,14 @@ body.dark .stop-dot{background:var(--bg);}
 </div>
 
 <div class="bottom-nav">
-  <div class="route-status-chip" id="routeStatusChip">
-    <div id="clock">--:--:--</div>
-    <span class="chip-sep">&middot;</span>
-    <div class="weather-line" id="weatherDisplay">Loading weather&hellip;</div>
+  <div class="bottom-nav-stack">
+    <div class="route-status-chip" id="routeStatusChip">
+      <div id="clock">--:--:--</div>
+      <span class="chip-sep">&middot;</span>
+      <div class="weather-line" id="weatherDisplay">Loading weather&hellip;</div>
+    </div>
+    <div class="bottom-nav-inner" id="bottomNav"></div>
   </div>
-  <div class="bottom-nav-inner" id="bottomNav"></div>
-  <button class="alert-btn" id="fullscreenReloadBtn" title="Reload page" style="position:absolute; right:56px; bottom:14px; display:none;">
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M3 12a9 9 0 1 1 2.64 6.36M3 12v6h6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-  </button>
-  <button class="alert-btn" id="fullscreenBtn" title="Toggle full screen" style="position:absolute; right:16px; bottom:14px;">
-    <svg id="fullscreenIconEnter" width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M8 21H5a2 2 0 0 1-2-2v-3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    <svg id="fullscreenIconExit" width="18" height="18" viewBox="0 0 24 24" fill="none" style="display:none;"><path d="M9 3v3a2 2 0 0 1-2 2H4M15 3v3a2 2 0 0 0 2 2h3M21 15h-3a2 2 0 0 0-2 2v3M9 21v-3a2 2 0 0 0-2-2H4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-  </button>
 </div>
 
 <div class="modal-overlay" id="carModalOverlay">
@@ -5240,34 +5245,32 @@ async function showNotificationsPanel(){
 
 document.getElementById('notifBellBtn').addEventListener('click', showNotificationsPanel);
 
-const fullscreenBtn = document.getElementById('fullscreenBtn');
-const fullscreenReloadBtn = document.getElementById('fullscreenReloadBtn');
-if(document.fullscreenEnabled || document.documentElement.requestFullscreen){
-  fullscreenBtn.addEventListener('click', ()=>{
-    if(!document.fullscreenElement){
-      document.documentElement.requestFullscreen().catch(e => console.error('Fullscreen request failed:', e));
-    }else{
-      document.exitFullscreen();
-    }
-  });
-  document.addEventListener('fullscreenchange', ()=>{
-    const isFullscreen = !!document.fullscreenElement;
-    document.getElementById('fullscreenIconEnter').style.display = isFullscreen ? 'none' : '';
-    document.getElementById('fullscreenIconExit').style.display = isFullscreen ? '' : 'none';
-    fullscreenBtn.title = isFullscreen ? 'Exit full screen' : 'Toggle full screen';
-    // Only shown while in full screen, since the browser's own reload
-    // button/shortcut is hidden along with the rest of the browser chrome
-    // at that point — this gives kiosk-style setups a way to force-refresh.
-    fullscreenReloadBtn.style.display = isFullscreen ? '' : 'none';
-  });
-  fullscreenReloadBtn.addEventListener('click', ()=>{
-    location.reload();
-  });
-}else{
-  // Fullscreen API isn't available in this browser — hide the button
-  // rather than showing something that silently does nothing.
-  fullscreenBtn.style.display = 'none';
+// Fullscreen and reload used to be their own buttons floating over the
+// bottom nav — replaced with keyboard shortcuts ("f" to toggle full
+// screen, "*" to reload) so that corner isn't cluttered with controls
+// most people would rarely tap anyway. "f" is gated to desktop widths,
+// since touch screens don't have a keyboard sitting there to press it
+// from and the fullscreen API experience is a desktop-browser thing;
+// "*" (reload) stays available everywhere since it's a harmless, useful
+// fallback everywhere, not just kiosk-style full-screen setups.
+function toggleFullscreen(){
+  if(!document.fullscreenElement){
+    document.documentElement.requestFullscreen().catch(e => console.error('Fullscreen request failed:', e));
+  }else{
+    document.exitFullscreen();
+  }
 }
+document.addEventListener('keydown', (e)=>{
+  if(e.ctrlKey || e.metaKey || e.altKey) return;
+  const activeTag = (document.activeElement && document.activeElement.tagName) || '';
+  const isTyping = activeTag === 'INPUT' || activeTag === 'TEXTAREA' || (document.activeElement && document.activeElement.isContentEditable);
+  if(isTyping) return;
+  if(e.key === '*'){
+    location.reload();
+  }else if((e.key === 'f' || e.key === 'F') && window.innerWidth >= 900 && (document.fullscreenEnabled || document.documentElement.requestFullscreen)){
+    toggleFullscreen();
+  }
+});
 
 async function fireLocalNotification(title, body){
   // Website-only for now: shown via the page itself while it's open, not
@@ -6889,7 +6892,7 @@ function tickClock(){
   const parts = new Intl.DateTimeFormat('en-US', { timeZone:'America/New_York', year:'numeric', month:'2-digit', day:'2-digit' }).formatToParts(now);
   const map = {};
   parts.forEach(p => map[p.type] = p.value);
-  const html = `<div>${map.month}/${map.day}/${map.year}</div><div>${time}</div>`;
+  const html = `<div>${map.month}/${map.day}/${map.year}</div><span class="chip-sep date-dot">&middot;</span><div>${time}</div>`;
   document.getElementById('clock').innerHTML = html;
 }
 
@@ -6917,7 +6920,7 @@ async function fetchWeather(){
     const data = await res.json();
     const temp = Math.round(data.current.temperature_2m);
     const condition = weatherCodeToLabel(data.current.weather_code);
-    const html = `<div>${temp}\u00b0F</div><div>${condition}</div>`;
+    const html = `<div>${temp}\u00b0F</div><span class="weather-dot">&middot;</span><div>${condition}</div>`;
     el.innerHTML = html;
   }catch(err){
     el.textContent = 'Weather unavailable';
