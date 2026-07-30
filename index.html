@@ -3492,13 +3492,19 @@ async function loadTripNotes(vehicleId){
 async function addTripNoteEntry(vehicleId, text, headsign){
   if(!firebaseReady) return;
   const entry = { text, author: state.userName, authorUid: state.uid || null, ts: Date.now() };
+  const today = todayDateString();
   try{
     const ref = fbDb.collection('trip_notes').doc(vehicleId);
     const doc = await ref.get();
-    if(doc.exists && doc.data().headsign === headsign){
+    // Same thread only if BOTH the destination and the service day still
+    // match — a vehicle id can get reused on a later day running the exact
+    // same headsign, and matching on headsign alone let old notes silently
+    // carry over onto an unrelated future trip instead of expiring like
+    // every other "today only" record in the app (car OOS, hidden trains).
+    if(doc.exists && doc.data().headsign === headsign && doc.data().date === today){
       await ref.update({ entries: firebase.firestore.FieldValue.arrayUnion(entry) });
     }else{
-      await ref.set({ headsign, entries: [entry] });
+      await ref.set({ headsign, date: today, entries: [entry] });
     }
     logEdit(state.userName, state.uid, `Added trip note: "${text.slice(0,60)}"`);
   }catch(e){ console.error(e); }
@@ -3682,8 +3688,14 @@ async function showCarModal(v){
   // Trip notes are tied to the train's current destination — if the MBTA feed
   // now shows a different headsign than when the notes were saved, this is
   // effectively a new trip, so the old notes no longer apply and get cleared.
+  // Also expire at the end of the service day even if the headsign happens
+  // to match again (a vehicle id can get reused on a later day running the
+  // same route/headsign) — same "today only" convention as car OOS status
+  // and hidden trains elsewhere in the app. Notes saved before this field
+  // existed have no date at all, which also counts as stale so they clear
+  // out on next load rather than lingering indefinitely.
   let tripNotes = tripNotesRaw;
-  if(tripNotes && tripNotes.headsign && v.headsign && tripNotes.headsign !== v.headsign){
+  if(tripNotes && ((tripNotes.headsign && v.headsign && tripNotes.headsign !== v.headsign) || tripNotes.date !== todayDateString())){
     await clearTripNotes(v.id);
     tripNotes = null;
   }
@@ -4090,7 +4102,7 @@ async function showCarModal(v){
     </div>` : ''}
     <div class="modal-section">
       <h4>Trip notes</h4>
-      <div class="signin-note">Anyone signed in can add to this thread. Clears automatically once this train's destination changes.</div>
+      <div class="signin-note">Anyone signed in can add to this thread. Clears automatically once this train's destination changes, or at the end of the service day.</div>
       ${tripNotesListHtml}
       ${tripNotesEditForm}
     </div>
