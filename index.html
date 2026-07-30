@@ -189,6 +189,10 @@ body{padding:16px 16px 96px;}
 }
 .menu-dropdown.show{display:block;}
 .menu-row{display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 4px; font-size:13px; color:var(--text);}
+/* Explanatory asides in Settings — own line rather than inline parenthetical
+   text, so it can never end up split awkwardly mid-parenthesis by the
+   browser's own line-wrapping the way inline text does on narrow screens. */
+.menu-note{display:block; color:var(--text-faint); font-weight:400; font-size:12px; margin-top:2px;}
 .menu-link{display:flex; align-items:center; justify-content:space-between; gap:10px; padding:9px 6px; font-size:13px; color:var(--text); cursor:pointer; border-radius:7px; transition:background 0.15s;}
 .menu-link:hover{background:var(--bg);}
 .menu-link-arrow{color:var(--text-faint); font-size:16px;}
@@ -198,7 +202,7 @@ body{padding:16px 16px 96px;}
 }
 .back-link:hover{text-decoration:underline;}
 
-.switch{width:38px; height:20px; border-radius:10px; background:var(--border); position:relative; cursor:pointer; flex:0 0 auto; transition:background 0.15s;}
+.switch{width:38px; height:20px; border-radius:10px; background:#D64545; position:relative; cursor:pointer; flex:0 0 auto; transition:background 0.15s;}
 .switch.on{background:var(--accent);}
 .switch .knob{width:16px; height:16px; border-radius:50%; background:#fff; position:absolute; top:2px; left:2px; transition:left 0.15s; box-shadow:0 1px 2px rgba(0,0,0,0.3);}
 .switch.on .knob{left:20px;}
@@ -540,39 +544,30 @@ body.dark .stop-dot{background:var(--bg);}
   box-shadow:0 6px 20px rgba(20,40,30,0.12);
   overflow:hidden; max-width:100%;
 }
-.bottom-nav-inner{display:flex; gap:6px; padding:6px; flex-wrap:wrap; max-width:100%; justify-content:center; order:0;}
-/* Default position is below the route pill — order:1 puts it last in the
-   column, with the divider on top since it's now the one sitting
-   underneath something rather than above it. body.status-chip-above
-   (set from the Settings page) flips both. */
+.bottom-nav-inner{display:flex; gap:6px; padding:6px; flex-wrap:wrap; max-width:100%; justify-content:center;}
 .route-status-chip{
   display:flex; align-items:center; justify-content:center; gap:7px;
   font-family:'Space Grotesk', sans-serif; font-weight:700; font-size:11px; color:var(--text-dim);
-  border-top:1px solid var(--border); order:1;
+  border-bottom:1px solid var(--border);
   padding:5px 14px; white-space:nowrap; max-width:100%; overflow:hidden;
 }
-body.status-chip-above .route-status-chip{border-top:none; border-bottom:1px solid var(--border); order:-1;}
-body.status-chip-hidden .route-status-chip{display:none;}
 .route-status-chip #clock, .route-status-chip #weatherDisplay{display:flex; align-items:center; gap:5px; overflow:hidden; text-overflow:ellipsis;}
 .route-status-chip .weather-line{font-family:'Space Grotesk', sans-serif; font-weight:700; font-size:11px; color:var(--text-dim);}
 .route-status-chip .chip-sep, .route-status-chip .weather-dot{color:var(--text-faint);}
 /* Per-element visibility, set from the Settings page — time itself has no
-   corresponding toggle/class, since it's the one element users can't turn
-   off. Composes fine with the narrow-mobile rules below: either one
-   matching is enough to hide something, so a user who's turned weather off
-   entirely and a phone that's just trimming the condition text for space
-   both land on the same "not shown" result without fighting each other. */
+   corresponding class/toggle, since it's the one element that can't be
+   turned off. */
 body.hide-chip-date .route-status-chip #clock > div:first-child,
 body.hide-chip-date .route-status-chip #clock .date-dot{display:none;}
 body.hide-chip-weather .route-status-chip #weatherDisplay,
 body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:none;}
 @media (max-width:480px){
-  /* Date and weather condition text are the least essential parts of the
-     chip — drop them first as space gets tight, keeping the moment-to-
-     moment useful bit (current time, current temperature) on screen. */
-  .route-status-chip{font-size:10px; gap:5px; padding:4px 12px;}
-  .route-status-chip #clock > div:first-child, .route-status-chip #clock .date-dot{display:none;}
-  .route-status-chip #weatherDisplay > div:last-child, .route-status-chip #weatherDisplay .weather-dot{display:none;}
+  /* Date and weather condition used to get dropped here for space —
+     restored: everything the Settings toggles turn on should actually be
+     visible on a phone, not silently trimmed by a separate width rule
+     fighting the user's own choice. Wraps to a second centered line
+     instead if it doesn't fit on one, rather than clipping anything. */
+  .route-status-chip{font-size:10px; gap:5px; padding:4px 12px; white-space:normal; flex-wrap:wrap; row-gap:2px;}
 }
 @media (max-width:480px){
   .bottom-nav{padding-top:8px;}
@@ -1142,20 +1137,35 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
         <span>Stop abbreviations</span>
         <div class="switch" id="abbrevSwitch"><div class="knob"></div></div>
       </div>
+
+      <div class="menu-divider"></div>
+      <div class="menu-section-label">Time &amp; weather</div>
       <div class="menu-row">
-        <span>Stagger bunched trains <span style="color:var(--text-faint); font-weight:400;">(temporarily disabled)</span></span>
-        <div class="switch" id="staggerSwitch" style="opacity:0.4; pointer-events:none; cursor:default;"><div class="knob"></div></div>
+        <span>Date</span>
+        <div class="switch" id="statusChipDateSwitch"><div class="knob"></div></div>
+      </div>
+      <div class="menu-row">
+        <span>Weather</span>
+        <div class="switch" id="statusChipWeatherSwitch"><div class="knob"></div></div>
+      </div>
+      <div class="menu-row">
+        <span>Show seconds</span>
+        <div class="switch" id="clockSecondsSwitch"><div class="knob"></div></div>
+      </div>
+      <div class="menu-row">
+        <span>24-hour time</span>
+        <div class="switch" id="clock24HourSwitch"><div class="knob"></div></div>
       </div>
 
       <div class="menu-divider"></div>
       <div class="menu-section-label">Notifications</div>
       <div class="menu-row" style="flex-direction:column; align-items:flex-start; gap:8px;">
-        <span>Browser notification permission <span style="color:var(--text-faint); font-weight:400;">(needed for the toggles below to work)</span></span>
+        <span>Browser notification permission<span class="menu-note">(needed for the toggles below to work)</span></span>
         <button class="account-btn" id="notifPermissionBtn" style="margin-top:0; width:100%;">Allow notification permission</button>
         <span class="signin-note" id="notifPermissionNote"></span>
       </div>
       <div class="menu-row">
-        <span>Notifications <span style="color:var(--text-faint); font-weight:400;">(website only for now)</span></span>
+        <span>Notifications</span>
         <div class="switch" id="notifMasterSwitch"><div class="knob"></div></div>
       </div>
       <div class="menu-row">
@@ -1175,39 +1185,18 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
         <div class="switch" id="notifCarBackInServiceSwitch"><div class="knob"></div></div>
       </div>
       <div class="menu-row" style="flex-direction:column; align-items:flex-start; gap:8px;">
-        <span>Push notifications for moderator alerts <span style="color:var(--text-faint); font-weight:400;">(arrives even when the app is closed)</span></span>
+        <span>Push notifications for moderator alerts<span class="menu-note">(arrives even when the app is closed)</span></span>
         <button class="account-btn" id="pushEnableBtn" style="margin-top:0; width:100%;">Enable push notifications</button>
         <span class="signin-note" id="pushStatusNote"></span>
-      </div>
-
-      <div class="menu-divider"></div>
-      <div class="menu-section-label">Time &amp; weather</div>
-      <div class="menu-row" style="flex-direction:column; align-items:flex-start; gap:8px;">
-        <span>Position</span>
-        <select class="roster-input" id="statusChipPositionSelect" style="width:100%;">
-          <option value="below">Below route selector</option>
-          <option value="above">Above route selector</option>
-          <option value="hidden">Not visible</option>
-        </select>
-      </div>
-      <div class="menu-row" id="statusChipDateRow">
-        <span>Date</span>
-        <div class="switch" id="statusChipDateSwitch"><div class="knob"></div></div>
-      </div>
-      <div class="menu-row" id="statusChipWeatherRow">
-        <span>Weather</span>
-        <div class="switch" id="statusChipWeatherSwitch"><div class="knob"></div></div>
-      </div>
-      <div class="menu-row">
-        <span>Time <span style="color:var(--text-faint); font-weight:400;">(always shown)</span></span>
-        <div class="switch on" style="opacity:0.4; pointer-events:none; cursor:default;"><div class="knob"></div></div>
       </div>
 
       <div id="menuAccountSection" style="display:none;">
         <div class="menu-divider"></div>
         <div class="menu-section-label">Account</div>
+        <div class="menu-note" style="margin-bottom:6px;">Shown next to any reports, edits, or roster changes you submit.</div>
         <input type="text" id="accountNameInput" class="account-input" placeholder="Display name">
         <button id="saveNameBtn" class="account-btn">Save name</button>
+        <div class="menu-divider"></div>
         <button id="signOutBtn" class="account-btn signout">Sign out</button>
       </div>
     </div>
@@ -1900,7 +1889,7 @@ function buildRosterCarList(){
 }
 const ROSTER_CARS = buildRosterCarList();
 
-let state = { vehicles: [], currentPage: 'B', lastMainPage: 'B', live: null, abbreviate: false, staggerBunchedTrains: false, signedIn: false, userName: '', photoURL: '', isModerator: false, isTrustedMember: false, filterDirection: 'ALL', filterType: 'ALL', rosterSearch: '', rosterTypeFilter: 'ALL', notifMaster: true, notifDoubleType8: false, notifPride: false, notifType9: false, notifCarBackInService: false, activeLine: 'green', otherBranchesVisible: { B:false, C:false, D:false, E:false, ashmont:false, braintree:false } };
+let state = { vehicles: [], currentPage: 'B', lastMainPage: 'B', live: null, abbreviate: false, staggerBunchedTrains: false, signedIn: false, userName: '', photoURL: '', isModerator: false, isTrustedMember: false, filterDirection: 'ALL', filterType: 'ALL', rosterSearch: '', rosterTypeFilter: 'ALL', notifMaster: true, notifDoubleType8: false, notifPride: false, notifType9: false, notifCarBackInService: false, activeLine: 'green', otherBranchesVisible: { B:false, C:false, D:false, E:false, ashmont:false, braintree:false }, statusChipShowDate: true, statusChipShowWeather: true, clockShowSeconds: true, clock24Hour: false };
 let layout = null; // computed pixel layout for the current ladder
 
 // Tracks, per vehicle id, when it was first observed STOPPED_AT its current
@@ -2365,7 +2354,6 @@ async function savePrefs(){
   try{
     localStorage.setItem(PREFS_KEY, JSON.stringify({
       abbreviate: state.abbreviate,
-      staggerBunchedTrains: state.staggerBunchedTrains,
       rosterSearch: state.rosterSearch,
       rosterTypeFilter: state.rosterTypeFilter,
       notifMaster: state.notifMaster,
@@ -2374,56 +2362,18 @@ async function savePrefs(){
       notifType9: state.notifType9,
       notifCarBackInService: state.notifCarBackInService,
       otherBranchesVisible: state.otherBranchesVisible,
-      statusChipPosition: state.statusChipPosition,
       statusChipShowDate: state.statusChipShowDate,
-      statusChipShowWeather: state.statusChipShowWeather
+      statusChipShowWeather: state.statusChipShowWeather,
+      clockShowSeconds: state.clockShowSeconds,
+      clock24Hour: state.clock24Hour
     }));
   }catch(e){ console.error(e); }
 }
 
 function applyStatusChipPrefs(){
-  document.body.classList.toggle('status-chip-above', state.statusChipPosition === 'above');
-  document.body.classList.toggle('status-chip-hidden', state.statusChipPosition === 'hidden');
   document.body.classList.toggle('hide-chip-date', !state.statusChipShowDate);
   document.body.classList.toggle('hide-chip-weather', !state.statusChipShowWeather);
 }
-// The date/weather sub-toggles are meaningless while the whole chip is
-// hidden — grayed out and non-interactive then, same visual treatment as
-// the disabled "Stagger bunched trains" row above, rather than letting
-// them silently do nothing.
-function updateStatusChipSubRowsDisabled(){
-  const disabled = state.statusChipPosition === 'hidden';
-  ['statusChipDateRow', 'statusChipWeatherRow'].forEach(id=>{
-    const row = document.getElementById(id);
-    if(!row) return;
-    row.style.opacity = disabled ? '0.4' : '';
-    const sw = row.querySelector('.switch');
-    if(sw){
-      sw.style.pointerEvents = disabled ? 'none' : '';
-      sw.style.cursor = disabled ? 'default' : '';
-    }
-  });
-}
-document.getElementById('statusChipPositionSelect').addEventListener('change', (e)=>{
-  state.statusChipPosition = e.target.value;
-  applyStatusChipPrefs();
-  updateStatusChipSubRowsDisabled();
-  savePrefs();
-});
-document.getElementById('statusChipDateSwitch').addEventListener('click', ()=>{
-  if(state.statusChipPosition === 'hidden') return;
-  state.statusChipShowDate = !state.statusChipShowDate;
-  document.getElementById('statusChipDateSwitch').classList.toggle('on', state.statusChipShowDate);
-  applyStatusChipPrefs();
-  savePrefs();
-});
-document.getElementById('statusChipWeatherSwitch').addEventListener('click', ()=>{
-  if(state.statusChipPosition === 'hidden') return;
-  state.statusChipShowWeather = !state.statusChipShowWeather;
-  document.getElementById('statusChipWeatherSwitch').classList.toggle('on', state.statusChipShowWeather);
-  applyStatusChipPrefs();
-  savePrefs();
-});
 
 /* ---------------- Color / branch helpers ---------------- */
 function getTextColorFor(hex){
@@ -5497,14 +5447,17 @@ function updateNotifPermissionUI(permission){
   const btn = document.getElementById('notifPermissionBtn');
   const note = document.getElementById('notifPermissionNote');
   if(permission === 'granted'){
-    btn.textContent = 'Notification permission granted';
-    btn.disabled = true;
+    // Already granted \u2014 nothing left to ask for, so the button just goes
+    // away instead of sitting there disabled with nothing to do.
+    btn.style.display = 'none';
     note.textContent = "You're all set \u2014 the toggles below can now show notifications.";
   }else if(permission === 'denied'){
+    btn.style.display = '';
     btn.textContent = 'Allow notification permission';
     btn.disabled = false;
     note.textContent = "Blocked \u2014 you'll need to allow notifications for this site in your browser's own settings, then reload.";
   }else{
+    btn.style.display = '';
     btn.textContent = 'Allow notification permission';
     btn.disabled = false;
     note.textContent = '';
@@ -6992,7 +6945,12 @@ async function buildPointsPanel(){
 
 function tickClock(){
   const now = new Date();
-  const time = now.toLocaleTimeString('en-US', { timeZone:'America/New_York', hour:'2-digit', minute:'2-digit', second:'2-digit' });
+  const time = now.toLocaleTimeString('en-US', {
+    timeZone:'America/New_York',
+    hour:'2-digit', minute:'2-digit',
+    second: state.clockShowSeconds ? '2-digit' : undefined,
+    hour12: !state.clock24Hour
+  });
   const parts = new Intl.DateTimeFormat('en-US', { timeZone:'America/New_York', year:'numeric', month:'2-digit', day:'2-digit' }).formatToParts(now);
   const map = {};
   parts.forEach(p => map[p.type] = p.value);
@@ -7490,13 +7448,30 @@ document.getElementById('abbrevSwitch').addEventListener('click', ()=>{
   switchPage(state.currentPage);
   savePrefs();
 });
-document.getElementById('staggerSwitch').addEventListener('click', ()=>{
-  state.staggerBunchedTrains = !state.staggerBunchedTrains;
-  document.getElementById('staggerSwitch').classList.toggle('on', state.staggerBunchedTrains);
-  renderTrainDots();
+document.getElementById('statusChipDateSwitch').addEventListener('click', ()=>{
+  state.statusChipShowDate = !state.statusChipShowDate;
+  document.getElementById('statusChipDateSwitch').classList.toggle('on', state.statusChipShowDate);
+  applyStatusChipPrefs();
   savePrefs();
 });
-
+document.getElementById('statusChipWeatherSwitch').addEventListener('click', ()=>{
+  state.statusChipShowWeather = !state.statusChipShowWeather;
+  document.getElementById('statusChipWeatherSwitch').classList.toggle('on', state.statusChipShowWeather);
+  applyStatusChipPrefs();
+  savePrefs();
+});
+document.getElementById('clockSecondsSwitch').addEventListener('click', ()=>{
+  state.clockShowSeconds = !state.clockShowSeconds;
+  document.getElementById('clockSecondsSwitch').classList.toggle('on', state.clockShowSeconds);
+  tickClock();
+  savePrefs();
+});
+document.getElementById('clock24HourSwitch').addEventListener('click', ()=>{
+  state.clock24Hour = !state.clock24Hour;
+  document.getElementById('clock24HourSwitch').classList.toggle('on', state.clock24Hour);
+  tickClock();
+  savePrefs();
+});
 function wireNotifToggle(id, stateKey){
   document.getElementById(id).addEventListener('click', ()=>{
     state[stateKey] = !state[stateKey];
@@ -7974,9 +7949,6 @@ async function init(){
     if(!hasSavedAbbrevPref) savePrefs();
   }
 
-  // Temporarily disabled — forced off regardless of any saved preference.
-  // To re-enable, restore: if(prefs.staggerBunchedTrains){ state.staggerBunchedTrains = true; document.getElementById('staggerSwitch').classList.add('on'); }
-  state.staggerBunchedTrains = false;
 
   // Restore the roster page's filters from last time, so they don't reset
   // to defaults every time the page reloads.
@@ -8004,16 +7976,15 @@ async function init(){
 
   state.otherBranchesVisible = Object.assign({ B:false, C:false, D:false, E:false, ashmont:false, braintree:false }, prefs.otherBranchesVisible || {});
 
-  // Time/weather chip — default is below the route selector; "time" has no
-  // toggle of its own since it's the one piece users can't hide.
-  state.statusChipPosition = ['below','above','hidden'].includes(prefs.statusChipPosition) ? prefs.statusChipPosition : 'below';
   state.statusChipShowDate = Object.prototype.hasOwnProperty.call(prefs, 'statusChipShowDate') ? !!prefs.statusChipShowDate : true;
   state.statusChipShowWeather = Object.prototype.hasOwnProperty.call(prefs, 'statusChipShowWeather') ? !!prefs.statusChipShowWeather : true;
-  document.getElementById('statusChipPositionSelect').value = state.statusChipPosition;
+  state.clockShowSeconds = Object.prototype.hasOwnProperty.call(prefs, 'clockShowSeconds') ? !!prefs.clockShowSeconds : true;
+  state.clock24Hour = !!prefs.clock24Hour;
   document.getElementById('statusChipDateSwitch').classList.toggle('on', state.statusChipShowDate);
   document.getElementById('statusChipWeatherSwitch').classList.toggle('on', state.statusChipShowWeather);
+  document.getElementById('clockSecondsSwitch').classList.toggle('on', state.clockShowSeconds);
+  document.getElementById('clock24HourSwitch').classList.toggle('on', state.clock24Hour);
   applyStatusChipPrefs();
-  updateStatusChipSubRowsDisabled();
 
   buildNav();
   buildLadder();
