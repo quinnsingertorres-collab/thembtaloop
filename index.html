@@ -287,7 +287,14 @@ body.dark .discord-banner{background:#5865F2; border-color:#5865F2; color:#fff;}
     overflow:hidden;
     border-radius:var(--radius) 0 0 var(--radius); border-right:none;
     transform:translateX(0);
-    transition:transform 0.22s ease, top 0.22s ease;
+    /* top is deliberately left out of this transition — it tracks scroll
+       every animation frame (see applyPanelDockTop in JS) via the same
+       --panel-dock-top var the left car-info panel uses, and easing a
+       value that's rewritten that often just makes it lag behind instead
+       of moving in step with it. transform keeps its own transition for
+       the deliberate collapse/expand slide, which is a real discrete
+       state change rather than a continuous scroll-driven one. */
+    transition:transform 0.22s ease;
     z-index:55;
   }
   #trainsPanelScrollInner{
@@ -323,7 +330,10 @@ body.dark .discord-banner{background:#5865F2; border-color:#5865F2; color:#fff;}
     background:var(--panel); border:1px solid var(--border); border-right:none;
     color:var(--text-dim); cursor:pointer; padding:0;
     box-shadow:-2px 0 8px rgba(0,0,0,0.15);
-    transition:right 0.22s ease, color 0.15s ease, top 0.22s ease;
+    /* Same reasoning as the panel it's attached to above — top tracks
+       scroll every frame, so it's left out of the transition rather than
+       lagging behind the panel it's supposed to stay flush against. */
+    transition:right 0.22s ease, color 0.15s ease;
     z-index:56;
   }
   .trains-panel-toggle:hover{color:var(--text);}
@@ -530,16 +540,32 @@ body.dark .stop-dot{background:var(--bg);}
   box-shadow:0 6px 20px rgba(20,40,30,0.12);
   overflow:hidden; max-width:100%;
 }
-.bottom-nav-inner{display:flex; gap:6px; padding:6px; flex-wrap:wrap; max-width:100%; justify-content:center;}
+.bottom-nav-inner{display:flex; gap:6px; padding:6px; flex-wrap:wrap; max-width:100%; justify-content:center; order:0;}
+/* Default position is below the route pill — order:1 puts it last in the
+   column, with the divider on top since it's now the one sitting
+   underneath something rather than above it. body.status-chip-above
+   (set from the Settings page) flips both. */
 .route-status-chip{
   display:flex; align-items:center; justify-content:center; gap:7px;
   font-family:'Space Grotesk', sans-serif; font-weight:700; font-size:11px; color:var(--text-dim);
-  border-bottom:1px solid var(--border);
+  border-top:1px solid var(--border); order:1;
   padding:5px 14px; white-space:nowrap; max-width:100%; overflow:hidden;
 }
+body.status-chip-above .route-status-chip{border-top:none; border-bottom:1px solid var(--border); order:-1;}
+body.status-chip-hidden .route-status-chip{display:none;}
 .route-status-chip #clock, .route-status-chip #weatherDisplay{display:flex; align-items:center; gap:5px; overflow:hidden; text-overflow:ellipsis;}
 .route-status-chip .weather-line{font-family:'Space Grotesk', sans-serif; font-weight:700; font-size:11px; color:var(--text-dim);}
 .route-status-chip .chip-sep, .route-status-chip .weather-dot{color:var(--text-faint);}
+/* Per-element visibility, set from the Settings page — time itself has no
+   corresponding toggle/class, since it's the one element users can't turn
+   off. Composes fine with the narrow-mobile rules below: either one
+   matching is enough to hide something, so a user who's turned weather off
+   entirely and a phone that's just trimming the condition text for space
+   both land on the same "not shown" result without fighting each other. */
+body.hide-chip-date .route-status-chip #clock > div:first-child,
+body.hide-chip-date .route-status-chip #clock .date-dot{display:none;}
+body.hide-chip-weather .route-status-chip #weatherDisplay,
+body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:none;}
 @media (max-width:480px){
   /* Date and weather condition text are the least essential parts of the
      chip — drop them first as space gets tight, keeping the moment-to-
@@ -599,7 +625,15 @@ body.dark .stop-dot{background:var(--bg);}
        --bottom-nav-h is (see below), so this doesn't drift if the header's
        own height ever changes (auth icons wrapping, font changes, etc). */
     padding:var(--panel-dock-top, 220px) 16px 0 0;
-    transition:visibility 0s linear 0.22s, padding-top 0.22s ease;
+    /* No transition on padding-top — it's rewritten every animation frame
+       while scrolling (see applyPanelDockTop in JS), and animating a value
+       that's already being continuously overwritten just makes it chase a
+       moving target instead of tracking it. The right-docked trains panel
+       used to have the same thing on its own top property, and reflow
+       (padding-top) vs. compositor-only (top) handle that constant chasing
+       differently enough that the two panels visibly drifted apart from
+       each other while scrolling instead of moving together. */
+    transition:visibility 0s linear 0.22s;
   }
   .modal-overlay.show{
     /* Stays pointer-events:none even though it's "shown" — this element
@@ -1144,6 +1178,29 @@ body.dark .stop-dot{background:var(--bg);}
         <span>Push notifications for moderator alerts <span style="color:var(--text-faint); font-weight:400;">(arrives even when the app is closed)</span></span>
         <button class="account-btn" id="pushEnableBtn" style="margin-top:0; width:100%;">Enable push notifications</button>
         <span class="signin-note" id="pushStatusNote"></span>
+      </div>
+
+      <div class="menu-divider"></div>
+      <div class="menu-section-label">Time &amp; weather</div>
+      <div class="menu-row" style="flex-direction:column; align-items:flex-start; gap:8px;">
+        <span>Position</span>
+        <select class="roster-input" id="statusChipPositionSelect" style="width:100%;">
+          <option value="below">Below route selector</option>
+          <option value="above">Above route selector</option>
+          <option value="hidden">Not visible</option>
+        </select>
+      </div>
+      <div class="menu-row" id="statusChipDateRow">
+        <span>Date</span>
+        <div class="switch" id="statusChipDateSwitch"><div class="knob"></div></div>
+      </div>
+      <div class="menu-row" id="statusChipWeatherRow">
+        <span>Weather</span>
+        <div class="switch" id="statusChipWeatherSwitch"><div class="knob"></div></div>
+      </div>
+      <div class="menu-row">
+        <span>Time <span style="color:var(--text-faint); font-weight:400;">(always shown)</span></span>
+        <div class="switch on" style="opacity:0.4; pointer-events:none; cursor:default;"><div class="knob"></div></div>
       </div>
 
       <div id="menuAccountSection" style="display:none;">
@@ -2316,10 +2373,57 @@ async function savePrefs(){
       notifPride: state.notifPride,
       notifType9: state.notifType9,
       notifCarBackInService: state.notifCarBackInService,
-      otherBranchesVisible: state.otherBranchesVisible
+      otherBranchesVisible: state.otherBranchesVisible,
+      statusChipPosition: state.statusChipPosition,
+      statusChipShowDate: state.statusChipShowDate,
+      statusChipShowWeather: state.statusChipShowWeather
     }));
   }catch(e){ console.error(e); }
 }
+
+function applyStatusChipPrefs(){
+  document.body.classList.toggle('status-chip-above', state.statusChipPosition === 'above');
+  document.body.classList.toggle('status-chip-hidden', state.statusChipPosition === 'hidden');
+  document.body.classList.toggle('hide-chip-date', !state.statusChipShowDate);
+  document.body.classList.toggle('hide-chip-weather', !state.statusChipShowWeather);
+}
+// The date/weather sub-toggles are meaningless while the whole chip is
+// hidden — grayed out and non-interactive then, same visual treatment as
+// the disabled "Stagger bunched trains" row above, rather than letting
+// them silently do nothing.
+function updateStatusChipSubRowsDisabled(){
+  const disabled = state.statusChipPosition === 'hidden';
+  ['statusChipDateRow', 'statusChipWeatherRow'].forEach(id=>{
+    const row = document.getElementById(id);
+    if(!row) return;
+    row.style.opacity = disabled ? '0.4' : '';
+    const sw = row.querySelector('.switch');
+    if(sw){
+      sw.style.pointerEvents = disabled ? 'none' : '';
+      sw.style.cursor = disabled ? 'default' : '';
+    }
+  });
+}
+document.getElementById('statusChipPositionSelect').addEventListener('change', (e)=>{
+  state.statusChipPosition = e.target.value;
+  applyStatusChipPrefs();
+  updateStatusChipSubRowsDisabled();
+  savePrefs();
+});
+document.getElementById('statusChipDateSwitch').addEventListener('click', ()=>{
+  if(state.statusChipPosition === 'hidden') return;
+  state.statusChipShowDate = !state.statusChipShowDate;
+  document.getElementById('statusChipDateSwitch').classList.toggle('on', state.statusChipShowDate);
+  applyStatusChipPrefs();
+  savePrefs();
+});
+document.getElementById('statusChipWeatherSwitch').addEventListener('click', ()=>{
+  if(state.statusChipPosition === 'hidden') return;
+  state.statusChipShowWeather = !state.statusChipShowWeather;
+  document.getElementById('statusChipWeatherSwitch').classList.toggle('on', state.statusChipShowWeather);
+  applyStatusChipPrefs();
+  savePrefs();
+});
 
 /* ---------------- Color / branch helpers ---------------- */
 function getTextColorFor(hex){
@@ -7899,6 +8003,17 @@ async function init(){
   document.getElementById('notifCarBackInServiceSwitch').classList.toggle('on', state.notifCarBackInService);
 
   state.otherBranchesVisible = Object.assign({ B:false, C:false, D:false, E:false, ashmont:false, braintree:false }, prefs.otherBranchesVisible || {});
+
+  // Time/weather chip — default is below the route selector; "time" has no
+  // toggle of its own since it's the one piece users can't hide.
+  state.statusChipPosition = ['below','above','hidden'].includes(prefs.statusChipPosition) ? prefs.statusChipPosition : 'below';
+  state.statusChipShowDate = Object.prototype.hasOwnProperty.call(prefs, 'statusChipShowDate') ? !!prefs.statusChipShowDate : true;
+  state.statusChipShowWeather = Object.prototype.hasOwnProperty.call(prefs, 'statusChipShowWeather') ? !!prefs.statusChipShowWeather : true;
+  document.getElementById('statusChipPositionSelect').value = state.statusChipPosition;
+  document.getElementById('statusChipDateSwitch').classList.toggle('on', state.statusChipShowDate);
+  document.getElementById('statusChipWeatherSwitch').classList.toggle('on', state.statusChipShowWeather);
+  applyStatusChipPrefs();
+  updateStatusChipSubRowsDisabled();
 
   buildNav();
   buildLadder();
