@@ -283,20 +283,24 @@ body.dark .discord-banner{background:#5865F2; border-color:#5865F2; color:#fff;}
   .main-grid > .panel:first-child{flex:1 1 auto; min-width:0;}
   /* Docked the same way the car-info panel is on the left — fixed to the
      edge, height bounded between the top bar and bottom bar (using the
-     same --top-bar-h/--bottom-nav-h vars kept live by the ResizeObservers
-     below), and takes itself out of the flex flow entirely. .main-grid's
+     live --top-bar-h var and the fixed bottom-nav padding constant, see
+     the comments below), and takes itself out of the flex flow entirely.
+     .main-grid's
      own padding-right below reserves the matching space so the track map
      never runs underneath it. */
   .main-grid > .panel:last-child{
     position:fixed; top:var(--panel-dock-top, 220px); right:0;
-    /* Lines up with the bottom of the branch selector pill specifically —
-       not the whole bottom-nav stack, which can also include the time/
-       weather chip above or below that pill depending on the Settings
-       page's Position choice. --branch-selector-bottom-gap is a live
-       measurement of the real gap between that pill's own bottom edge and
-       the viewport bottom (see the ResizeObserver below), so this tracks
-       correctly no matter where the chip is or whether it's shown at all. */
-    bottom:var(--branch-selector-bottom-gap, 76px);
+    /* Lines up with the true bottom edge of the whole bottom-nav box (pill
+       + time/weather chip together, whichever order/visibility Settings has
+       them in) rather than any seam inside it — that outer edge is the one
+       unambiguous line a user can actually see, so the panel's rounded
+       corner always lands flush against it instead of stopping partway
+       through the middle of the nav stack. That box (.bottom-nav) is pinned
+       to bottom:0 with a fixed calc(12px + safe-area-inset-bottom) bottom
+       padding around its contents — a plain constant, not something that
+       needs live JS measurement, since it stays the same no matter how
+       tall the pill/chip content inside grows or shrinks. */
+    bottom:calc(12px + env(safe-area-inset-bottom));
     width:380px; padding:0;
     /* Scroll lives on #trainsPanelScrollInner below, not here — a transform
        (the collapse slide, right below) on the SAME element as the native
@@ -347,7 +351,7 @@ body.dark .discord-banner{background:#5865F2; border-color:#5865F2; color:#fff;}
        itself now stops) rather than the full viewport — the panel starts
        well below the top of the screen now, so a plain 50% would sit
        noticeably above its actual middle. */
-    top:calc((var(--panel-dock-top, 220px) + 100vh - var(--branch-selector-bottom-gap, 76px)) / 2);
+    top:calc((var(--panel-dock-top, 220px) + 100vh - 12px - env(safe-area-inset-bottom)) / 2);
     right:380px; transform:translateY(-50%);
     width:28px; height:56px; border-radius:8px 0 0 8px;
     background:var(--panel); border:1px solid var(--border); border-right:none;
@@ -641,9 +645,9 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
        position:fixed and would otherwise paint over anything in that same
        screen region, logo included, since normal in-flow content has no
        elevated z-index to compete with it — never covers it. --top-bar-h
-       is kept in sync with that bar's real height the same way
-       --bottom-nav-h is (see below), so this doesn't drift if the header's
-       own height ever changes (auth icons wrapping, font changes, etc). */
+       is kept in sync with that bar's real height live (see below), so
+       this doesn't drift if the header's own height ever changes (auth
+       icons wrapping, font changes, etc). */
     padding:var(--panel-dock-top, 220px) 16px 0 0;
     /* No transition on padding-top — it's rewritten every animation frame
        while scrolling (see applyPanelDockTop in JS), and animating a value
@@ -680,16 +684,17 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
      (wheel events firing, not prevented) but scrollTop would never move.
      Keeping transform here and scroll down on .modal-card sidesteps it,
      same as the rest of this codebase already does.
-     Bottom edge lines up with the branch selector pill's own bottom edge
-     (--branch-selector-bottom-gap — see the ResizeObserver in JS, same var
-     the trains-on-line panel uses) rather than the whole bottom-nav stack,
-     which can also include the time/weather chip above or below that pill
-     depending on the Settings page. Its own top climbs with page scroll
-     and grows taller as it does (see applyPanelDockTop in JS); .modal-card's
-     own scroll (below) reaches whatever content still doesn't fit even once
+     Bottom edge lines up with the true bottom of the whole bottom-nav box
+     (same calc(12px + safe-area-inset-bottom) constant the trains-on-line
+     panel uses — see the comment there) rather than any internal seam
+     between the pill and the time/weather chip, so it always lands flush
+     against a real, visible edge no matter where that chip is or whether
+     it's shown at all. Its own top climbs with page scroll and grows
+     taller as it does (see applyPanelDockTop in JS); .modal-card's own
+     scroll (below) reaches whatever content still doesn't fit even once
      fully grown. */
   .modal-slide-wrap{
-    width:420px; height:calc(100vh - var(--panel-dock-top, 220px) - var(--branch-selector-bottom-gap, 76px));
+    width:420px; height:calc(100vh - var(--panel-dock-top, 220px) - 12px - env(safe-area-inset-bottom));
     overflow:hidden;
     transform:translateX(-100%);
     transition:transform 0.22s ease;
@@ -2434,12 +2439,6 @@ function applyStatusChipPrefs(){
   document.body.classList.toggle('status-chip-hidden', state.statusChipPosition === 'hidden');
   document.body.classList.toggle('hide-chip-date', !state.statusChipShowDate);
   document.body.classList.toggle('hide-chip-weather', !state.statusChipShowWeather);
-  // Reordering the chip above/below (or hiding it) moves the branch
-  // selector pill itself within the fixed bottom-nav stack without
-  // necessarily resizing anything, which a ResizeObserver alone wouldn't
-  // catch — re-measure explicitly so the docked panels' bottom edge stays
-  // correct right away instead of until the next resize.
-  if(typeof window.__updateBranchSelectorGapVar === 'function') window.__updateBranchSelectorGapVar();
 }
 // The date/weather/seconds/24hr sub-toggles are meaningless while the whole
 // chip is hidden — grayed out and non-interactive then, rather than letting
@@ -3657,8 +3656,13 @@ async function showCarModal(v){
   // has its own status notice + in-service toggle up top, so this
   // consolidated "mark this train Out of Service / back in service" control
   // would just be a second, differently-worded button for the exact same
-  // single car \u2014 skip it for that case rather than show both.
-  const consolidatedOOSSection = (carParts.length === 1 && isSoloType7(v)) ? '' : `
+  // single car \u2014 skip it for that case rather than show both. Condition
+  // matches soloType7Notice's own check (isSoloType7(v) alone) rather than
+  // also requiring carParts.length === 1 \u2014 a manual consist correction
+  // can make carParts longer than 1 while the raw MBTA feed (what
+  // isSoloType7 actually reads) still reports a single car, and that
+  // mismatch used to let this duplicate control slip back in.
+  const consolidatedOOSSection = isSoloType7(v) ? '' : `
     <div class="modal-section">
       <h4>Out of service</h4>
       ${allCarsOOS
@@ -3763,7 +3767,12 @@ async function showCarModal(v){
     // near-identically-worded button — is a confusing duplicate control for
     // what's really the same single car, so skip it for that case entirely
     // and let the auto-detected notice be the one place to act on it.
-    const isSoleAutoDetectedType7Car = carParts.length === 1 && isSoloType7(v);
+    // Condition matches soloType7Notice's own check (isSoloType7(v) alone)
+    // rather than also requiring carParts.length === 1 — a manual consist
+    // correction can make carParts longer than 1 while the raw MBTA feed
+    // (what isSoloType7 actually reads) still reports a single car, and
+    // that mismatch used to let this duplicate control slip back in.
+    const isSoleAutoDetectedType7Car = isSoloType7(v);
     const carOOSBlock = isSoleAutoDetectedType7Car ? '' : (state.signedIn
       ? `<div class="modal-row-spacer"></div>
          ${carIsOOS
@@ -7893,45 +7902,23 @@ if(carModalOverlayEl){
   carModalRelayoutObserver.observe(carModalOverlayEl, { attributes:true, attributeFilter:['class'] });
 }
 
-// The bottom bar's real height varies (safe-area insets, font, and how many
-// nav pills wrap onto a second row), so instead of guessing a fixed pixel
+// The docked side panels' bottom edge used to track the bottom bar's real
+// height live via a ResizeObserver + CSS var (--bottom-nav-h), but that
+// var measured the wrong thing for this purpose — .bottom-nav's own
+// height changes with how much is inside it (chip shown/hidden, pills
+// wrapping), while what the panels actually need is the fixed gap between
+// .bottom-nav's pinned bottom:0 edge and its rounded content box's real
+// bottom edge, which is just its own constant bottom padding
+// (calc(12px + env(safe-area-inset-bottom)) — see the panel's own CSS).
+// That's a plain CSS constant now, so no JS measurement is needed here at
+// all; the .top-bar equivalent below still needs the JS version below
+// since the header's real height does vary based on its own content.
+
+// The site logo/"In the Loop" header's real height varies (auth icons
+// wrapping, font changes, etc.), so instead of guessing a fixed pixel
 // value, track it live and expose it as a CSS variable — the desktop info
-// panel's height is capped against this so its bottom edge lands exactly
-// where the bottom bar begins, rather than running underneath it.
-const bottomNavEl = document.querySelector('.bottom-nav');
-if(bottomNavEl){
-  const updateBottomNavHeightVar = ()=>{
-    document.documentElement.style.setProperty('--bottom-nav-h', bottomNavEl.offsetHeight + 'px');
-  };
-  updateBottomNavHeightVar();
-  new ResizeObserver(updateBottomNavHeightVar).observe(bottomNavEl);
-}
-
-// The two docked side panels' bottom edges line up with the branch
-// selector pill specifically, not the whole bottom-nav stack — that stack
-// can also include the time/weather chip above or below the pill (or not
-// at all), depending on the Settings page, so measuring the pill's own
-// real position (rather than just the stack's total height) is what
-// actually stays correct across all three of those cases.
-const branchSelectorEl = document.getElementById('bottomNav');
-if(branchSelectorEl){
-  const updateBranchSelectorGapVar = ()=>{
-    const rect = branchSelectorEl.getBoundingClientRect();
-    const gap = Math.max(0, window.innerHeight - rect.bottom);
-    document.documentElement.style.setProperty('--branch-selector-bottom-gap', gap + 'px');
-  };
-  updateBranchSelectorGapVar();
-  new ResizeObserver(updateBranchSelectorGapVar).observe(branchSelectorEl);
-  window.addEventListener('resize', updateBranchSelectorGapVar);
-  // Exposed so applyStatusChipPrefs() can re-measure immediately when the
-  // chip's position changes, rather than waiting on a resize/observer tick
-  // that might not even fire for a pure reorder within the same box.
-  window.__updateBranchSelectorGapVar = updateBranchSelectorGapVar;
-}
-
-// Same reasoning as the bottom bar above, but for the site logo/"In the
-// Loop" header — the desktop info panel starts below its real height
-// instead of a guessed one, so it can never end up covering the logo.
+// panel starts below its real height instead of a guessed one, so it can
+// never end up covering the logo.
 // Both docked side panels (car info on the left, trains-on-line on the
 // right) used to start right under the top bar, well above the actual
 // Westbound/Eastbound labels — noticeably taller than the ladder's own
@@ -8034,8 +8021,8 @@ if(topBarEl){
 // list column combined — so centering on 50% visually looks off, skewed
 // toward the vehicle list. Center it over just the track map column
 // instead by measuring that column's real position and writing it as a
-// CSS var, same live-measurement pattern as --top-bar-h/--bottom-nav-h
-// above. Falls back to true 50% (via the CSS var's own fallback) if
+// CSS var, same live-measurement pattern as --top-bar-h above. Falls back
+// to true 50% (via the CSS var's own fallback) if
 // either element isn't present, e.g. on non-map pages.
 const headerEl = document.querySelector('header');
 const trackMapPanel = document.querySelector('.main-grid > .panel--plain');
