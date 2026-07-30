@@ -289,16 +289,14 @@ body.dark .discord-banner{background:#5865F2; border-color:#5865F2; color:#fff;}
      never runs underneath it. */
   .main-grid > .panel:last-child{
     position:fixed; top:var(--panel-dock-top, 220px); right:0;
-    /* Runs all the way to the true bottom of the viewport — its own
-       background/border reaches the real edge instead of stopping short
-       above the nav bar, matching the car-info panel's own bottom:0 below.
-       The floating nav bar (z-index:60, this panel is z-index:55) simply
-       renders on top of whatever scrolls underneath it, same as any
-       bottom-sheet-style content behind a floating tab bar; the inner
-       scroll container below adds matching bottom padding so the actual
-       last row still ends up fully visible above it instead of hidden
-       underneath. */
-    bottom:0;
+    /* Lines up with the bottom of the branch selector pill specifically —
+       not the whole bottom-nav stack, which can also include the time/
+       weather chip above or below that pill depending on the Settings
+       page's Position choice. --branch-selector-bottom-gap is a live
+       measurement of the real gap between that pill's own bottom edge and
+       the viewport bottom (see the ResizeObserver below), so this tracks
+       correctly no matter where the chip is or whether it's shown at all. */
+    bottom:var(--branch-selector-bottom-gap, 76px);
     width:380px; padding:0;
     /* Scroll lives on #trainsPanelScrollInner below, not here — a transform
        (the collapse slide, right below) on the SAME element as the native
@@ -322,7 +320,7 @@ body.dark .discord-banner{background:#5865F2; border-color:#5865F2; color:#fff;}
     z-index:55;
   }
   #trainsPanelScrollInner{
-    padding:16px 16px calc(16px + var(--bottom-nav-h, 76px)) 16px; height:100%;
+    padding:16px; height:100%;
     overflow-y:auto; overflow-x:hidden;
     scrollbar-width:none; -ms-overflow-style:none;
     overscroll-behavior:contain;
@@ -345,11 +343,11 @@ body.dark .discord-banner{background:#5865F2; border-color:#5865F2; color:#fff;}
     display:flex; align-items:center; justify-content:center;
     position:fixed;
     /* Vertically centered against the panel's own real span (dock-top to
-       the true bottom of the viewport, now that the panel itself runs all
-       the way down there) rather than the full viewport — the panel starts
+       the branch selector's own bottom edge, matching where the panel
+       itself now stops) rather than the full viewport — the panel starts
        well below the top of the screen now, so a plain 50% would sit
        noticeably above its actual middle. */
-    top:calc((var(--panel-dock-top, 220px) + 100vh) / 2);
+    top:calc((var(--panel-dock-top, 220px) + 100vh - var(--branch-selector-bottom-gap, 76px)) / 2);
     right:380px; transform:translateY(-50%);
     width:28px; height:56px; border-radius:8px 0 0 8px;
     background:var(--panel); border:1px solid var(--border); border-right:none;
@@ -682,18 +680,16 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
      (wheel events firing, not prevented) but scrollTop would never move.
      Keeping transform here and scroll down on .modal-card sidesteps it,
      same as the rest of this codebase already does.
-     Runs all the way down to the true bottom of the viewport now — the
-     panel's own background/border reaches the real edge, matching the
-     trains-on-line panel's own bottom:0 treatment, instead of stopping
-     short above the bottom bar. The floating nav bar renders on top of
-     whatever's behind it (it has a higher z-index and an opaque
-     background), and .modal-card's own bottom padding below keeps the
-     actual last row of content clear of it rather than hidden underneath.
-     Its own top climbs with page scroll and grows taller as it does (see
-     applyPanelDockTop in JS); .modal-card's own scroll (below) reaches
-     whatever content still doesn't fit even once fully grown. */
+     Bottom edge lines up with the branch selector pill's own bottom edge
+     (--branch-selector-bottom-gap — see the ResizeObserver in JS, same var
+     the trains-on-line panel uses) rather than the whole bottom-nav stack,
+     which can also include the time/weather chip above or below that pill
+     depending on the Settings page. Its own top climbs with page scroll
+     and grows taller as it does (see applyPanelDockTop in JS); .modal-card's
+     own scroll (below) reaches whatever content still doesn't fit even once
+     fully grown. */
   .modal-slide-wrap{
-    width:420px; height:calc(100vh - var(--panel-dock-top, 220px));
+    width:420px; height:calc(100vh - var(--panel-dock-top, 220px) - var(--branch-selector-bottom-gap, 76px));
     overflow:hidden;
     transform:translateX(-100%);
     transition:transform 0.22s ease;
@@ -706,7 +702,6 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
     overflow-y:auto; overflow-x:hidden;
     scrollbar-width:none; -ms-overflow-style:none;
     overscroll-behavior:contain;
-    padding-bottom:calc(20px + var(--bottom-nav-h, 76px));
     border:1px solid var(--border); border-left:none; border-radius:0 var(--radius) var(--radius) 0; box-shadow:none;
   }
   .modal-card::-webkit-scrollbar{display:none;}
@@ -2439,6 +2434,12 @@ function applyStatusChipPrefs(){
   document.body.classList.toggle('status-chip-hidden', state.statusChipPosition === 'hidden');
   document.body.classList.toggle('hide-chip-date', !state.statusChipShowDate);
   document.body.classList.toggle('hide-chip-weather', !state.statusChipShowWeather);
+  // Reordering the chip above/below (or hiding it) moves the branch
+  // selector pill itself within the fixed bottom-nav stack without
+  // necessarily resizing anything, which a ResizeObserver alone wouldn't
+  // catch — re-measure explicitly so the docked panels' bottom edge stays
+  // correct right away instead of until the next resize.
+  if(typeof window.__updateBranchSelectorGapVar === 'function') window.__updateBranchSelectorGapVar();
 }
 // The date/weather/seconds/24hr sub-toggles are meaningless while the whole
 // chip is hidden — grayed out and non-interactive then, rather than letting
@@ -7904,6 +7905,28 @@ if(bottomNavEl){
   };
   updateBottomNavHeightVar();
   new ResizeObserver(updateBottomNavHeightVar).observe(bottomNavEl);
+}
+
+// The two docked side panels' bottom edges line up with the branch
+// selector pill specifically, not the whole bottom-nav stack — that stack
+// can also include the time/weather chip above or below the pill (or not
+// at all), depending on the Settings page, so measuring the pill's own
+// real position (rather than just the stack's total height) is what
+// actually stays correct across all three of those cases.
+const branchSelectorEl = document.getElementById('bottomNav');
+if(branchSelectorEl){
+  const updateBranchSelectorGapVar = ()=>{
+    const rect = branchSelectorEl.getBoundingClientRect();
+    const gap = Math.max(0, window.innerHeight - rect.bottom);
+    document.documentElement.style.setProperty('--branch-selector-bottom-gap', gap + 'px');
+  };
+  updateBranchSelectorGapVar();
+  new ResizeObserver(updateBranchSelectorGapVar).observe(branchSelectorEl);
+  window.addEventListener('resize', updateBranchSelectorGapVar);
+  // Exposed so applyStatusChipPrefs() can re-measure immediately when the
+  // chip's position changes, rather than waiting on a resize/observer tick
+  // that might not even fire for a pure reorder within the same box.
+  window.__updateBranchSelectorGapVar = updateBranchSelectorGapVar;
 }
 
 // Same reasoning as the bottom bar above, but for the site logo/"In the
