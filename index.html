@@ -289,12 +289,16 @@ body.dark .discord-banner{background:#5865F2; border-color:#5865F2; color:#fff;}
      never runs underneath it. */
   .main-grid > .panel:last-child{
     position:fixed; top:var(--panel-dock-top, 220px); right:0;
-    /* No extra gap above the nav bar — matches .modal-slide-wrap's own
-       height calc (100vh - top - bottom-nav-h) on the left, which never
-       had this padding in the first place. The two docked panels used to
-       stop at different points because of it; now both run all the way
-       down to the same edge. */
-    bottom:var(--bottom-nav-h, 76px);
+    /* Runs all the way to the true bottom of the viewport — its own
+       background/border reaches the real edge instead of stopping short
+       above the nav bar, matching the car-info panel's own bottom:0 below.
+       The floating nav bar (z-index:60, this panel is z-index:55) simply
+       renders on top of whatever scrolls underneath it, same as any
+       bottom-sheet-style content behind a floating tab bar; the inner
+       scroll container below adds matching bottom padding so the actual
+       last row still ends up fully visible above it instead of hidden
+       underneath. */
+    bottom:0;
     width:380px; padding:0;
     /* Scroll lives on #trainsPanelScrollInner below, not here — a transform
        (the collapse slide, right below) on the SAME element as the native
@@ -318,7 +322,7 @@ body.dark .discord-banner{background:#5865F2; border-color:#5865F2; color:#fff;}
     z-index:55;
   }
   #trainsPanelScrollInner{
-    padding:16px; height:100%;
+    padding:16px 16px calc(16px + var(--bottom-nav-h, 76px)) 16px; height:100%;
     overflow-y:auto; overflow-x:hidden;
     scrollbar-width:none; -ms-overflow-style:none;
     overscroll-behavior:contain;
@@ -341,10 +345,11 @@ body.dark .discord-banner{background:#5865F2; border-color:#5865F2; color:#fff;}
     display:flex; align-items:center; justify-content:center;
     position:fixed;
     /* Vertically centered against the panel's own real span (dock-top to
-       the bottom bar) rather than the full viewport — the panel starts
+       the true bottom of the viewport, now that the panel itself runs all
+       the way down there) rather than the full viewport — the panel starts
        well below the top of the screen now, so a plain 50% would sit
        noticeably above its actual middle. */
-    top:calc((var(--panel-dock-top, 220px) + 100vh - var(--bottom-nav-h, 76px)) / 2);
+    top:calc((var(--panel-dock-top, 220px) + 100vh) / 2);
     right:380px; transform:translateY(-50%);
     width:28px; height:56px; border-radius:8px 0 0 8px;
     background:var(--panel); border:1px solid var(--border); border-right:none;
@@ -677,16 +682,18 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
      (wheel events firing, not prevented) but scrollTop would never move.
      Keeping transform here and scroll down on .modal-card sidesteps it,
      same as the rest of this codebase already does.
-     Height is capped so the panel's bottom edge lands exactly where the
-     bottom bar (clock/weather/line selection) begins, instead of running
-     underneath it — --bottom-nav-h is kept in sync with that bar's real,
-     current height by a ResizeObserver (see below), with a sane fallback
-     for the instant before that first measurement lands. Its own top
-     climbs with page scroll and grows taller as it does (see
+     Runs all the way down to the true bottom of the viewport now — the
+     panel's own background/border reaches the real edge, matching the
+     trains-on-line panel's own bottom:0 treatment, instead of stopping
+     short above the bottom bar. The floating nav bar renders on top of
+     whatever's behind it (it has a higher z-index and an opaque
+     background), and .modal-card's own bottom padding below keeps the
+     actual last row of content clear of it rather than hidden underneath.
+     Its own top climbs with page scroll and grows taller as it does (see
      applyPanelDockTop in JS); .modal-card's own scroll (below) reaches
      whatever content still doesn't fit even once fully grown. */
   .modal-slide-wrap{
-    width:420px; height:calc(100vh - var(--panel-dock-top, 220px) - var(--bottom-nav-h, 76px));
+    width:420px; height:calc(100vh - var(--panel-dock-top, 220px));
     overflow:hidden;
     transform:translateX(-100%);
     transition:transform 0.22s ease;
@@ -699,6 +706,7 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
     overflow-y:auto; overflow-x:hidden;
     scrollbar-width:none; -ms-overflow-style:none;
     overscroll-behavior:contain;
+    padding-bottom:calc(20px + var(--bottom-nav-h, 76px));
     border:1px solid var(--border); border-left:none; border-radius:0 var(--radius) var(--radius) 0; box-shadow:none;
   }
   .modal-card::-webkit-scrollbar{display:none;}
@@ -7971,6 +7979,21 @@ if(trainsPanelToggle){
     const collapsed = document.body.classList.toggle('trains-panel-collapsed');
     trainsPanelToggle.title = collapsed ? 'Show trains panel' : 'Collapse trains panel';
     trainsPanelToggle.setAttribute('aria-label', trainsPanelToggle.title);
+    // Collapsing/expanding this panel changes .main-grid's padding-right,
+    // which frees up or reclaims real width for the track map column next
+    // to it — same underlying situation as the car-info panel's own
+    // MutationObserver below (a CSS-only width change that never fires a
+    // `resize` event), so it needs the same fix: recompute the ladder's
+    // layout for its new clientWidth once the 0.22s slide has settled,
+    // instead of leaving the track/bubbles sized (and left-anchored) for
+    // whatever width existed before the toggle. Without this the track map
+    // doesn't visually recenter into the space this panel just gave back.
+    clearTimeout(panelRelayoutTimer);
+    panelRelayoutTimer = setTimeout(()=>{
+      const mainGrid = document.querySelector('.main-grid');
+      if(!mainGrid || mainGrid.style.display === 'none') return;
+      relayoutLadderSmoothly();
+    }, 260);
   });
 }
 
