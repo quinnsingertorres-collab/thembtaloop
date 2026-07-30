@@ -133,7 +133,7 @@ body{padding:16px 16px 96px;}
      page; only the pinning below is track-map-specific. */
   .top-bar{
     width:100%; max-width:none; margin:0;
-    padding:0 24px 14px;
+    padding:0 10px 14px;
   }
   /* Pinned in place only while the track map itself is showing — on every
      other page (Settings, Fleet Roster, Alerts, etc.) the bar just sits
@@ -217,11 +217,11 @@ header{display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap
      where the docked side panels (position:fixed, independent of .wrap)
      happened to reach the edges anyway and made it look consistent. This
      makes header itself reach the same edges as .top-bar above it, with
-     matching 24px side padding, on every page. */
+     matching side padding, on every page. */
   header{
     width:100vw; position:relative; left:50%; right:50%;
     margin-left:-50vw; margin-right:-50vw;
-    padding-left:24px; padding-right:24px;
+    padding-left:10px; padding-right:10px;
     box-sizing:border-box;
   }
 }
