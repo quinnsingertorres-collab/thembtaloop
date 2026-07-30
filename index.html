@@ -5096,7 +5096,14 @@ async function showStationModal(pageKey, idx, stopName, side){
   document.getElementById('carModalBody').innerHTML =
     `<div class="modal-row"><span style="color:var(--text-faint); font-size:11px;">${anyRealPredictions ? 'Real-time predictions from MBTA where available; estimated from stop count otherwise.' : 'Estimated from stop count, not live predictions'}</span><strong></strong></div>` +
     bunchAdjusted.map(({v, isRealPrediction, etaMinutes, bunched})=>{
-      const eta = formatEtaMinutesDisplay(etaMinutes, isRealPrediction);
+      // A train running express past this stop won't actually arrive here
+      // at all, so a normal ETA (real or estimated) would just be wrong —
+      // swap it for the express report itself instead of a number that
+      // doesn't apply.
+      const expressEntry = expressReportCache[v.id];
+      const eta = expressEntry
+        ? `<span style="color:#D64545;">Running express to ${displayName(expressEntry.endStation)}</span>`
+        : formatEtaMinutesDisplay(etaMinutes, isRealPrediction);
       const displayCarLabel = state.activeLine === 'green' ? v.label : formatCarNumberForDisplay(String(v.label).split('-')[0]);
       const bunchedTag = bunched ? `<span class="signin-note" style="color:#B45309;">Bunched with train ahead</span>` : '';
       return `<div class="modal-row" style="flex-wrap:wrap;"><span>Car ${displayCarLabel} (${getDisplayBranch(v.branch)})${bunchedTag}</span><strong>${eta}</strong></div>`;
@@ -5166,7 +5173,13 @@ async function showStationDeparturesByName(stopName){
     const bunchAdjusted = applyBunchingAdjustment(withEta);
     return `<div class="modal-row"><span style="font-weight:700;">${label}</span><strong></strong></div>` +
       bunchAdjusted.map(({v, isRealPrediction, etaMinutes, bunched})=>{
-        const eta = formatEtaMinutesDisplay(etaMinutes, isRealPrediction);
+        // Same reasoning as showStationModal above — a train running express
+        // past this stop won't actually arrive here, so show the express
+        // report instead of an ETA that no longer applies.
+        const expressEntry = expressReportCache[v.id];
+        const eta = expressEntry
+          ? `<span style="color:#D64545;">Running express to ${displayName(expressEntry.endStation)}</span>`
+          : formatEtaMinutesDisplay(etaMinutes, isRealPrediction);
         const displayCarLabel = state.activeLine === 'green' ? v.label : formatCarNumberForDisplay(String(v.label).split('-')[0]);
         const bunchedTag = bunched ? `<span class="signin-note" style="color:#B45309;">Bunched with train ahead</span>` : '';
         return `<div class="modal-row" style="flex-wrap:wrap;"><span>Car ${displayCarLabel} (${getDisplayBranch(v.branch)})${bunchedTag}</span><strong>${eta}</strong></div>`;
