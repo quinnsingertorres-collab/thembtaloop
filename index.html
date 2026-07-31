@@ -821,13 +821,24 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
    scroll in its own little nested box separate from the page's scroll,
    which felt broken on both desktop and mobile. It now just flows with the
    rest of the page like every other panel. */
-#rosterList{display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); align-items:start; gap:10px; max-height:none; overflow-y:visible; padding-right:0;}
+/* Fixed at 5 columns (rather than auto-fill's previous ~220px-per-card,
+   which fit 6 across on a full-width desktop layout) so cards are wider —
+   each one gets a full 1/5 share of the row instead of a fixed minimum. */
+#rosterList{display:grid; grid-template-columns:repeat(5, 1fr); align-items:start; gap:10px; max-height:none; overflow-y:visible; padding-right:0;}
 #rosterList .roster-row{cursor:pointer;}
 #rosterList .roster-row.expanded{grid-column:1 / -1; cursor:default;}
 #rosterList .roster-details{display:none; margin-top:2px;}
 #rosterList .roster-row.expanded .roster-details{display:block;}
 #rosterList .roster-card-summary{font-size:11px; color:var(--text-faint); margin-top:2px;}
 #rosterList .roster-expand-hint{font-size:10.5px; color:var(--text-faint); margin-top:6px; user-select:none;}
+/* 5 columns is a desktop-width layout — step down at narrower widths so
+   cards don't get squeezed illegibly thin, same spirit as "bigger to fit"
+   just applied at every size instead of only the widest one. Order matters:
+   this comes before the ≤600px rule below so mobile's 2-column rule still
+   wins the tie at ≤600px. */
+@media (max-width:899px){
+  #rosterList{grid-template-columns:repeat(3, 1fr);}
+}
 @media (max-width:600px){
   #rosterList{grid-template-columns:1fr 1fr;}
 }
