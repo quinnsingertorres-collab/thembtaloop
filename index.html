@@ -905,7 +905,7 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
         <span>Settings</span>
         <span class="menu-link-arrow">&rsaquo;</span>
       </div>
-      <div class="menu-link" data-navto="ROSTER">
+      <div class="menu-link" data-navto="ROSTER" id="rosterMenuLink">
         <span>Fleet Roster</span>
         <span class="menu-link-arrow">&rsaquo;</span>
       </div>
@@ -2690,6 +2690,12 @@ function switchPage(key){
   if(p.isMembers && !state.isModerator) key = 'B'; // safety: never land on Admin without moderator rights
   if(p.isModNotifs && !state.isModerator) key = 'B'; // safety: never land on Alerts and Notifications without moderator rights
   if(p.isEditLogs && !state.isModerator) key = 'B'; // safety: never land on Edit Logs without moderator rights
+  // safety: the Fleet Roster only covers Green Line (and Mattapan) car
+  // types (see ROSTER_RANGES) — it has no data for Red/Orange/Blue at all,
+  // so it doesn't make sense to let it be reached while looking at those
+  // lines. Falls back to whatever real line page was last shown rather
+  // than a hardcoded one, same as the other safety redirects' intent.
+  if(p.isRoster && state.activeLine !== 'green') key = state.lastMainPage || 'B';
   state.currentPage = key;
   try{ localStorage.setItem(LAST_PAGE_KEY, key); }catch(e){ /* ignore */ }
   const page = PAGES[key];
@@ -7265,6 +7271,12 @@ function revealApp(line){
   state.activeLine = line;
   applyLineAccent(LINE_ACCENT[line]);
   updateLogoForLine(line);
+  // Fleet Roster only has data for Green Line (and Mattapan) car types —
+  // hide the menu entry entirely on the other lines rather than leaving a
+  // link that would just redirect away the moment it's clicked (see the
+  // matching safety check in switchPage).
+  const rosterMenuLinkEl = document.getElementById('rosterMenuLink');
+  if(rosterMenuLinkEl) rosterMenuLinkEl.style.display = line === 'green' ? 'flex' : 'none';
   rebuildTypeFilterOptions();
   updateDirectionLabels();
   if(line === 'red') refreshRedOriginLogCache();
