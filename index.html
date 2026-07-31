@@ -2611,6 +2611,17 @@ function updateLastSeenTracking(vehicles){
     });
   });
 }
+// Relative-time text shown in parens after the station name on the roster's
+// "Last tracked" line — "now" for anything under 5 minutes old, minutes for
+// under an hour, a full date/time beyond that.
+function formatLastSeenTime(ts){
+  const minutesAgo = Math.floor((Date.now() - ts) / 60000);
+  if(minutesAgo < 5) return 'now';
+  if(minutesAgo < 60) return minutesAgo + 'm ago';
+  return new Date(ts).toLocaleString('en-US', {
+    month:'short', day:'numeric', year:'numeric', hour:'numeric', minute:'2-digit'
+  });
+}
 
 /* ---------------- Personal preferences (dark mode, abbreviations) ---------------- */
 const PREFS_KEY = 'user_prefs_v1';
@@ -6852,7 +6863,7 @@ async function buildRosterPanel(){
       ` : '';
 
     const lastSeenLine = data.lastSeenStop
-      ? `<div class="roster-edited-by">Last tracked: ${displayName(data.lastSeenStop)}</div>`
+      ? `<div class="roster-edited-by">Last tracked: ${displayName(data.lastSeenStop)}${data.lastSeenAt ? ` (${formatLastSeenTime(data.lastSeenAt)})` : ''}</div>`
       : `<div class="roster-edited-by" style="opacity:.6;">Not tracked yet</div>`;
 
     // Green keeps its existing GLTPS-aware seat logic (getSeatCount, which
