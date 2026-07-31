@@ -4529,9 +4529,8 @@ function getUpcoming(pageKey, idx, direction){
 // actually arrive as soon as raw stop-count math would suggest, since
 // transit systems hold/slow a train to keep it from overtaking the one in
 // front. This adjusts our OWN fallback estimates to respect a minimum
-// realistic following gap, and flags any pair (even ones using MBTA's real
-// predictions) as bunched for display — it never overrides a real MBTA
-// prediction's number, only the estimates this app makes up itself.
+// realistic following gap — it never overrides a real MBTA prediction's
+// number, only the estimates this app makes up itself.
 const BUNCHING_MIN_GAP_MIN = 1.5;
 // A train sitting at either end of a branch's own stop list is dwelling at
 // a terminus before its next trip — that's normal, expected proximity to
@@ -4558,20 +4557,16 @@ function applyBunchingAdjustment(entries){
     if(entry.atTerminus){
       // A train dwelling at a terminus before its next trip is expected to
       // sit close to (or behind) others there — that's normal queuing, not
-      // service bunching, so it's excluded entirely: not flagged itself,
-      // and not used as the reference point for judging the next train.
-      return { ...entry, bunched: false };
+      // service bunching, so it's excluded entirely and not used as the
+      // reference point for judging the next train.
+      return { ...entry };
     }
     let etaMinutes = entry.etaMinutes;
-    let bunched = false;
-    if(previousEta !== null && (etaMinutes - previousEta) < BUNCHING_MIN_GAP_MIN){
-      bunched = true;
-      if(!entry.isRealPrediction){
-        etaMinutes = previousEta + BUNCHING_MIN_GAP_MIN;
-      }
+    if(previousEta !== null && (etaMinutes - previousEta) < BUNCHING_MIN_GAP_MIN && !entry.isRealPrediction){
+      etaMinutes = previousEta + BUNCHING_MIN_GAP_MIN;
     }
     previousEta = etaMinutes;
-    return { ...entry, etaMinutes, bunched };
+    return { ...entry, etaMinutes };
   });
 }
 
@@ -5101,7 +5096,7 @@ async function showStationModal(pageKey, idx, stopName, side){
 
   document.getElementById('carModalBody').innerHTML =
     `<div class="modal-row"><span style="color:var(--text-faint); font-size:11px;">${anyRealPredictions ? 'Real-time predictions from MBTA where available; estimated from stop count otherwise.' : 'Estimated from stop count, not live predictions'}</span><strong></strong></div>` +
-    bunchAdjusted.map(({v, isRealPrediction, etaMinutes, bunched})=>{
+    bunchAdjusted.map(({v, isRealPrediction, etaMinutes})=>{
       // A train running express past this stop won't actually arrive here
       // at all, so a normal ETA (real or estimated) would just be wrong —
       // swap it for the express report itself instead of a number that
@@ -5111,8 +5106,7 @@ async function showStationModal(pageKey, idx, stopName, side){
         ? `<span style="color:#D64545;">Running express to ${displayName(expressEntry.endStation)}</span>`
         : formatEtaMinutesDisplay(etaMinutes, isRealPrediction);
       const displayCarLabel = state.activeLine === 'green' ? v.label : formatCarNumberForDisplay(String(v.label).split('-')[0]);
-      const bunchedTag = bunched ? `<span class="signin-note" style="color:#B45309;">Bunched with train ahead</span>` : '';
-      return `<div class="modal-row" style="flex-wrap:wrap;"><span>Car ${displayCarLabel} (${getDisplayBranch(v.branch)})${bunchedTag}</span><strong>${eta}</strong></div>`;
+      return `<div class="modal-row" style="flex-wrap:wrap;"><span>Car ${displayCarLabel} (${getDisplayBranch(v.branch)})</span><strong>${eta}</strong></div>`;
     }).join('');
 }
 
@@ -5178,7 +5172,7 @@ async function showStationDeparturesByName(stopName){
     }).sort((a,b) => a.etaMinutes - b.etaMinutes);
     const bunchAdjusted = applyBunchingAdjustment(withEta);
     return `<div class="modal-row"><span style="font-weight:700;">${label}</span><strong></strong></div>` +
-      bunchAdjusted.map(({v, isRealPrediction, etaMinutes, bunched})=>{
+      bunchAdjusted.map(({v, isRealPrediction, etaMinutes})=>{
         // Same reasoning as showStationModal above — a train running express
         // past this stop won't actually arrive here, so show the express
         // report instead of an ETA that no longer applies.
@@ -5187,8 +5181,7 @@ async function showStationDeparturesByName(stopName){
           ? `<span style="color:#D64545;">Running express to ${displayName(expressEntry.endStation)}</span>`
           : formatEtaMinutesDisplay(etaMinutes, isRealPrediction);
         const displayCarLabel = state.activeLine === 'green' ? v.label : formatCarNumberForDisplay(String(v.label).split('-')[0]);
-        const bunchedTag = bunched ? `<span class="signin-note" style="color:#B45309;">Bunched with train ahead</span>` : '';
-        return `<div class="modal-row" style="flex-wrap:wrap;"><span>Car ${displayCarLabel} (${getDisplayBranch(v.branch)})${bunchedTag}</span><strong>${eta}</strong></div>`;
+        return `<div class="modal-row" style="flex-wrap:wrap;"><span>Car ${displayCarLabel} (${getDisplayBranch(v.branch)})</span><strong>${eta}</strong></div>`;
       }).join('');
   };
 
