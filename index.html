@@ -2038,6 +2038,19 @@ const BLUE_ROSTER_RANGES = [
   { type:'Siemens', start:700, end:793 }
 ];
 const ROSTER_RANGES_BY_LINE = { green: ROSTER_RANGES, red: RED_ROSTER_RANGES, orange: ORANGE_ROSTER_RANGES, blue: BLUE_ROSTER_RANGES };
+// The single source of truth for turning (line, plain car number) into the
+// actual Firestore doc id used for that car's roster entry. Green keeps a
+// bare number (to match years of already-stored data); every other line is
+// prefixed since Red/Orange/Blue's own numbering ranges overlap each other
+// (e.g. both Red and Orange use parts of the 1500s) — without the prefix,
+// different lines' cars with the same number would silently share one
+// roster doc. Shared by buildRosterCarList (below) and the background
+// last-seen tracker (writeLastSeen/updateLastSeenTracking), which used to
+// always write the bare number and so was silently writing to the wrong
+// doc (or even clobbering a different line's car) for every line but Green.
+function rosterStorageKey(line, carNum){
+  return line === 'green' ? String(carNum) : `${line}-${carNum}`;
+}
 function buildRosterCarList(line){
   const list = [];
   (ROSTER_RANGES_BY_LINE[line] || ROSTER_RANGES).forEach(r=>{
@@ -2059,7 +2072,7 @@ function buildRosterCarList(line){
       // overlap (both cover parts of the 1500s) — without a line-prefixed
       // key here, a Red car and an Orange car with the same number would
       // silently share one roster entry.
-      const key = line === 'green' ? String(n) : `${line}-${n}`;
+      const key = rosterStorageKey(line, n);
       const entry = { car: String(n), key, type: r.type };
       if(r.notYetDeliveredFrom !== undefined && n >= r.notYetDeliveredFrom) entry.notYetDelivered = true;
       if(line === 'green' && GREEN_RETIRED_CARS[n]){
@@ -2554,10 +2567,14 @@ async function resetRosterEntry(carNum){
    a community edit's attribution. Throttled to one write per car per station
    change, rather than every 15s poll, to keep Firestore writes reasonable. */
 const lastSeenCache = {};
-async function writeLastSeen(carNum, stopName){
+// `key` here must already be the real roster storage key (see
+// rosterStorageKey above) — i.e. line-prefixed for anything but Green — not
+// just the plain car number, or this silently writes to a doc the roster
+// panel never actually reads (or worse, one a different line's car reads).
+async function writeLastSeen(key, stopName){
   if(!firebaseReady || !stopName) return;
   try{
-    await fbDb.collection('roster').doc(carNum).set({
+    await fbDb.collection('roster').doc(key).set({
       lastSeenAt: Date.now(), lastSeenStop: stopName
     }, { merge:true });
   }catch(e){ console.error(e); }
@@ -2580,12 +2597,16 @@ function getCarNumbersForVehicle(v){
   return carriageLabels.length > labelParts.length ? carriageLabels : labelParts;
 }
 function updateLastSeenTracking(vehicles){
+  // state.activeLine is reliable here — each poll's vehicle list only ever
+  // contains cars from whichever single line is currently being viewed.
+  const line = state.activeLine;
   vehicles.forEach(v=>{
     if(!v.stopName) return;
     getCarNumbersForVehicle(v).forEach(carNum=>{
-      if(lastSeenCache[carNum] !== v.stopName){
-        lastSeenCache[carNum] = v.stopName;
-        writeLastSeen(carNum, v.stopName);
+      const key = rosterStorageKey(line, carNum);
+      if(lastSeenCache[key] !== v.stopName){
+        lastSeenCache[key] = v.stopName;
+        writeLastSeen(key, v.stopName);
       }
     });
   });
