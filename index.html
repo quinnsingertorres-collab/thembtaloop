@@ -801,6 +801,22 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
 .roster-list{display:flex; flex-direction:column; gap:10px; max-height:640px; overflow-y:auto; padding-right:4px; scrollbar-width:none; -ms-overflow-style:none;}
 .roster-list::-webkit-scrollbar{display:none;}
 
+/* Fleet roster specifically renders as a card grid (ID selector so this
+   doesn't leak into the other panels that reuse .roster-list/.roster-row
+   for plain stacked forms — moderator broadcast panel, inspectors list,
+   members list, etc.). Cards stay compact until clicked; align-items:start
+   keeps a shorter neighbor card from stretching to match a taller one. */
+#rosterList{display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); align-items:start; gap:10px;}
+#rosterList .roster-row{cursor:pointer;}
+#rosterList .roster-row.expanded{grid-column:1 / -1; cursor:default;}
+#rosterList .roster-details{display:none; margin-top:2px;}
+#rosterList .roster-row.expanded .roster-details{display:block;}
+#rosterList .roster-card-summary{font-size:11px; color:var(--text-faint); margin-top:2px;}
+#rosterList .roster-expand-hint{font-size:10.5px; color:var(--text-faint); margin-top:6px; user-select:none;}
+@media (max-width:600px){
+  #rosterList{grid-template-columns:1fr 1fr;}
+}
+
 .roster-row{background:var(--bg); border:1px solid var(--border); border-radius:10px; padding:12px;}
 .roster-row-head{display:flex; align-items:center; gap:8px; margin-bottom:8px; flex-wrap:wrap;}
 .roster-car-chip{font-family:'IBM Plex Mono', monospace; font-weight:700; font-size:13px; color:var(--text);}
@@ -6594,6 +6610,11 @@ document.getElementById('inspectorsSearch').addEventListener('input', (e)=>{
 // immediately without costing another read.
 let rosterPanelDataCache = null;
 let rosterPanelDataCacheTs = 0;
+// Which roster card (by entry.key) is currently expanded in the grid, if
+// any — persisted here (rather than only as a DOM class) so that
+// buildRosterPanel() re-renders triggered by a save/reset/GLTPS click don't
+// snap the card the user was just editing back to its collapsed state.
+let rosterExpandedKey = null;
 const ROSTER_PANEL_CACHE_TTL_MS = 15 * 60 * 1000;
 async function loadRosterPanelData(forceRefresh){
   const isStale = !rosterPanelDataCache || (Date.now() - rosterPanelDataCacheTs) >= ROSTER_PANEL_CACHE_TTL_MS;
@@ -6742,30 +6763,49 @@ async function buildRosterPanel(){
          <span class="roster-submit-note" data-submit-note="${entry.key}"></span>`
       : '';
 
+    const isExpanded = rosterExpandedKey === entry.key;
+
     return `
-      <div class="roster-row" data-car="${entry.car}">
+      <div class="roster-row${isExpanded ? ' expanded' : ''}" data-car="${entry.car}" data-roster-toggle="${entry.key}">
         <div class="roster-row-head">
           <span class="roster-car-chip">Car ${entry.car}</span>
-          <span class="roster-type-tag">${entry.type} \u00b7 ${info.builder} \u00b7 ${rosterBuildYearFor(state.activeLine, entry.type, entry.car)}${seatsSuffix}</span>
           ${statusBadge}
           ${isActive ? '<span class="roster-active-badge">Active now</span>' : ''}
         </div>
+        <div class="roster-card-summary">${entry.type} \u00b7 ${info.builder} \u00b7 ${rosterBuildYearFor(state.activeLine, entry.type, entry.car)}${seatsSuffix}</div>
         ${lastSeenLine}
-        <div class="roster-field-label">Status</div>
-        ${statusField}
-        ${scrapDateField}
-        ${workCarTypeField}
-        ${rebuildField}
-        ${gltpsField}
-        <div class="roster-field-label">Livery / wrap</div>
-        ${liveryField}
-        <div class="roster-field-label">Notes</div>
-        ${notesField}
-        ${submitBtn}
-        ${editedLine}
-        ${resetBtn}
+        <div class="roster-expand-hint" data-roster-hint="${entry.key}">${isExpanded ? 'Hide details \u25b4' : 'Tap for details \u25be'}</div>
+        <div class="roster-details" id="rosterDetails-${entry.key}">
+          <div class="roster-field-label">Status</div>
+          ${statusField}
+          ${scrapDateField}
+          ${workCarTypeField}
+          ${rebuildField}
+          ${gltpsField}
+          <div class="roster-field-label">Livery / wrap</div>
+          ${liveryField}
+          <div class="roster-field-label">Notes</div>
+          ${notesField}
+          ${submitBtn}
+          ${editedLine}
+          ${resetBtn}
+        </div>
       </div>`;
   }).join('');
+
+  list.querySelectorAll('[data-roster-toggle]').forEach(row=>{
+    row.addEventListener('click', (e)=>{
+      // Don't toggle when the click landed on an interactive control inside
+      // an already-expanded card (inputs/selects/textareas/buttons/links).
+      if(e.target.closest('button, input, select, textarea, a')) return;
+      const key = row.dataset.rosterToggle;
+      const hint = list.querySelector(`[data-roster-hint="${key}"]`);
+      const isOpen = row.classList.contains('expanded');
+      row.classList.toggle('expanded', !isOpen);
+      rosterExpandedKey = isOpen ? null : key;
+      if(hint) hint.textContent = isOpen ? 'Tap for details \u25be' : 'Hide details \u25b4';
+    });
+  });
 
   const POINTS_BY_FIELD = { status:5, livery:8, rebuildStatus:15 };
   const EDITABLE_FIELDS = ['status', 'scrapDate', 'workCarType', 'rebuildStatus', 'livery', 'notes'];
