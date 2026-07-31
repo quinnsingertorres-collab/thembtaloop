@@ -2611,18 +2611,6 @@ function updateLastSeenTracking(vehicles){
     });
   });
 }
-function formatLastSeen(ts, stopName){
-  if(!ts) return null;
-  const minutesAgo = Math.floor((Date.now() - ts) / 60000);
-  if(minutesAgo < 60){
-    const label = minutesAgo <= 0 ? 'just now' : minutesAgo + 'm ago';
-    return `${label} at ${displayName(stopName)}`;
-  }
-  const when = new Date(ts).toLocaleString('en-US', {
-    month:'short', day:'numeric', year:'numeric', hour:'numeric', minute:'2-digit'
-  });
-  return `${when} at ${displayName(stopName)}`;
-}
 
 /* ---------------- Personal preferences (dark mode, abbreviations) ---------------- */
 const PREFS_KEY = 'user_prefs_v1';
@@ -6863,9 +6851,8 @@ async function buildRosterPanel(){
         </div>` : ''}
       ` : '';
 
-    const lastSeenText = formatLastSeen(data.lastSeenAt, data.lastSeenStop);
-    const lastSeenLine = lastSeenText
-      ? `<div class="roster-edited-by">Last tracked ${lastSeenText}</div>`
+    const lastSeenLine = data.lastSeenStop
+      ? `<div class="roster-edited-by">Last tracked: ${displayName(data.lastSeenStop)}</div>`
       : `<div class="roster-edited-by" style="opacity:.6;">Not tracked yet</div>`;
 
     // Green keeps its existing GLTPS-aware seat logic (getSeatCount, which
