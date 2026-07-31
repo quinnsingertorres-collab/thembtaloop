@@ -806,7 +806,11 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
    for plain stacked forms — moderator broadcast panel, inspectors list,
    members list, etc.). Cards stay compact until clicked; align-items:start
    keeps a shorter neighbor card from stretching to match a taller one. */
-#rosterList{display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); align-items:start; gap:10px;}
+/* Overrides .roster-list's own max-height/overflow-y — the roster used to
+   scroll in its own little nested box separate from the page's scroll,
+   which felt broken on both desktop and mobile. It now just flows with the
+   rest of the page like every other panel. */
+#rosterList{display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); align-items:start; gap:10px; max-height:none; overflow-y:visible; padding-right:0;}
 #rosterList .roster-row{cursor:pointer;}
 #rosterList .roster-row.expanded{grid-column:1 / -1; cursor:default;}
 #rosterList .roster-details{display:none; margin-top:2px;}
@@ -1511,23 +1515,29 @@ const ABBREVIATIONS = {
 const UNKNOWN_HEX = '#6B7280';
 const ROW_H = 48;
 
+// width/length/electrical added from the MBTA Vehicle Inventory doc
+// (07/28/26 version) — seats/builder/year left exactly as they were
+// (Green's seat count already has its own GLTPS-aware logic in
+// getSeatCount below; this doesn't touch that).
 const CAR_INFO = {
-  'Type 7': { builder:'Kinki Sharyo', year:'1986–1997', seats:46 },
-  'Type 8': { builder:'AnsaldoBreda', year:'1998–2007', seats:44 },
-  'Type 9': { builder:'CAF USA', year:'2018–2020', seats:44 },
-  'Type 10': { builder:'CAF USA', year:'2026–2031', seats:60 },
-  'PCC': { builder:'Pullman-Standard / St. Louis Car Co.', year:'1945–1946', seats:38 },
-  'Unknown': { builder:'Unknown', year:'Unknown', seats:null }
+  'Type 7': { builder:'Kinki Sharyo', year:'1986–1997', seats:46, width:'104"', length:'72\'', electrical:'Westinghouse' },
+  'Type 8': { builder:'AnsaldoBreda', year:'1998–2007', seats:44, width:'104"', length:'74\'', electrical:'Adtranz / Bombardier' },
+  'Type 9': { builder:'CAF USA', year:'2018–2020', seats:44, width:'104"', length:'74\'', electrical:'Mitsubishi Electric (MELCO)' },
+  'Type 10': { builder:'CAF USA', year:'2026–2031', seats:60, width:'104"', length:'114\'', electrical:'CAF' },
+  'PCC': { builder:'Pullman-Standard / St. Louis Car Co.', year:'1945–1946', seats:38, width:'100"', length:'46\'', electrical:'Westinghouse (rebuilt trucks/propulsion: Brookville)' },
+  'Unknown': { builder:'Unknown', year:'Unknown', seats:null, width:null, length:null, electrical:null }
 };
 
 // Red Line fleet — approximate numbering ranges by delivery order, not an
-// official MBTA roster.
+// official MBTA roster. seats/width/length/electrical from the MBTA Vehicle
+// Inventory doc (07/28/26 version); Type 1 uses the more common 01500-series
+// seat count (63) over the smaller 01600-series batch (64).
 const RED_CAR_INFO = {
-  'Type 1': { builder:'Pullman-Standard', year:'1969–1970' },
-  'Type 2': { builder:'UTDC', year:'1987–1989' },
-  'Type 3': { builder:'Bombardier', year:'1993–1994' },
-  'Type 4': { builder:'CRRC', year:'2019–2027' },
-  'Unknown': { builder:'Unknown', year:'Unknown' }
+  'Type 1': { builder:'Pullman-Standard', year:'1969–1970', seats:63, width:'122"', length:'69\'06"', electrical:'Westinghouse' },
+  'Type 2': { builder:'UTDC', year:'1987–1989', seats:62, width:'120"', length:'69\'09"', electrical:'Westinghouse' },
+  'Type 3': { builder:'Bombardier', year:'1993–1994', seats:50, width:'120"', length:'69\'06"', electrical:'General Electric' },
+  'Type 4': { builder:'CRRC', year:'2019–2027', seats:'32 (A-car) / 38 (B-car)', width:'120"', length:'69\'06"', electrical:'Mitsubishi Electric (MELCO)' },
+  'Unknown': { builder:'Unknown', year:'Unknown', seats:null, width:null, length:null, electrical:null }
 };
 const RED_BRANCH_COLORS = { ashmont:'#D57065', braintree:'#ECC1BC' };
 
@@ -1748,10 +1758,11 @@ function getRedCarType(label){
 }
 
 // Orange Line's entire fleet is now the CRRC-built cars (the old 01200-series
-// Hawker Siddeley cars were fully retired in August 2022).
+// Hawker Siddeley cars were fully retired in August 2022). seats/width/
+// length/electrical from the MBTA Vehicle Inventory doc (07/28/26 version).
 const ORANGE_CAR_INFO = {
-  'CRRC': { builder:'CRRC', year:'2018–2025' },
-  'Unknown': { builder:'Unknown', year:'Unknown' }
+  'CRRC': { builder:'CRRC', year:'2018–2025', seats:'41 (A-car) / 44 (B-car)', width:'111"', length:'65\'', electrical:'Mitsubishi Electric (MELCO)' },
+  'Unknown': { builder:'Unknown', year:'Unknown', seats:null, width:null, length:null, electrical:null }
 };
 function getOrangeCarType(label){
   const firstNum = parseInt(String(label).split(/[^0-9]+/).filter(Boolean)[0], 10);
@@ -1760,10 +1771,11 @@ function getOrangeCarType(label){
   return 'Unknown';
 }
 
-// Blue Line's entire fleet is the 0700-series Siemens cars.
+// Blue Line's entire fleet is the 0700-series Siemens cars. seats/width/
+// length/electrical from the MBTA Vehicle Inventory doc (07/28/26 version).
 const BLUE_CAR_INFO = {
-  'Siemens': { builder:'Siemens', year:'2007–2009' },
-  'Unknown': { builder:'Unknown', year:'Unknown' }
+  'Siemens': { builder:'Siemens', year:'2007–2009', seats:35, width:'111"', length:'48\'06"', electrical:'Siemens' },
+  'Unknown': { builder:'Unknown', year:'Unknown', seats:null, width:null, length:null, electrical:null }
 };
 function getBlueCarType(label){
   const firstNum = parseInt(String(label).split(/[^0-9]+/).filter(Boolean)[0], 10);
@@ -2489,10 +2501,27 @@ async function writeLastSeen(carNum, stopName){
     }, { merge:true });
   }catch(e){ console.error(e); }
 }
+// Returns every real car number MBTA reports for this vehicle/train, for use
+// anywhere a caller needs to know exactly which physical cars are running
+// right now (roster "Active now" badges, last-seen tracking). `label` alone
+// is what MBTA reports as the lead car (or lead pair) — for a Red/Orange
+// train longer than that, the mid/rear cars' own numbers aren't in the label
+// at all. `carriages` (already fetched for Red/Orange, see
+// fetchRedLineVehicles/fetchOrangeLineVehicles/fetchBlueLineVehicles) reports
+// one entry per actual physical car covering the FULL consist, so prefer it
+// whenever it's more complete than the label. Falls back to label parts when
+// carriages data isn't available (Green Line's fetch doesn't request it,
+// since Green trains — always 1-2 cars — are already fully represented by
+// their label).
+function getCarNumbersForVehicle(v){
+  const labelParts = String(v.label).split('-');
+  const carriageLabels = (v.carriages || []).map(c => c.label).filter(Boolean);
+  return carriageLabels.length > labelParts.length ? carriageLabels : labelParts;
+}
 function updateLastSeenTracking(vehicles){
   vehicles.forEach(v=>{
     if(!v.stopName) return;
-    String(v.label).split('-').forEach(carNum=>{
+    getCarNumbersForVehicle(v).forEach(carNum=>{
       if(lastSeenCache[carNum] !== v.stopName){
         lastSeenCache[carNum] = v.stopName;
         writeLastSeen(carNum, v.stopName);
@@ -5990,7 +6019,7 @@ async function fetchOrangeLineVehicles(){
 }
 
 async function fetchBlueLineVehicles(){
-  const url = withMbtaKey("https://api-v3.mbta.com/vehicles?filter[route]=Blue&include=stop,trip&fields[vehicle]=current_status,current_stop_sequence,direction_id,label,latitude,longitude,updated_at,speed&fields[stop]=name&fields[trip]=headsign");
+  const url = withMbtaKey("https://api-v3.mbta.com/vehicles?filter[route]=Blue&include=stop,trip&fields[vehicle]=current_status,current_stop_sequence,direction_id,label,latitude,longitude,updated_at,speed,carriages&fields[stop]=name&fields[trip]=headsign");
   const controller = new AbortController();
   const timeout = setTimeout(()=>controller.abort(), 6000);
   const res = await fetch(url, { signal: controller.signal, headers: MBTA_HEADERS });
@@ -6008,7 +6037,7 @@ async function fetchBlueLineVehicles(){
     return {
       id: v.id, branch: 'BLUE', label: v.attributes.label || v.id,
       status: v.attributes.current_status, direction: v.attributes.direction_id,
-      stopName: stopName, headsign: headsign,
+      stopName: stopName, headsign: headsign, carriages: v.attributes.carriages || null,
       lat: v.attributes.latitude, lon: v.attributes.longitude,
       speedMph: speedMph, updatedAt: v.attributes.updated_at
     };
@@ -6513,7 +6542,10 @@ function renderVehicleList(){
 function getActiveCarSet(){
   const set = new Set();
   state.vehicles.forEach(v=>{
-    String(v.label).split('-').forEach(c => set.add(c));
+    // getCarNumbersForVehicle prefers MBTA's carriages data (full consist)
+    // over the label (often just the lead car/pair) so mid-train cars on
+    // longer Red/Orange trains still show as "Active now" on the roster.
+    getCarNumbersForVehicle(v).forEach(c => set.add(c));
   });
   return set;
 }
@@ -6751,12 +6783,27 @@ async function buildRosterPanel(){
       ? `<div class="roster-edited-by">Last tracked ${lastSeenText}</div>`
       : `<div class="roster-edited-by" style="opacity:.6;">Not tracked yet</div>`;
 
-    // Seat counts are only known/verified for Green Line car types in this
-    // app (CAR_INFO) \u2014 Red/Orange/Blue's own *_CAR_INFO maps don't carry a
-    // seats field, so getSeatCount would just be guessing; leave it off
-    // rather than show a made-up number.
-    const seats = showGltps ? getSeatCount(entry.type, gltps ? gltps.status : null) : null;
-    const seatsSuffix = seats !== null ? ` \u00b7 ${seats} seats` : '';
+    // Green keeps its existing GLTPS-aware seat logic (getSeatCount, which
+    // knocks 2 seats off Type 7/8 cars that have GLTPS hardware installed)
+    // untouched. Red/Orange/Blue now have real, doc-sourced seat counts of
+    // their own in *_CAR_INFO (some are asymmetric A-car/B-car pairs, hence
+    // a string rather than always a number), with no GLTPS involved.
+    const seats = showGltps ? getSeatCount(entry.type, gltps ? gltps.status : null) : (info.seats !== undefined ? info.seats : null);
+    const seatsSuffix = (seats !== null && seats !== undefined) ? ` \u00b7 ${seats} seats` : '';
+
+    // Car measurements + traction/propulsion equipment, sourced from the
+    // MBTA Vehicle Inventory doc (07/28/26 version), shown for every line
+    // including Green (this is separate from the seats field above, so it
+    // doesn't touch Green's existing seat-count logic at all).
+    const specParts = [
+      info.width ? `Width ${info.width}` : null,
+      info.length ? `Length ${info.length}` : null,
+      info.electrical ? `Electrical: ${info.electrical}` : null
+    ].filter(Boolean);
+    const specsField = specParts.length ? `
+        <div class="roster-field-label">Car specs</div>
+        <div class="roster-readonly">${specParts.join(' \u00b7 ')}</div>
+      ` : '';
 
     const submitBtn = state.signedIn
       ? `<button class="account-btn roster-submit-btn" data-submit="${entry.key}" style="margin-top:10px;">Submit changes</button>
@@ -6776,6 +6823,7 @@ async function buildRosterPanel(){
         ${lastSeenLine}
         <div class="roster-expand-hint" data-roster-hint="${entry.key}">${isExpanded ? 'Hide details \u25b4' : 'Tap for details \u25be'}</div>
         <div class="roster-details" id="rosterDetails-${entry.key}">
+          ${specsField}
           <div class="roster-field-label">Status</div>
           ${statusField}
           ${scrapDateField}
