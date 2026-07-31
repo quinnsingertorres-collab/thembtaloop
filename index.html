@@ -2628,6 +2628,20 @@ function updateLastSeenTracking(vehicles){
       if(lastSeenCache[key] !== v.stopName){
         lastSeenCache[key] = v.stopName;
         writeLastSeen(key, v.stopName);
+        // Optimistically patch the roster panel's own 15-minute read cache
+        // (see loadRosterPanelData) so a car that's actively being tracked
+        // right now doesn't keep showing "Not tracked yet" on-screen for up
+        // to 15 minutes just because the roster page happened to load its
+        // data slightly before this write happened. updateRosterLiveState
+        // (called every poll, same as this function) picks this up and
+        // patches the visible card text immediately — no full rebuild
+        // needed, so an expanded card doesn't collapse just from this.
+        if(rosterPanelDataCache){
+          const ts = Date.now();
+          rosterPanelDataCache.rosterData[key] = Object.assign({}, rosterPanelDataCache.rosterData[key], {
+            lastSeenAt: ts, lastSeenStop: v.stopName
+          });
+        }
       }
     });
   });
@@ -2650,6 +2664,16 @@ function formatLastSeenTime(ts){
   if(monthsAgo < 12) return monthsAgo + 'mo ago';
   const yearsAgo = Math.floor(monthsAgo / 12);
   return yearsAgo + 'y ago';
+}
+// The roster card's "Last tracked" line text — shared between the full
+// buildRosterPanel() render and updateRosterLiveState()'s lighter per-poll
+// DOM patch below, so both always agree on the exact same wording.
+function renderLastSeenText(data){
+  if(!data || !data.lastSeenStop){
+    return 'Not tracked yet';
+  }
+  const timeText = data.lastSeenAt ? ` (${formatLastSeenTime(data.lastSeenAt)})` : '';
+  return `Last tracked: ${displayName(data.lastSeenStop)}${timeText}`;
 }
 
 /* ---------------- Personal preferences (dark mode, abbreviations) ---------------- */
@@ -6539,7 +6563,7 @@ async function refreshVehicles(){
 
   buildNav();
   if(state.currentPage === 'ROSTER'){
-    updateRosterActiveBadges();
+    updateRosterLiveState();
   }else{
     renderTrainDots();
     renderVehicleList();
@@ -6663,7 +6687,17 @@ function getActiveCarSet(){
   return set;
 }
 
-function updateRosterActiveBadges(){
+// Runs every poll while the roster page is open — a lightweight per-row DOM
+// patch (not a full buildRosterPanel() rebuild) so this can run constantly
+// without collapsing whatever card the user currently has expanded. Keeps
+// two things live: the "Active now" badge, and (added alongside the
+// optimistic cache patch in updateLastSeenTracking above) the "Last
+// tracked" line, which previously only ever reflected whatever the roster
+// data cache looked like at the moment the page was last fully built —
+// so a car that started getting tracked while you were already sitting on
+// the roster page would keep showing "Not tracked yet" until you left and
+// came back.
+function updateRosterLiveState(){
   if(state.currentPage !== 'ROSTER') return;
   const activeSet = getActiveCarSet();
   document.querySelectorAll('.roster-row').forEach(row=>{
@@ -6678,6 +6712,14 @@ function updateRosterActiveBadges(){
       head.appendChild(span);
     }else if(!isActive && existingBadge){
       existingBadge.remove();
+    }
+
+    const key = row.dataset.rosterToggle;
+    const lastSeenEl = row.querySelector(`[data-last-seen-line="${key}"]`);
+    if(lastSeenEl && rosterPanelDataCache){
+      const data = rosterPanelDataCache.rosterData[key];
+      lastSeenEl.textContent = renderLastSeenText(data);
+      lastSeenEl.style.opacity = (data && data.lastSeenStop) ? '' : '.6';
     }
   });
 }
@@ -6891,9 +6933,7 @@ async function buildRosterPanel(){
         </div>` : ''}
       ` : '';
 
-    const lastSeenLine = data.lastSeenStop
-      ? `<div class="roster-edited-by">Last tracked: ${displayName(data.lastSeenStop)}${data.lastSeenAt ? ` (${formatLastSeenTime(data.lastSeenAt)})` : ''}</div>`
-      : `<div class="roster-edited-by" style="opacity:.6;">Not tracked yet</div>`;
+    const lastSeenLine = `<div class="roster-edited-by" data-last-seen-line="${entry.key}"${data.lastSeenStop ? '' : ' style="opacity:.6;"'}>${renderLastSeenText(data)}</div>`;
 
     // Green keeps its existing GLTPS-aware seat logic (getSeatCount, which
     // knocks 2 seats off Type 7/8 cars that have GLTPS hardware installed)
