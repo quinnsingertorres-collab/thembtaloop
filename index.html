@@ -1498,7 +1498,7 @@ const ROW_H = 48;
 const CAR_INFO = {
   'Type 7': { builder:'Kinki Sharyo', year:'1986–1997', seats:46 },
   'Type 8': { builder:'AnsaldoBreda', year:'1998–2007', seats:44 },
-  'Type 9': { builder:'CAF USA', year:'2018–2019', seats:44 },
+  'Type 9': { builder:'CAF USA', year:'2018–2020', seats:44 },
   'Type 10': { builder:'CAF USA', year:'2026–2031', seats:60 },
   'PCC': { builder:'Pullman-Standard / St. Louis Car Co.', year:'1945–1946', seats:38 },
   'Unknown': { builder:'Unknown', year:'Unknown', seats:null }
@@ -1746,7 +1746,7 @@ function getOrangeCarType(label){
 
 // Blue Line's entire fleet is the 0700-series Siemens cars.
 const BLUE_CAR_INFO = {
-  'Siemens': { builder:'Siemens', year:'2007–2010' },
+  'Siemens': { builder:'Siemens', year:'2007–2009' },
   'Unknown': { builder:'Unknown', year:'Unknown' }
 };
 function getBlueCarType(label){
@@ -1932,43 +1932,103 @@ const PCC_CAR_NUMBERS = ['3087','3230','3234','3238','3254','3260','3262','3263'
 // roster — some numbers in these ranges may not correspond to an actual car,
 // and any real retirements/renumbering won't be reflected automatically.
 const ROSTER_RANGES = [
+  // Real numbering, cross-checked against the MBTA Vehicle Inventory doc
+  // (07/28/26 version) rather than a guessed contiguous block. Every number
+  // in a range gets a roster entry, including scrapped/retired ones — see
+  // GREEN_RETIRED_CARS below, which supplies each of those with a default
+  // status (instead of excluding them from the roster entirely) so
+  // historic/retired cars stay visible per line-history request.
   { type:'Type 7', start:3600, end:3719 },
-  { type:'Type 8', start:3800, end:3899 },
+  { type:'Type 8', start:3800, end:3894 },
   { type:'Type 9', start:3900, end:3923 },
-  { type:'Type 10', start:4001, end:4102 }
+  // All 102 Type 10s are pre-delivery per the doc ("102 on order", 2026-2031)
+  // — notYetDeliveredFrom flags every number in this range so the roster
+  // defaults each to "Not yet delivered" (see buildRosterPanel) the same
+  // way it already did before this real-data pass.
+  { type:'Type 10', start:4001, end:4102, notYetDeliveredFrom:4001 }
 ];
-// Same idea, one set of ranges per other line — mirrors the numbering
-// already used for live car-type detection (getRedCarType/getOrangeCarType/
-// getBlueCarType above), just turned into a full roster the same way Green's
-// ranges are.
+// Green Line cars that are scrapped/retired but still get a roster entry
+// (per user request to keep historic cars visible rather than omitting
+// them). Values are the default status badge shown unless a moderator sets
+// an explicit status override in Firestore. Sourced from the MBTA Vehicle
+// Inventory doc's (07/28/26 version) own "Current all-time list of scrapped
+// Type 7s" and Type 8 out-of-service notes — 17 Type 7 numbers plus Type 8
+// car 3879 (converted to a static training display at Broadway, "no longer
+// counted as part of the revenue fleet").
+const GREEN_RETIRED_CARS = {
+  3657: 'Scrapped 1998',
+  3672: 'Scrapped 1998',
+  3638: 'Scrapped 2005',
+  3666: 'Scrapped 2005',
+  3612: 'Scrapped 2012',
+  3623: 'Scrapped 2012',
+  3637: 'Scrapped 2012',
+  3648: 'Scrapped 2012',
+  3667: 'Scrapped 2012',
+  3602: 'Scrapped 2018–2019',
+  3630: 'Scrapped 2018–2019',
+  3650: 'Scrapped 2018–2019',
+  3679: 'Scrapped 2018–2019',
+  3693: 'Scrapped 2018–2019',
+  3703: 'Scrapped 2020',
+  3711: 'Scrapped 2020',
+  3719: 'Scrapped 2020',
+  3879: 'Retired — static display (Broadway)'
+};
+// Same idea, one set of ranges per other line, also pulled from the same
+// inventory doc instead of the live car-type detection's own rough
+// approximation (getRedCarType/getOrangeCarType/getBlueCarType above exist
+// only to classify an already-known car number into a type, so they didn't
+// need to be this precise — a full roster does).
 const RED_ROSTER_RANGES = [
-  { type:'Type 1', start:1500, end:1699 },
-  { type:'Type 2', start:1700, end:1799 },
-  { type:'Type 3', start:1800, end:1899 },
-  { type:'Type 4', start:1900, end:1999 }
+  // #1 cars: only 18 of these ever survive today (14 from the 1500-1523
+  // batch, 4 from 1600-1651) — the other ~130 possible numbers in those two
+  // spans were scrapped in 2024/2025, so an explicit list is far more
+  // accurate here than a range with a huge exclude list.
+  { type:'Type 1', numbers:[1500,1501,1506,1507,1508,1509,1514,1515,1516,1517,1520,1521,1522,1523,1616,1617,1630,1631] },
+  { type:'Type 2', start:1700, end:1757, exclude:[1712,1713,1744,1745,1754,1755] },
+  { type:'Type 3', start:1800, end:1885, exclude:[1816,1817,1844,1845] },
+  // #4 cars: 1900-1967 are real, in-service cars; 1968-2151 is the
+  // remainder of the 184-still-on-order allocation (see notYetDeliveredFrom).
+  { type:'Type 4', start:1900, end:2151, notYetDeliveredFrom:1968 }
 ];
 const ORANGE_ROSTER_RANGES = [
-  { type:'CRRC', start:1400, end:1599 }
+  { type:'CRRC', start:1400, end:1551 }
 ];
 const BLUE_ROSTER_RANGES = [
-  { type:'Siemens', start:700, end:799 }
+  { type:'Siemens', start:700, end:793 }
 ];
 const ROSTER_RANGES_BY_LINE = { green: ROSTER_RANGES, red: RED_ROSTER_RANGES, orange: ORANGE_ROSTER_RANGES, blue: BLUE_ROSTER_RANGES };
 function buildRosterCarList(line){
   const list = [];
   (ROSTER_RANGES_BY_LINE[line] || ROSTER_RANGES).forEach(r=>{
-    for(let n = r.start; n <= r.end; n++){
+    // Either a plain explicit list (numbers), or a start/end span with an
+    // optional exclude list of specific numbers to skip within it.
+    const nums = r.numbers ? r.numbers : (()=>{
+      const arr = [];
+      for(let n = r.start; n <= r.end; n++){
+        if(!r.exclude || !r.exclude.includes(n)) arr.push(n);
+      }
+      return arr;
+    })();
+    nums.forEach(n=>{
       // `car` is the plain number shown on screen and matched against live
       // vehicle labels (for the "Active now" badge); `key` is what actually
       // gets used as the Firestore doc id for this entry's roster/GLTPS
       // data. Green keeps a bare number for `key` to match years of
-      // already-stored data, but Red's and Orange's own approximate ranges
-      // above overlap (both cover parts of the 1500s) — without a
-      // line-prefixed key here, a Red car and an Orange car with the same
-      // number would silently share one roster entry.
+      // already-stored data, but Red's and Orange's own ranges above
+      // overlap (both cover parts of the 1500s) — without a line-prefixed
+      // key here, a Red car and an Orange car with the same number would
+      // silently share one roster entry.
       const key = line === 'green' ? String(n) : `${line}-${n}`;
-      list.push({ car: String(n), key, type: r.type });
-    }
+      const entry = { car: String(n), key, type: r.type };
+      if(r.notYetDeliveredFrom !== undefined && n >= r.notYetDeliveredFrom) entry.notYetDelivered = true;
+      if(line === 'green' && GREEN_RETIRED_CARS[n]){
+        entry.retired = true;
+        entry.retiredNote = GREEN_RETIRED_CARS[n];
+      }
+      list.push(entry);
+    });
   });
   if(line === 'green'){
     PCC_CAR_NUMBERS.forEach(n => list.push({ car: n, key: n, type: 'PCC', hasRebuildStatus: true }));
@@ -6523,8 +6583,30 @@ document.getElementById('inspectorsSearch').addEventListener('input', (e)=>{
   buildInspectorsPanel();
 });
 
+// The roster panel used to re-fetch the entire roster/GLTPS/users
+// collections from Firestore on every single render — which, since
+// buildRosterPanel also runs on every keystroke in the search box, meant
+// one full set of collection reads per character typed. Cache all three
+// together for 15 minutes so normal browsing (search, filter, opening the
+// page) reuses one pull instead of hammering the database; an explicit
+// write (submit/GLTPS/reset below) updates this cache directly instead of
+// forcing a fresh pull, so the editor's own change still shows up
+// immediately without costing another read.
+let rosterPanelDataCache = null;
+let rosterPanelDataCacheTs = 0;
+const ROSTER_PANEL_CACHE_TTL_MS = 15 * 60 * 1000;
+async function loadRosterPanelData(forceRefresh){
+  const isStale = !rosterPanelDataCache || (Date.now() - rosterPanelDataCacheTs) >= ROSTER_PANEL_CACHE_TTL_MS;
+  if(forceRefresh || isStale){
+    const [rosterData, gltpsMap, tagMap] = await Promise.all([loadRoster(), loadGltps(), getUserTagMap()]);
+    rosterPanelDataCache = { rosterData, gltpsMap, tagMap };
+    rosterPanelDataCacheTs = Date.now();
+  }
+  return rosterPanelDataCache;
+}
+
 async function buildRosterPanel(){
-  const [rosterData, gltpsMap, tagMap] = await Promise.all([loadRoster(), loadGltps(), getUserTagMap()]);
+  const { rosterData, gltpsMap, tagMap } = await loadRosterPanelData();
   const activeSet = getActiveCarSet();
   const search = state.rosterSearch.trim();
   const typeFilter = state.rosterTypeFilter;
@@ -6559,11 +6641,18 @@ async function buildRosterPanel(){
     const gltps = showGltps ? gltpsMap[entry.car] : null;
     const isActive = activeSet.has(entry.car);
     const info = rosterCarInfoFor(state.activeLine, entry.type);
-    // Type 10 cars default to "Not yet delivered" until a moderator/community
-    // member sets a real status, without that default actually being written
-    // to the database (so it stays a display default, not a stored fact).
-    const effectiveStatus = data.status || (entry.type === 'Type 10' ? 'Not yet delivered' : '');
-    const statusColor = STATUS_COLORS[effectiveStatus] || '';
+    // Cars still on order (Green's Type 10s, and the not-yet-built tail end
+    // of Red's Type 4 allocation) default to "Not yet delivered" until a
+    // moderator/community member sets a real status, without that default
+    // actually being written to the database (so it stays a display
+    // default, not a stored fact) — see notYetDeliveredFrom in
+    // buildRosterCarList. Scrapped/retired Green Line cars work the same
+    // way: entry.retiredNote (from GREEN_RETIRED_CARS) is the default shown
+    // until a moderator sets an explicit override.
+    const effectiveStatus = data.status || (entry.notYetDelivered ? 'Not yet delivered' : '') || (entry.retired ? entry.retiredNote : '');
+    const statusColor = STATUS_COLORS[effectiveStatus]
+      || (/^Scrapped/.test(effectiveStatus) ? STATUS_COLORS['Scrapped'] : '')
+      || (/^Retired/.test(effectiveStatus) ? STATUS_COLORS['Retired'] : '');
     const gltpsColor = gltps
       ? (gltps.status === 'Installed' ? '#0F8A4B' : (gltps.status === 'Not installed' ? '#D64545' : 'var(--text-faint)'))
       : (entry.type === 'Type 10' ? '#0F8A4B' : '');
@@ -6717,7 +6806,12 @@ async function buildRosterPanel(){
 
       btn.disabled = true;
       btn.textContent = 'Submitting\u2026';
-      await saveRosterEntry(key, patch, row.dataset.car);
+      const saved = await saveRosterEntry(key, patch, row.dataset.car);
+      // Merge the save straight into the cache instead of letting the next
+      // buildRosterPanel() call trigger a fresh pull to see it \u2014 this is a
+      // partial patch (a roster entry has several independently-editable
+      // fields), so merge rather than replace.
+      if(rosterPanelDataCache) rosterPanelDataCache.rosterData[key] = Object.assign({}, rosterPanelDataCache.rosterData[key], saved);
       if(pointsToAward > 0) awardPoints(pointsToAward);
       buildRosterPanel();
     });
@@ -6727,9 +6821,13 @@ async function buildRosterPanel(){
     btn.addEventListener('click', async ()=>{
       const car = btn.dataset.gltpsCar;
       const status = btn.dataset.status;
-      const map = await loadGltps();
-      const changed = !map[car] || map[car].status !== status;
-      await saveGltpsEntry(car, status);
+      // Read the current value from the same cache buildRosterPanel already
+      // loaded, instead of a dedicated loadGltps() pull just to check
+      // whether this click actually changes anything.
+      const cached = await loadRosterPanelData();
+      const changed = !cached.gltpsMap[car] || cached.gltpsMap[car].status !== status;
+      const saved = await saveGltpsEntry(car, status);
+      cached.gltpsMap[car] = saved;
       if(changed) awardPoints(3);
       buildRosterPanel();
     });
@@ -6738,7 +6836,9 @@ async function buildRosterPanel(){
   list.querySelectorAll('[data-reset]').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
       if(!state.isModerator) return;
-      await resetRosterEntry(btn.dataset.reset);
+      const key = btn.dataset.reset;
+      await resetRosterEntry(key);
+      if(rosterPanelDataCache) delete rosterPanelDataCache.rosterData[key];
       buildRosterPanel();
     });
   });
