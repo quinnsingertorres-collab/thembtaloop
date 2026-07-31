@@ -2612,15 +2612,20 @@ function updateLastSeenTracking(vehicles){
   });
 }
 // Relative-time text shown in parens after the station name on the roster's
-// "Last tracked" line — "now" for anything under 5 minutes old, minutes for
-// under an hour, a full date/time beyond that.
+// "Last tracked" line — steps up units as the gap grows: "now" under 5
+// minutes, minutes under an hour, hours under a day, days under a month,
+// months beyond that (~30-day months — close enough for a "roughly how
+// stale is this" label, not meant to be calendar-exact).
 function formatLastSeenTime(ts){
   const minutesAgo = Math.floor((Date.now() - ts) / 60000);
   if(minutesAgo < 5) return 'now';
   if(minutesAgo < 60) return minutesAgo + 'm ago';
-  return new Date(ts).toLocaleString('en-US', {
-    month:'short', day:'numeric', year:'numeric', hour:'numeric', minute:'2-digit'
-  });
+  const hoursAgo = Math.floor(minutesAgo / 60);
+  if(hoursAgo < 24) return hoursAgo + 'h ago';
+  const daysAgo = Math.floor(hoursAgo / 24);
+  if(daysAgo < 30) return daysAgo + 'd ago';
+  const monthsAgo = Math.floor(daysAgo / 30);
+  return monthsAgo + 'mo ago';
 }
 
 /* ---------------- Personal preferences (dark mode, abbreviations) ---------------- */
