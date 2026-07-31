@@ -1011,7 +1011,7 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
   <div class="panel full-bleed" id="rosterPanel" style="display:none;">
    <div class="full-bleed-inner">
     <div class="panel-head">
-      <h2>Fleet Roster</h2>
+      <h2 id="rosterTitle">Fleet Roster</h2>
       <span class="note" id="rosterMeta">&mdash;</span>
     </div>
     <div class="back-link" id="rosterBackBtn">&lsaquo; Back</div>
@@ -1019,11 +1019,6 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
       <input type="text" id="rosterSearch" placeholder="Search car number&hellip;">
       <select id="rosterTypeFilter">
         <option value="ALL">All types</option>
-        <option value="Type 7">Type 7</option>
-        <option value="Type 8">Type 8</option>
-        <option value="Type 9">Type 9</option>
-        <option value="Type 10">Type 10</option>
-        <option value="PCC">PCC (Mattapan)</option>
       </select>
       <button class="account-btn" id="rosterClearFiltersBtn" style="flex:0 0 auto;">Clear filters</button>
     </div>
@@ -1942,15 +1937,66 @@ const ROSTER_RANGES = [
   { type:'Type 9', start:3900, end:3923 },
   { type:'Type 10', start:4001, end:4102 }
 ];
-function buildRosterCarList(){
+// Same idea, one set of ranges per other line — mirrors the numbering
+// already used for live car-type detection (getRedCarType/getOrangeCarType/
+// getBlueCarType above), just turned into a full roster the same way Green's
+// ranges are.
+const RED_ROSTER_RANGES = [
+  { type:'Type 1', start:1500, end:1699 },
+  { type:'Type 2', start:1700, end:1799 },
+  { type:'Type 3', start:1800, end:1899 },
+  { type:'Type 4', start:1900, end:1999 }
+];
+const ORANGE_ROSTER_RANGES = [
+  { type:'CRRC', start:1400, end:1599 }
+];
+const BLUE_ROSTER_RANGES = [
+  { type:'Siemens', start:700, end:799 }
+];
+const ROSTER_RANGES_BY_LINE = { green: ROSTER_RANGES, red: RED_ROSTER_RANGES, orange: ORANGE_ROSTER_RANGES, blue: BLUE_ROSTER_RANGES };
+function buildRosterCarList(line){
   const list = [];
-  ROSTER_RANGES.forEach(r=>{
-    for(let n = r.start; n <= r.end; n++) list.push({ car: String(n), type: r.type });
+  (ROSTER_RANGES_BY_LINE[line] || ROSTER_RANGES).forEach(r=>{
+    for(let n = r.start; n <= r.end; n++){
+      // `car` is the plain number shown on screen and matched against live
+      // vehicle labels (for the "Active now" badge); `key` is what actually
+      // gets used as the Firestore doc id for this entry's roster/GLTPS
+      // data. Green keeps a bare number for `key` to match years of
+      // already-stored data, but Red's and Orange's own approximate ranges
+      // above overlap (both cover parts of the 1500s) — without a
+      // line-prefixed key here, a Red car and an Orange car with the same
+      // number would silently share one roster entry.
+      const key = line === 'green' ? String(n) : `${line}-${n}`;
+      list.push({ car: String(n), key, type: r.type });
+    }
   });
-  PCC_CAR_NUMBERS.forEach(n => list.push({ car: n, type: 'PCC', hasRebuildStatus: true }));
+  if(line === 'green'){
+    PCC_CAR_NUMBERS.forEach(n => list.push({ car: n, key: n, type: 'PCC', hasRebuildStatus: true }));
+  }
   return list;
 }
-const ROSTER_CARS = buildRosterCarList();
+let ROSTER_CARS = buildRosterCarList('green');
+// Rebuilt whenever the active line changes (see revealApp) so the roster
+// page always reflects whichever line is currently selected.
+function rebuildRosterCarList(){
+  ROSTER_CARS = buildRosterCarList(state.activeLine);
+}
+// Builder/year lookup for a roster entry, generalized across lines the same
+// way lineCarInfoMap() already does for the live car-type row in the car
+// modal — Green keeps its own CAR_INFO map (with seat counts), the other
+// three each have their own *_CAR_INFO map (builder/year only; no verified
+// seat-count data for those in this app yet).
+function rosterCarInfoFor(line, type){
+  const map = line === 'red' ? RED_CAR_INFO : line === 'orange' ? ORANGE_CAR_INFO : line === 'blue' ? BLUE_CAR_INFO : CAR_INFO;
+  return map[type] || map['Unknown'];
+}
+// Green's Type 7 build-year split (getBuildYear) only makes sense for Green;
+// every other line's roster just shows its CAR_INFO-equivalent year range
+// as-is.
+function rosterBuildYearFor(line, type, car){
+  if(line === 'green') return getBuildYear(type, car);
+  return rosterCarInfoFor(line, type).year;
+}
 
 let state = { vehicles: [], currentPage: 'B', lastMainPage: 'B', live: null, abbreviate: false, staggerBunchedTrains: false, signedIn: false, userName: '', photoURL: '', isModerator: false, isTrustedMember: false, filterDirection: 'ALL', filterType: 'ALL', rosterSearch: '', rosterTypeFilter: 'ALL', notifMaster: true, notifDoubleType8: false, notifPride: false, notifType9: false, notifCarBackInService: false, activeLine: 'green', otherBranchesVisible: { B:false, C:false, D:false, E:false, ashmont:false, braintree:false }, statusChipShowDate: true, statusChipShowWeather: true, clockShowSeconds: true, clock24Hour: false, statusChipPosition: 'below' };
 let layout = null; // computed pixel layout for the current ladder
@@ -2324,7 +2370,7 @@ async function loadRoster(){
     return raw ? JSON.parse(raw) : {};
   }catch(e){ return {}; }
 }
-async function saveRosterEntry(carNum, patch){
+async function saveRosterEntry(carNum, patch, displayCarNum){
   const payload = Object.assign({}, patch, {
     editedBy: state.userName,
     editedByUid: state.uid || null,
@@ -2332,7 +2378,11 @@ async function saveRosterEntry(carNum, patch){
   });
   if(firebaseReady){
     try{ await fbDb.collection('roster').doc(carNum).set(payload, { merge:true }); }catch(e){ console.error(e); }
-    logEdit(state.userName, state.uid, `Edited roster entry for car ${carNum}`);
+    // displayCarNum is the plain number shown on screen — for Red/Orange/
+    // Blue, carNum itself is a line-prefixed storage key (e.g. "red-1550")
+    // to avoid collisions between lines' overlapping approximate ranges,
+    // which would read strangely in the edit log otherwise.
+    logEdit(state.userName, state.uid, `Edited roster entry for car ${displayCarNum || carNum}`);
     return payload;
   }
   const data = await loadRoster();
@@ -2690,12 +2740,6 @@ function switchPage(key){
   if(p.isMembers && !state.isModerator) key = 'B'; // safety: never land on Admin without moderator rights
   if(p.isModNotifs && !state.isModerator) key = 'B'; // safety: never land on Alerts and Notifications without moderator rights
   if(p.isEditLogs && !state.isModerator) key = 'B'; // safety: never land on Edit Logs without moderator rights
-  // safety: the Fleet Roster only covers Green Line (and Mattapan) car
-  // types (see ROSTER_RANGES) — it has no data for Red/Orange/Blue at all,
-  // so it doesn't make sense to let it be reached while looking at those
-  // lines. Falls back to whatever real line page was last shown rather
-  // than a hardcoded one, same as the other safety redirects' intent.
-  if(p.isRoster && state.activeLine !== 'green') key = state.lastMainPage || 'B';
   state.currentPage = key;
   try{ localStorage.setItem(LAST_PAGE_KEY, key); }catch(e){ /* ignore */ }
   const page = PAGES[key];
@@ -6492,6 +6536,11 @@ async function buildRosterPanel(){
   });
 
   document.getElementById('rosterMeta').textContent = filtered.length + ' of ' + ROSTER_CARS.length + ' cars';
+  const rosterTitleEl = document.getElementById('rosterTitle');
+  if(rosterTitleEl){
+    const lineLabel = { green:'Green Line', red:'Red Line', orange:'Orange Line', blue:'Blue Line' }[state.activeLine] || '';
+    rosterTitleEl.textContent = lineLabel ? `Fleet Roster — ${lineLabel}` : 'Fleet Roster';
+  }
 
   const list = document.getElementById('rosterList');
   if(filtered.length === 0){
@@ -6500,12 +6549,16 @@ async function buildRosterPanel(){
   }
 
   const STATUS_COLORS = { 'In Service':'#0F8A4B', 'Out of Service':'#D64545', 'Scrapped':'#6B7280', 'Not yet delivered':'#B45309', 'Out for Rebuild':'#7C3AED', 'Testing':'#0891B2', 'Retired':'#6B7280', 'Work Car':'#EA580C' };
+  // GLTPS is real Green Line/Mattapan hardware (retrofitted onto Type 7/8
+  // only) — it doesn't exist on Red, Orange, or Blue at all, so that whole
+  // field is Green-only below.
+  const showGltps = state.activeLine === 'green';
 
   list.innerHTML = filtered.map(entry=>{
-    const data = rosterData[entry.car] || {};
-    const gltps = gltpsMap[entry.car];
+    const data = rosterData[entry.key] || {};
+    const gltps = showGltps ? gltpsMap[entry.car] : null;
     const isActive = activeSet.has(entry.car);
-    const info = CAR_INFO[entry.type] || CAR_INFO['Unknown'];
+    const info = rosterCarInfoFor(state.activeLine, entry.type);
     // Type 10 cars default to "Not yet delivered" until a moderator/community
     // member sets a real status, without that default actually being written
     // to the database (so it stays a display default, not a stored fact).
@@ -6519,7 +6572,7 @@ async function buildRosterPanel(){
       ? `<div class="roster-edited-by">Last edited by ${renderNameWithTag(data.editedBy, data.editedByUid, tagMap)} (${timeAgo(new Date(data.ts).toISOString())})</div>`
       : '';
     const resetBtn = (state.isModerator && (data.livery || data.notes || data.status || data.rebuildStatus || data.workCarType))
-      ? `<button class="roster-reset-btn" data-reset="${entry.car}">Reset entry (moderator)</button>`
+      ? `<button class="roster-reset-btn" data-reset="${entry.key}">Reset entry (moderator)</button>`
       : '';
     const statusBadge = effectiveStatus
       ? `<span class="roster-status-badge" style="background:${statusColor}">${effectiveStatus}</span>`
@@ -6572,7 +6625,7 @@ async function buildRosterPanel(){
           : `<div class="roster-readonly">${data.rebuildStatus || '<span style="opacity:.5;">Not set</span>'}</div>`}
       ` : '';
 
-    const gltpsField = `
+    const gltpsField = showGltps ? `
         <div class="roster-field-label">GLTPS</div>
         <div class="roster-readonly" style="color:${gltpsColor};">${gltps ? gltps.status : (entry.type === 'Type 10' ? 'Installed' : 'Unreported')}</div>
         ${(state.signedIn && data.status !== 'Scrapped') ? `
@@ -6581,26 +6634,30 @@ async function buildRosterPanel(){
           <button class="gltps-btn${gltps && gltps.status==='Not installed' ? ' active' : ''}" data-gltps-car="${entry.car}" data-status="Not installed">Not installed</button>
           <button class="gltps-btn${gltps && gltps.status==='Unknown' ? ' active' : ''}" data-gltps-car="${entry.car}" data-status="Unknown">Unknown</button>
         </div>` : ''}
-      `;
+      ` : '';
 
     const lastSeenText = formatLastSeen(data.lastSeenAt, data.lastSeenStop);
     const lastSeenLine = lastSeenText
       ? `<div class="roster-edited-by">Last tracked ${lastSeenText}</div>`
       : `<div class="roster-edited-by" style="opacity:.6;">Not tracked yet</div>`;
 
-    const seats = getSeatCount(entry.type, gltps ? gltps.status : null);
+    // Seat counts are only known/verified for Green Line car types in this
+    // app (CAR_INFO) \u2014 Red/Orange/Blue's own *_CAR_INFO maps don't carry a
+    // seats field, so getSeatCount would just be guessing; leave it off
+    // rather than show a made-up number.
+    const seats = showGltps ? getSeatCount(entry.type, gltps ? gltps.status : null) : null;
     const seatsSuffix = seats !== null ? ` \u00b7 ${seats} seats` : '';
 
     const submitBtn = state.signedIn
-      ? `<button class="account-btn roster-submit-btn" data-submit="${entry.car}" style="margin-top:10px;">Submit changes</button>
-         <span class="roster-submit-note" data-submit-note="${entry.car}"></span>`
+      ? `<button class="account-btn roster-submit-btn" data-submit="${entry.key}" style="margin-top:10px;">Submit changes</button>
+         <span class="roster-submit-note" data-submit-note="${entry.key}"></span>`
       : '';
 
     return `
       <div class="roster-row" data-car="${entry.car}">
         <div class="roster-row-head">
           <span class="roster-car-chip">Car ${entry.car}</span>
-          <span class="roster-type-tag">${entry.type} \u00b7 ${info.builder} \u00b7 ${getBuildYear(entry.type, entry.car)}${seatsSuffix}</span>
+          <span class="roster-type-tag">${entry.type} \u00b7 ${info.builder} \u00b7 ${rosterBuildYearFor(state.activeLine, entry.type, entry.car)}${seatsSuffix}</span>
           ${statusBadge}
           ${isActive ? '<span class="roster-active-badge">Active now</span>' : ''}
         </div>
@@ -6627,9 +6684,14 @@ async function buildRosterPanel(){
   list.querySelectorAll('[data-submit]').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
       if(!state.signedIn) return;
-      const car = btn.dataset.submit;
-      const row = list.querySelector(`.roster-row[data-car="${car}"]`);
-      const note = list.querySelector(`[data-submit-note="${car}"]`);
+      // The submit button's own data-submit value is the storage key
+      // (line-prefixed for Red/Orange/Blue \u2014 see buildRosterCarList), not
+      // necessarily the plain car number shown on screen, so find the row
+      // via DOM structure rather than re-matching on a car number that
+      // might not even be unique across lines.
+      const key = btn.dataset.submit;
+      const row = btn.closest('.roster-row');
+      const note = list.querySelector(`[data-submit-note="${key}"]`);
       const patch = {};
       let pointsToAward = 0;
 
@@ -6655,7 +6717,7 @@ async function buildRosterPanel(){
 
       btn.disabled = true;
       btn.textContent = 'Submitting\u2026';
-      await saveRosterEntry(car, patch);
+      await saveRosterEntry(key, patch, row.dataset.car);
       if(pointsToAward > 0) awardPoints(pointsToAward);
       buildRosterPanel();
     });
@@ -7235,6 +7297,24 @@ function rebuildTypeFilterOptions(){
     `<option value="Unknown">Unknown</option>`;
   state.filterType = 'ALL';
 }
+// Same idea as rebuildTypeFilterOptions above, for the Fleet Roster's own
+// type filter — Green additionally gets a PCC (Mattapan) option since that
+// roster covers the whole Green Line family, not just the four LRV types.
+function rebuildRosterTypeFilterOptions(){
+  const select = document.getElementById('rosterTypeFilter');
+  if(!select) return;
+  const optionsByLine = {
+    red: ['Type 1','Type 2','Type 3','Type 4'],
+    orange: ['CRRC'],
+    blue: ['Siemens'],
+    green: ['Type 7','Type 8','Type 9','Type 10','PCC']
+  };
+  const labelOverrides = { PCC: 'PCC (Mattapan)' };
+  const opts = optionsByLine[state.activeLine] || optionsByLine.green;
+  select.innerHTML = `<option value="ALL">All types</option>` +
+    opts.map(o => `<option value="${o}">${labelOverrides[o] || o}</option>`).join('');
+  state.rosterTypeFilter = 'ALL';
+}
 
 const LINE_DEFAULT_PAGE = { green:'B', red:'REDASHMONT', orange:'ORANGE', blue:'BLUE' };
 const LINE_PAGE_KEYS = {
@@ -7264,13 +7344,13 @@ function revealApp(line){
   state.activeLine = line;
   applyLineAccent(LINE_ACCENT[line]);
   updateLogoForLine(line);
-  // Fleet Roster only has data for Green Line (and Mattapan) car types —
-  // hide the menu entry entirely on the other lines rather than leaving a
-  // link that would just redirect away the moment it's clicked (see the
-  // matching safety check in switchPage).
-  const rosterMenuLinkEl = document.getElementById('rosterMenuLink');
-  if(rosterMenuLinkEl) rosterMenuLinkEl.style.display = line === 'green' ? 'flex' : 'none';
   rebuildTypeFilterOptions();
+  // The Fleet Roster now has its own car list/type options per line (see
+  // buildRosterCarList) — rebuild both here so the roster reflects whatever
+  // line is now active the next time it's opened, same as the live
+  // vehicle-list type filter just above.
+  rebuildRosterCarList();
+  rebuildRosterTypeFilterOptions();
   updateDirectionLabels();
   if(line === 'red') refreshRedOriginLogCache();
   // This resolves after switchPage() below has already done its own
