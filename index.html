@@ -2089,11 +2089,61 @@ function rosterCarInfoFor(line, type){
   const map = line === 'red' ? RED_CAR_INFO : line === 'orange' ? ORANGE_CAR_INFO : line === 'blue' ? BLUE_CAR_INFO : CAR_INFO;
   return map[type] || map['Unknown'];
 }
+// Real per-pair delivery dates for Red Line's Type 4 cars, sourced from the
+// MBTA Vehicle Inventory doc's (07/28/26 version) own delivery chronology —
+// gives every currently-delivered car (1900-1967) its actual month/year in
+// service instead of the generic '2019–2027' order-wide range in
+// RED_CAR_INFO. Cars 1968 and up are still on order (see
+// notYetDeliveredFrom in RED_ROSTER_RANGES) with no real date yet, so
+// they're not in this map and just keep falling back to that generic range.
+const RED_TYPE4_DELIVERY_DATES = {};
+(function(){
+  const groups = [
+    [[1900,1911], '2019–2022'], // delivered as a rolling batch; doc gives no finer-grained date for this span
+    [[1912,1913], 'Oct 2023'],
+    [[1914,1915], 'Jan 2024'],
+    [[1916,1917], 'March 2024'],
+    [[1930,1931], 'April 2024'],
+    [[1918,1919], 'July 2024'],
+    [[1920,1921], 'Aug 2024'],
+    [[1928,1929], 'Aug 2024'],
+    [[1922,1923], 'Sep 2024'],
+    [[1924,1925], 'Oct 2024'],
+    [[1926,1927], 'Nov 2024'],
+    [[1932,1933], 'Dec 2024'],
+    [[1934,1935], 'Jan 2025'],
+    [[1936,1937], 'Feb 2025'],
+    [[1938,1939], 'March 2025'],
+    [[1942,1943], 'April 2025'],
+    [[1940,1941], 'May 2025'],
+    [[1944,1945], 'June 2025'],
+    [[1946,1947], 'July 2025'],
+    [[1948,1949], 'July 2025'],
+    [[1950,1951], 'Sep 2025'],
+    [[1952,1953], 'Sep 2025'],
+    [[1954,1955], 'Oct 2025'],
+    [[1956,1957], 'Oct 2025'],
+    [[1958,1959], 'Jan 2026'],
+    [[1960,1961], 'March 2026'],
+    [[1962,1963], 'March 2026'],
+    [[1964,1965], 'April 2026'],
+    [[1966,1967], 'May 2026']
+  ];
+  groups.forEach(([range, date])=>{
+    for(let n = range[0]; n <= range[1]; n++) RED_TYPE4_DELIVERY_DATES[n] = date;
+  });
+})();
+
 // Green's Type 7 build-year split (getBuildYear) only makes sense for Green;
-// every other line's roster just shows its CAR_INFO-equivalent year range
-// as-is.
+// Red's Type 4 gets its own real per-car dates from RED_TYPE4_DELIVERY_DATES
+// above when known. Every other line/type's roster just shows its
+// CAR_INFO-equivalent year range as-is.
 function rosterBuildYearFor(line, type, car){
   if(line === 'green') return getBuildYear(type, car);
+  if(line === 'red' && type === 'Type 4'){
+    const n = parseInt(String(car), 10);
+    if(!isNaN(n) && RED_TYPE4_DELIVERY_DATES[n]) return RED_TYPE4_DELIVERY_DATES[n];
+  }
   return rosterCarInfoFor(line, type).year;
 }
 
