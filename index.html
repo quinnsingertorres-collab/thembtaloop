@@ -2075,16 +2075,26 @@ function buildRosterCarList(line){
       return arr;
     })();
     nums.forEach(n=>{
-      // `car` is the plain number shown on screen and matched against live
-      // vehicle labels (for the "Active now" badge); `key` is what actually
-      // gets used as the Firestore doc id for this entry's roster/GLTPS
-      // data. Green keeps a bare number for `key` to match years of
-      // already-stored data, but Red's and Orange's own ranges above
-      // overlap (both cover parts of the 1500s) — without a line-prefixed
-      // key here, a Red car and an Orange car with the same number would
-      // silently share one roster entry.
-      const key = rosterStorageKey(line, n);
-      const entry = { car: String(n), key, type: r.type };
+      // `car` is the number shown on screen and matched against live vehicle
+      // labels (for the "Active now" badge); `key` is what actually gets
+      // used as the Firestore doc id for this entry's roster/GLTPS data.
+      // Green keeps a bare number for `key` to match years of already-
+      // stored data, but Red's and Orange's own ranges above overlap (both
+      // cover parts of the 1500s) — without a line-prefixed key here, a Red
+      // car and an Orange car with the same number would silently share one
+      // roster entry.
+      //
+      // padStart(4,'0') matches MBTA's own real car numbering — Blue Line's
+      // live vehicle feed reports labels like "0700", not "700" (confirmed
+      // against the live feed directly), so an unpadded "700" here never
+      // matched the live data at all: not for the "Active now" badge, and
+      // not for the last-seen tracker's storage key either (it writes under
+      // whatever the live feed reports, i.e. "blue-0700"). This is a no-op
+      // for every other line/type, since none of their real numbers are
+      // under 1000 to begin with.
+      const carStr = String(n).padStart(4, '0');
+      const key = rosterStorageKey(line, carStr);
+      const entry = { car: carStr, key, type: r.type };
       if(r.notYetDeliveredFrom !== undefined && n >= r.notYetDeliveredFrom) entry.notYetDelivered = true;
       if(line === 'green' && GREEN_RETIRED_CARS[n]){
         entry.retired = true;
