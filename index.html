@@ -580,6 +580,17 @@ body.dark .stop-dot{background:var(--bg);}
 }
 body.status-chip-above .route-status-chip{border-top:none; border-bottom:1px solid var(--border); order:-1;}
 body.status-chip-hidden .route-status-chip{display:none;}
+/* Fleet Roster has no live-tracking use for the branch/route selector (its
+   own "‹ Back" link is how you leave the page) and no docked side panel
+   depending on the bottom-nav's edge, so hide just the route-button row
+   while it's open — the time/weather chip stays. Its border (top or bottom,
+   depending on chip-above vs default position) is dropped too, since with
+   the row above/below it gone that border would otherwise look like a
+   stray line floating at the chip's own edge. Placed after the
+   status-chip-above rule above so it wins the tie on specificity when both
+   apply. */
+body.roster-page-open .bottom-nav-inner{display:none;}
+body.roster-page-open .route-status-chip{border-top:none; border-bottom:none;}
 .route-status-chip #clock, .route-status-chip #weatherDisplay{display:flex; align-items:center; gap:5px; overflow:hidden; text-overflow:ellipsis;}
 .route-status-chip .weather-line{font-family:'Space Grotesk', sans-serif; font-weight:700; font-size:11px; color:var(--text-dim);}
 .route-status-chip .chip-sep, .route-status-chip .weather-dot{color:var(--text-faint);}
@@ -2882,6 +2893,9 @@ function switchPage(key){
   // permanent header for. Default to "not pinned" here; the one branch
   // below that actually shows the track map turns it back on.
   document.body.classList.remove('track-map-page');
+  // Hides the branch/route-selector row (not the whole bottom-nav — the
+  // time/weather chip stays) while Fleet Roster is open; see the CSS rule.
+  document.body.classList.toggle('roster-page-open', !!page.isRoster);
   // The desktop-docked car-info panel only makes sense over the track map —
   // close it on any other page so it doesn't linger on top of Settings,
   // Fleet Roster, etc.
