@@ -2584,22 +2584,16 @@ async function resetRosterEntry(carNum){
 }
 
 /* ---------------- Background "last seen" tracking for the roster ----------------
-   Writes ONLY lastSeenAt/lastSeenStop (never editedBy/ts), so this never clobbers
-   a community edit's attribution. Throttled to one write per car per station
-   change, rather than every 15s poll, to keep Firestore writes reasonable. */
+   The actual Firestore write (lastSeenAt/lastSeenStop) now happens
+   server-side via the syncLastSeenCars Cloud Function (functions/index.js),
+   which polls MBTA centrally once a minute — instead of every visitor's
+   browser writing independently (redundant duplicate writes any time more
+   than one person had the site open). This client-side code now only
+   maintains an in-memory, per-tab cache patch so the roster panel's "Last
+   tracked" text updates instantly for whoever's currently looking at the
+   live track map, without waiting up to a minute for the next server write
+   to land and up to 15 minutes for the roster's own read cache to refresh. */
 const lastSeenCache = {};
-// `key` here must already be the real roster storage key (see
-// rosterStorageKey above) — i.e. line-prefixed for anything but Green — not
-// just the plain car number, or this silently writes to a doc the roster
-// panel never actually reads (or worse, one a different line's car reads).
-async function writeLastSeen(key, stopName){
-  if(!firebaseReady || !stopName) return;
-  try{
-    await fbDb.collection('roster').doc(key).set({
-      lastSeenAt: Date.now(), lastSeenStop: stopName
-    }, { merge:true });
-  }catch(e){ console.error(e); }
-}
 // Returns every real car number MBTA reports for this vehicle/train, for use
 // anywhere a caller needs to know exactly which physical cars are running
 // right now (roster "Active now" badges, last-seen tracking). `label` alone
@@ -2627,15 +2621,16 @@ function updateLastSeenTracking(vehicles){
       const key = rosterStorageKey(line, carNum);
       if(lastSeenCache[key] !== v.stopName){
         lastSeenCache[key] = v.stopName;
-        writeLastSeen(key, v.stopName);
-        // Optimistically patch the roster panel's own 15-minute read cache
-        // (see loadRosterPanelData) so a car that's actively being tracked
-        // right now doesn't keep showing "Not tracked yet" on-screen for up
-        // to 15 minutes just because the roster page happened to load its
-        // data slightly before this write happened. updateRosterLiveState
-        // (called every poll, same as this function) picks this up and
-        // patches the visible card text immediately — no full rebuild
-        // needed, so an expanded card doesn't collapse just from this.
+        // Local-only optimistic patch of the roster panel's own 15-minute
+        // read cache (see loadRosterPanelData) so a car that's actively
+        // being tracked right now doesn't keep showing "Not tracked yet"
+        // on-screen just because the roster page happened to load its data
+        // slightly before the server's next write lands. This never writes
+        // to Firestore itself — see the comment above lastSeenCache.
+        // updateRosterLiveState (called every poll, same as this function)
+        // picks this up and patches the visible card text immediately — no
+        // full rebuild needed, so an expanded card doesn't collapse just
+        // from this.
         if(rosterPanelDataCache){
           const ts = Date.now();
           rosterPanelDataCache.rosterData[key] = Object.assign({}, rosterPanelDataCache.rosterData[key], {
@@ -3879,10 +3874,17 @@ async function showCarModal(v){
   }
   document.getElementById('carModalOverlay').classList.add('show');
 
-  const [gltpsMap, rosterData, consistOverride, destinationOverrideRaw, userInfoMap, originDepartureTime] = await Promise.all([
-    loadGltps(), loadRoster(), loadConsistOverride(v), loadDestinationOverride(v.id), getUserInfoMap(),
+  // Reuses the Fleet Roster page's own 15-minute cache (loadRosterPanelData)
+  // instead of calling loadGltps()/loadRoster()/getUserInfoMap() directly —
+  // those are full, uncached collection reads, and this modal opens on
+  // every single train click, which used to mean 3 fresh full-collection
+  // scans per click. Roster/GLTPS/user info doesn't change fast enough for
+  // that staleness to matter here.
+  const [rosterCache, consistOverride, destinationOverrideRaw, originDepartureTime] = await Promise.all([
+    loadRosterPanelData(), loadConsistOverride(v), loadDestinationOverride(v.id),
     v.tripId ? getTripOriginDepartureTime(v.tripId) : Promise.resolve(null)
   ]);
+  const { rosterData, gltpsMap, tagMap: userInfoMap } = rosterCache;
 
   // A destination override is tied to the specific trip it was reported on —
   // once the train's real headsign or direction changes (it terminated,
@@ -4481,9 +4483,10 @@ async function showCarModal(v){
     btn.addEventListener('click', async ()=>{
       const car = btn.dataset.car;
       const status = btn.dataset.status;
-      const map = await loadGltps();
-      const changed = !map[car] || map[car].status !== status;
-      await saveGltpsEntry(car, status);
+      const cached = await loadRosterPanelData();
+      const changed = !cached.gltpsMap[car] || cached.gltpsMap[car].status !== status;
+      const saved = await saveGltpsEntry(car, status);
+      cached.gltpsMap[car] = saved;
       if(changed) awardPoints(3);
       showCarModal(v);
     });
@@ -5136,9 +5139,12 @@ async function showTerminusSchedule(branchKey, stopName, directionId){
     return;
   }
 
-  const [predictions, userInfoMap] = await Promise.all([
-    loadCarPredictions(), getUserInfoMap()
+  // Shares the same 15-minute roster-page cache as showCarModal above,
+  // instead of a fresh uncached full read of the users collection.
+  const [predictions, rosterCache] = await Promise.all([
+    loadCarPredictions(), loadRosterPanelData()
   ]);
+  const userInfoMap = rosterCache.tagMap;
   if(modalRefreshToken !== myToken) return;
 
   const PREDICTION_WINDOW_MS = 90 * 60 * 1000; // 1.5 hours
@@ -8508,6 +8514,35 @@ if(headerEl && trackMapPanel){
 
 /* ---------------- Init ---------------- */
 
+// True while looking at an actual live track-map/subway page for a line —
+// as opposed to Fleet Roster, Settings, Members, Points, Bugs, or
+// Inspectors, none of which show consist overrides, destination overrides,
+// out-of-service badges, dropped trips, hidden trains, operator search,
+// branch reassignments, standing-by/express reports, or the solo-Type-7
+// override. Used below to skip those Firestore reads entirely on pages
+// that never display any of that data, rather than re-fetching all of them
+// every 60 seconds no matter what's actually on screen.
+function isOnLiveTrackPage(){
+  const page = PAGES[state.currentPage];
+  if(!page) return false;
+  return !(page.isRoster || page.isMembers || page.isModNotifs || page.isEditLogs || page.isPoints || page.isBugs || page.isInspectors || page.isSettings);
+}
+// Runs fn() once immediately (same as before), then re-runs it on the given
+// interval ONLY while the tab is actually visible and (if scoped) the user
+// is on a page that shows this data — a backgrounded tab or a session
+// sitting on Settings/Roster/etc. no longer keeps billing Firestore reads
+// for data nothing on screen uses. Direct, ad-hoc calls to the underlying
+// function elsewhere in the code (e.g. right after saving an edit) are
+// completely unaffected — this only gates the recurring interval tick.
+function startGatedPoll(fn, ms, { scopeToLivePage = true } = {}){
+  fn();
+  setInterval(()=>{
+    if(document.visibilityState === 'hidden') return;
+    if(scopeToLivePage && !isOnLiveTrackPage()) return;
+    fn();
+  }, ms);
+}
+
 async function init(){
   const prefs = await loadPrefs();
   const hasSavedAbbrevPref = Object.prototype.hasOwnProperty.call(prefs, 'abbreviate');
@@ -8580,8 +8615,9 @@ async function init(){
 
   updateDiscordBanner();
 
-  checkForAlerts();
-  setInterval(checkForAlerts, 60000);
+  // Alerts matter app-wide (not just on the track map), so this is only
+  // gated by tab visibility, not by page — see startGatedPoll above.
+  startGatedPoll(checkForAlerts, 60000, { scopeToLivePage: false });
 
   checkForNotifications();
   setInterval(checkForNotifications, 60000);
@@ -8600,29 +8636,20 @@ async function init(){
     document.getElementById('notifPermissionBtn').textContent = 'Not supported in this browser';
   }
 
-  refreshConsistOverrideCache();
-  setInterval(refreshConsistOverrideCache, 60000);
-
-  refreshDestinationOverrideCache();
-  setInterval(refreshDestinationOverrideCache, 60000);
-
-  refreshDisruptionModeCache();
-  setInterval(refreshDisruptionModeCache, 60000);
-
-  refreshRedOriginLogCache();
-  setInterval(refreshRedOriginLogCache, 60000);
-
-  refreshOutOfServiceCache();
-  setInterval(refreshOutOfServiceCache, 60000);
-
-  refreshDroppedTripsCache();
-  setInterval(refreshDroppedTripsCache, 60000);
-
-  refreshHiddenTrainsCache();
-  setInterval(refreshHiddenTrainsCache, 60000);
-
-  refreshOperatorSearchCache();
-  setInterval(refreshOperatorSearchCache, 60000);
+  // These 8 only feed data shown on the live track map / car-info modal
+  // (consist corrections, destination overrides, OOS badges, dropped
+  // trips, hidden trains, operator search, branch reassignments) — see
+  // isOnLiveTrackPage/startGatedPoll above. Each used to be a full,
+  // uncached collection read fired every 60s no matter what page you were
+  // on or whether the tab was even visible.
+  startGatedPoll(refreshConsistOverrideCache, 60000);
+  startGatedPoll(refreshDestinationOverrideCache, 60000);
+  startGatedPoll(refreshDisruptionModeCache, 60000);
+  startGatedPoll(refreshRedOriginLogCache, 60000);
+  startGatedPoll(refreshOutOfServiceCache, 60000);
+  startGatedPoll(refreshDroppedTripsCache, 60000);
+  startGatedPoll(refreshHiddenTrainsCache, 60000);
+  startGatedPoll(refreshOperatorSearchCache, 60000);
 
   refreshEnhancedTripData();
   // Matches the edge cache's s-maxage=10 on /api/enhanced-vehicle-positions
@@ -8630,17 +8657,10 @@ async function init(){
   // what's already sitting in the cache, just more requests to it.
   setInterval(refreshEnhancedTripData, 10000);
 
-  refreshSoloType7OverrideCache();
-  setInterval(refreshSoloType7OverrideCache, 60000);
-
-  refreshBranchReassignmentCache();
-  setInterval(refreshBranchReassignmentCache, 60000);
-
-  refreshStandingByCache();
-  setInterval(refreshStandingByCache, 60000);
-
-  refreshExpressReportCache();
-  setInterval(refreshExpressReportCache, 60000);
+  startGatedPoll(refreshSoloType7OverrideCache, 60000);
+  startGatedPoll(refreshBranchReassignmentCache, 60000);
+  startGatedPoll(refreshStandingByCache, 60000);
+  startGatedPoll(refreshExpressReportCache, 60000);
 
   routeOnLoad();
 }
