@@ -8619,11 +8619,13 @@ async function init(){
   // gated by tab visibility, not by page — see startGatedPoll above.
   startGatedPoll(checkForAlerts, 60000, { scopeToLivePage: false });
 
-  checkForNotifications();
-  setInterval(checkForNotifications, 60000);
-
-  checkCarBackInServiceNotifications();
-  setInterval(checkCarBackInServiceNotifications, 60000);
+  // Same reasoning as checkForAlerts above: matters app-wide, so only
+  // gated by tab visibility, not by page. checkForNotifications reads two
+  // capped queries (30 docs each); checkCarBackInServiceNotifications reads
+  // a full small collection — neither needs to run while the tab is
+  // backgrounded, and both catch up immediately once it's visible again.
+  startGatedPoll(checkForNotifications, 60000, { scopeToLivePage: false });
+  startGatedPoll(checkCarBackInServiceNotifications, 60000, { scopeToLivePage: false });
 
   document.getElementById('pushEnableBtn').addEventListener('click', subscribeToPushNotifications);
   checkPushSubscriptionStatus();
