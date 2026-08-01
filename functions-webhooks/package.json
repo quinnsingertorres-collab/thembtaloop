@@ -1,0 +1,17 @@
+{
+  "name": "in-the-loop-webhooks",
+  "version": "1.0.0",
+  "description": "Firebase Cloud Functions that push mod alerts, notifications, and train-spotting detections to Discord.",
+  "type": "module",
+  "main": "index.js",
+  "engines": {
+    "node": "20"
+  },
+  "scripts": {
+    "deploy": "firebase deploy --only functions"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.1.0",
+    "firebase-functions": "^5.0.1"
+  }
+}
