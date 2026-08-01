@@ -8058,6 +8058,10 @@ function carMatchesQuery(carNum, query){
   if(carStr === query) return true;
   // Shorthand (drop the leading 3) applies to the modern LRV fleet only, not PCCs.
   if(getCarType(carStr) !== 'PCC' && carStr === '3' + query) return true;
+  // Numeric match ignoring leading zeros — Blue Line's real car numbers are
+  // zero-padded (e.g. "0705"), so searching "705" should still find it
+  // without requiring the leading zero to be typed.
+  if(/^\d+$/.test(query) && /^\d+$/.test(carStr) && parseInt(carStr, 10) === parseInt(query, 10)) return true;
   return false;
 }
 
