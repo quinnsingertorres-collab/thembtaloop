@@ -1570,14 +1570,28 @@ const RED_BRANCH_COLORS = { ashmont:'#D57065', braintree:'#ECC1BC' };
 // service-day convention as todayDateString) bound a specific window.
 // directionOnly (0 or 1) restricts the closure to just that direction,
 // leaving the opposite direction running normally.
-function buildRangeClosure(pageKeys, fromStop, toStop, extra){
+//
+// excludeFrom/excludeTo: a range closure's named endpoints are often where
+// trains actually still run to/from as a shortened shuttle service, with
+// buses only covering the closed segment beyond that point (e.g. "shuttle
+// buses replace service between Copley and Babcock" means Babcock itself
+// is still served by trains coming from the other direction, only the
+// segment between it and downtown is bus-only). Pass excludeFrom/excludeTo
+// to leave that endpoint stop itself off the closed list. Don't set these
+// when the endpoint is a true branch terminus with the whole branch
+// bus-replaced end to end (nothing running on the "far side" of it) — e.g.
+// Cleveland Circle or Heath Street when the whole branch is shuttle-only.
+function buildRangeClosure(pageKeys, fromStop, toStop, extra, opts){
+  const { excludeFrom, excludeTo } = opts || {};
   const entries = [];
   pageKeys.forEach(pageKey=>{
     const stops = (PAGES[pageKey] || {}).stops || [];
     const fromIdx = stops.indexOf(fromStop);
     const toIdx = stops.indexOf(toStop);
     if(fromIdx === -1 || toIdx === -1) return; // this page doesn't include these stops
-    const lo = Math.min(fromIdx, toIdx), hi = Math.max(fromIdx, toIdx);
+    let lo = Math.min(fromIdx, toIdx), hi = Math.max(fromIdx, toIdx);
+    if(excludeFrom){ if(fromIdx === lo) lo++; else hi--; }
+    if(excludeTo){ if(toIdx === lo) lo++; else hi--; }
     for(let i = lo; i <= hi; i++){
       entries.push(Object.assign({ pages:[pageKey], stop: stops[i] }, extra));
     }
@@ -1594,22 +1608,42 @@ const BYPASSED_STOPS = [
     until:'2026-08-07', directionOnly:0 },
   ...buildRangeClosure(['REDTRUNK','REDASHMONT','REDBRAINTREE'], 'Charles/MGH', 'Alewife',
     { reason:'No Red Line service between Charles/MGH and Alewife. This is to allow for infrastructure upgrades.', until:'2026-07-30' }),
+  // Aug 1-2: shuttle buses cover Copley-Babcock only, so Babcock itself is
+  // still a train stop (shuttle-train transfer point) — excludeTo. Same for
+  // Kenmore on C/D: no shuttle bus was announced for those branches this
+  // weekend, meaning C/D trains still run to/from Kenmore, they just don't
+  // continue into the closed downtown trunk — excludeTo. North Station
+  // isn't served by D/E trains during the closure either (Orange Line
+  // replaces that leg instead) — excludeFrom.
   ...buildRangeClosure(['B'], 'Government Center', 'Babcock Street',
-    { reason:'No Green Line service on the B branch between North Station and Babcock Street. This is to allow for trackwork.', from:'2026-08-01', until:'2026-08-02' }),
+    { reason:'No Green Line service on the B branch between North Station and Babcock Street. This is to allow for trackwork.', from:'2026-08-01', until:'2026-08-02' },
+    { excludeTo:true }),
   ...buildRangeClosure(['C'], 'Government Center', 'Kenmore',
-    { reason:'No Green Line service on the C branch between North Station and Kenmore. This is to allow for trackwork.', from:'2026-08-01', until:'2026-08-02' }),
+    { reason:'No Green Line service on the C branch between North Station and Kenmore. This is to allow for trackwork.', from:'2026-08-01', until:'2026-08-02' },
+    { excludeTo:true }),
   ...buildRangeClosure(['D'], 'North Station', 'Kenmore',
-    { reason:'No Green Line service on the D branch between North Station and Kenmore. This is to allow for trackwork.', from:'2026-08-01', until:'2026-08-02' }),
+    { reason:'No Green Line service on the D branch between North Station and Kenmore. This is to allow for trackwork.', from:'2026-08-01', until:'2026-08-02' },
+    { excludeFrom:true, excludeTo:true }),
   ...buildRangeClosure(['E'], 'North Station', 'Heath Street',
-    { reason:'No Green Line service on the E branch between North Station and Heath Street. This is to allow for trackwork.', from:'2026-08-01', until:'2026-08-02' }),
+    { reason:'No Green Line service on the E branch between North Station and Heath Street. This is to allow for trackwork.', from:'2026-08-01', until:'2026-08-02' },
+    { excludeFrom:true }),
+  // Aug 8-16: shuttle buses cover Copley-Babcock (Babcock still a train
+  // stop — excludeTo), and separately cover the entire C branch end to end
+  // (Copley through Cleveland Circle, its terminus), so unlike Babcock,
+  // Cleveland Circle has no train service to exclude it from — stays
+  // closed. D still only turns back at Kenmore — excludeTo. North Station
+  // stays excluded from D/E for the same reason as the weekend closure.
   ...buildRangeClosure(['B'], 'Government Center', 'Babcock Street',
-    { reason:'No Green Line service on the B branch between North Station and Babcock Street. This is to allow for trackwork.', from:'2026-08-08', until:'2026-08-16' }),
+    { reason:'No Green Line service on the B branch between North Station and Babcock Street. This is to allow for trackwork.', from:'2026-08-08', until:'2026-08-16' },
+    { excludeTo:true }),
   ...buildRangeClosure(['C'], 'Government Center', 'Cleveland Circle',
     { reason:'No Green Line service on the C branch between North Station and Cleveland Circle. This is to allow for trackwork.', from:'2026-08-08', until:'2026-08-16' }),
   ...buildRangeClosure(['D'], 'North Station', 'Kenmore',
-    { reason:'No Green Line service on the D branch between North Station and Kenmore. This is to allow for trackwork.', from:'2026-08-08', until:'2026-08-16' }),
+    { reason:'No Green Line service on the D branch between North Station and Kenmore. This is to allow for trackwork.', from:'2026-08-08', until:'2026-08-16' },
+    { excludeFrom:true, excludeTo:true }),
   ...buildRangeClosure(['E'], 'North Station', 'Heath Street',
-    { reason:'No Green Line service on the E branch between North Station and Heath Street. This is to allow for trackwork.', from:'2026-08-08', until:'2026-08-16' })
+    { reason:'No Green Line service on the E branch between North Station and Heath Street. This is to allow for trackwork.', from:'2026-08-08', until:'2026-08-16' },
+    { excludeFrom:true })
 ];
 
 function getBypassInfo(pageKey, stopName, side){
