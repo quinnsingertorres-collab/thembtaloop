@@ -2,7 +2,7 @@
   "name": "in-the-loop-push-functions",
   "description": "Firebase Cloud Functions that send real Web Push notifications for In the Loop, triggered the instant a moderator posts an alert or notification in Firestore.",
   "engines": {
-    "node": "20"
+    "node": "22"
   },
   "main": "index.js",
   "dependencies": {
