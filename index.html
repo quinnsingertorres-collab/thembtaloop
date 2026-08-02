@@ -1643,7 +1643,19 @@ const BYPASSED_STOPS = [
     { excludeFrom:true, excludeTo:true }),
   ...buildRangeClosure(['E'], 'North Station', 'Heath Street',
     { reason:'No Green Line service on the E branch between North Station and Heath Street. This is to allow for trackwork.', from:'2026-08-08', until:'2026-08-16' },
-    { excludeFrom:true })
+    { excludeFrom:true }),
+  // The Subway (trunk) page shows the shared central-subway segment all
+  // four branches normally run through — during both closure windows none
+  // of B/C/D/E have any trunk service at all, so mirror the same
+  // Haymarket-through-Hynes-Convention-Center range here too (North
+  // Station and Kenmore excluded for the same reasons as the D branch
+  // above).
+  ...buildRangeClosure(['SUBWAY'], 'North Station', 'Kenmore',
+    { reason:'No Green Line service through the central subway between North Station and Kenmore. This is to allow for trackwork.', from:'2026-08-01', until:'2026-08-02' },
+    { excludeFrom:true, excludeTo:true }),
+  ...buildRangeClosure(['SUBWAY'], 'North Station', 'Kenmore',
+    { reason:'No Green Line service through the central subway between North Station and Kenmore. This is to allow for trackwork.', from:'2026-08-08', until:'2026-08-16' },
+    { excludeFrom:true, excludeTo:true })
 ];
 
 function getBypassInfo(pageKey, stopName, side){
