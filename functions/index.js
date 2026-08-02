@@ -187,33 +187,60 @@ async function fetchLineVehicles(line, url){
 // Firestore batched writes cap at 500 operations each, so writes get
 // chunked across as many batches as needed rather than assuming everything
 // fits in one.
-async function commitInChunks(writes){
+async function commitInChunks(writes, ts){
   const CHUNK_SIZE = 450;
   for(let i = 0; i < writes.length; i += CHUNK_SIZE){
     const chunk = writes.slice(i, i + CHUNK_SIZE);
     const batch = db.batch();
     chunk.forEach(({ key, stopName }) => {
       batch.set(db.collection('roster').doc(key), {
-        lastSeenAt: Date.now(), lastSeenStop: stopName
+        lastSeenAt: ts, lastSeenStop: stopName
       }, { merge: true });
     });
     await batch.commit();
   }
 }
 
+// Every invocation of a scheduled function starts with a clean process — no
+// memory of the last run — so "did this car's station actually change"
+// has to be persisted somewhere between runs. Without this, the first
+// version of this function wrote every currently-tracked car's position on
+// every single 1-minute run regardless of whether it moved, which is what
+// the client-side throttling (lastSeenCache) used to prevent. A single
+// small state doc (same pattern as functions-webhooks' bot_state/
+// train_spotting) holds the last-known station per car; only cars whose
+// station actually changed since the last run get an actual roster write.
+const LAST_SEEN_STATE_REF = () => db.collection('bot_state').doc('roster_last_seen');
+
 exports.syncLastSeenCars = onSchedule('every 1 minutes', async () => {
   const settled = await Promise.allSettled(
     LAST_SEEN_LINE_FEEDS.map(({ line, url }) => fetchLineVehicles(line, url))
   );
 
-  const writes = [];
+  const current = [];
   settled.forEach((result, i) => {
     if(result.status === 'fulfilled'){
-      writes.push(...result.value);
+      current.push(...result.value);
     }else{
       console.error(`Failed to sync ${LAST_SEEN_LINE_FEEDS[i].line} last-seen data:`, result.reason);
     }
   });
+  if(current.length === 0) return;
 
-  if(writes.length) await commitInChunks(writes);
+  const stateRef = LAST_SEEN_STATE_REF();
+  const stateSnap = await stateRef.get();
+  const priorStops = stateSnap.exists ? (stateSnap.data().stops || {}) : {};
+
+  const nextStops = {};
+  const changed = [];
+  current.forEach(({ key, stopName }) => {
+    nextStops[key] = stopName;
+    if(priorStops[key] !== stopName){
+      changed.push({ key, stopName });
+    }
+  });
+
+  const now = Date.now();
+  if(changed.length) await commitInChunks(changed, now);
+  await stateRef.set({ stops: nextStops, updatedAt: now });
 });
