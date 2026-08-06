@@ -1467,6 +1467,16 @@ const PAGES = {
   }
 };
 
+// Every real station across every line/branch, deduped — used when a
+// train's own route can't be trusted to constrain a report (e.g. a
+// destination override in effect), so the full system is offered instead
+// of just one line's stops.
+const ALL_STATIONS = (()=>{
+  const set = new Set();
+  Object.values(PAGES).forEach(page => (page.stops || []).forEach(s => set.add(s)));
+  return Array.from(set);
+})();
+
 const ABBREVIATIONS = {
   "Central Avenue":"Central Ave",
   "Medford/Tufts":"Medford",
@@ -4297,15 +4307,21 @@ async function showCarModal(v){
   // "Standing by" report section — station dropdown is restricted to this
   // train's own real route (using the same branch-resolution logic used
   // elsewhere), so a report can't be filed against a station the train
-  // could never actually reach.
-  const validStopsForThisVehicle = (()=>{
-    if(state.activeLine === 'red'){
-      const branch = getRedLineBranch(v);
-      return PAGES[branch === 'ashmont' ? 'REDASHMONT' : 'REDBRAINTREE'].stops;
-    }
-    if(v.branch && PAGES[v.branch]) return PAGES[v.branch].stops;
-    return PAGES[state.activeLine === 'orange' ? 'ORANGE' : state.activeLine === 'blue' ? 'BLUE' : 'B'].stops;
-  })();
+  // could never actually reach. Exception: once a destination override is
+  // in effect, this train's actual route has already diverged from what
+  // MBTA's feed reports (short-turn, reroute, cross-line reassignment,
+  // etc.), so its real position could be anywhere — open the list up to
+  // every station system-wide instead, not just its original line/branch.
+  const validStopsForThisVehicle = destinationOverrideCache[v.id]
+    ? ALL_STATIONS
+    : (()=>{
+        if(state.activeLine === 'red'){
+          const branch = getRedLineBranch(v);
+          return PAGES[branch === 'ashmont' ? 'REDASHMONT' : 'REDBRAINTREE'].stops;
+        }
+        if(v.branch && PAGES[v.branch]) return PAGES[v.branch].stops;
+        return PAGES[state.activeLine === 'orange' ? 'ORANGE' : state.activeLine === 'blue' ? 'BLUE' : 'B'].stops;
+      })();
   const existingStandingBy = standingByCache[v.id];
   const standingBySection = existingStandingBy
     ? `<div class="modal-section">
