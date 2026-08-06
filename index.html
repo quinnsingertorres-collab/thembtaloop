@@ -1058,7 +1058,7 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
     </div>
     <div class="back-link" id="rosterBackBtn">&lsaquo; Back</div>
     <div class="filter-bar">
-      <input type="text" id="rosterSearch" placeholder="Search car number&hellip;">
+      <input type="text" id="rosterSearch" placeholder="Search car number or livery&hellip;">
       <select id="rosterTypeFilter">
         <option value="ALL">All types</option>
       </select>
@@ -6869,11 +6869,17 @@ async function buildRosterPanel(){
   const { rosterData, gltpsMap, tagMap } = await loadRosterPanelData();
   const activeSet = getActiveCarSet();
   const search = state.rosterSearch.trim();
+  const searchLower = search.toLowerCase();
   const typeFilter = state.rosterTypeFilter;
 
   const filtered = ROSTER_CARS.filter(entry=>{
     if(typeFilter !== 'ALL' && entry.type !== typeFilter) return false;
-    if(search && entry.car.indexOf(search) === -1) return false;
+    if(search){
+      const carMatch = entry.car.indexOf(search) !== -1;
+      const livery = (rosterData[entry.key] && rosterData[entry.key].livery) || '';
+      const liveryMatch = livery.toLowerCase().indexOf(searchLower) !== -1;
+      if(!carMatch && !liveryMatch) return false;
+    }
     return true;
   });
 
