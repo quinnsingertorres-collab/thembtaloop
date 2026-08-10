@@ -4908,13 +4908,17 @@ const BUNCHING_MIN_GAP_MIN = 1.5;
 function isVehicleAtTerminus(pageKey, v){
   const stops = PAGES[pageKey] && PAGES[pageKey].stops;
   if(!stops || !v.stopName) return false;
-  // Green Line B/C/D/E stop lists start at the shared trunk (e.g. Government
-  // Center), which isn't actually that branch's own terminus — only its
-  // unique tail end (Boston College, Cleveland Circle, etc.) is. Checking
-  // the first stop here would wrongly flag another branch's train just
-  // passing through the shared trunk as "dwelling at this page's terminus."
-  const isGreenBranchPage = ['B','C','D','E'].includes(pageKey);
-  if(isGreenBranchPage){
+  // B and C's stop lists start at the shared trunk (Government Center),
+  // which isn't actually either branch's own terminus — only its unique
+  // tail end (Boston College, Cleveland Circle) is. Checking the first stop
+  // for these two would wrongly flag another branch's train just passing
+  // through the shared trunk as "dwelling at this page's terminus."
+  // D and E are different: their stop lists start at a real, unique
+  // terminus of their own (Union Square and Medford/Tufts, from the GLX
+  // extension) — a train sitting there hasn't left yet either, so both
+  // ends need to count for them, same as every non-Green-Line page.
+  const isSharedTrunkStartPage = ['B','C'].includes(pageKey);
+  if(isSharedTrunkStartPage){
     return normName(v.stopName) === normName(stops[stops.length - 1]);
   }
   return normName(v.stopName) === normName(stops[0]) || normName(v.stopName) === normName(stops[stops.length - 1]);
