@@ -3036,6 +3036,7 @@ function switchPage(key){
   if(p.isEditLogs && !state.isModerator) key = 'B'; // safety: never land on Edit Logs without moderator rights
   state.currentPage = key;
   try{ localStorage.setItem(LAST_PAGE_KEY, key); }catch(e){ /* ignore */ }
+  updateUrlForPage(state.activeLine, key);
   const page = PAGES[key];
   if(!page.isRoster && !page.isMembers && !page.isModNotifs && !page.isEditLogs && !page.isSettings && !page.isPoints && !page.isBugs && !page.isInspectors) state.lastMainPage = key;
   document.getElementById('pageTitle').textContent = page.label;
@@ -7741,6 +7742,55 @@ const LINE_PAGE_KEYS = {
   blue: ['BLUE'],
   green: ['B','C','D','E','SUBWAY','MATTAPAN']
 };
+
+/* ---------------- URL routing (/green/b, /red/ashmont, /orange, ...) ----------------
+   Reflects the current line+branch in the address bar so links can be
+   shared/bookmarked straight to a specific branch. Orange and Blue have
+   only one page each, so they get no branch segment (just /orange, /blue).
+   Non-map pages (Fleet Roster, Settings, Members, etc.) intentionally
+   don't change the URL — only the trackable line/branch pages do.
+   Uses history.replaceState rather than pushState for every switch, so
+   clicking through branches doesn't spam the browser's back/forward
+   history; the URL just tracks current state. Requires a Vercel rewrite
+   (see vercel.json) so a fresh visit to a path like /green/b actually
+   serves index.html instead of 404ing. */
+const PAGE_SLUG = {
+  B:'b', C:'c', D:'d', E:'e', SUBWAY:'subway', MATTAPAN:'mattapan',
+  REDTRUNK:'trunk', REDASHMONT:'ashmont', REDBRAINTREE:'braintree'
+};
+const SLUG_TO_PAGE_BY_LINE = {
+  green: { b:'B', c:'C', d:'D', e:'E', subway:'SUBWAY', mattapan:'MATTAPAN' },
+  red: { trunk:'REDTRUNK', ashmont:'REDASHMONT', braintree:'REDBRAINTREE' },
+  orange: {},
+  blue: {}
+};
+function isTrackablePage(key){
+  return Object.values(LINE_PAGE_KEYS).some(keys => keys.includes(key));
+}
+function pageUrlPath(line, key){
+  const slug = PAGE_SLUG[key];
+  return slug ? `/${line}/${slug}` : `/${line}`;
+}
+function updateUrlForPage(line, key){
+  if(!isTrackablePage(key)) return;
+  const path = pageUrlPath(line, key);
+  if(location.pathname !== path){
+    history.replaceState(null, '', path);
+  }
+}
+// Reads the current address-bar path into { line, page } (page falls back
+// to that line's default if the branch segment is missing/unrecognized),
+// or null if the path doesn't name a real line at all.
+function parseRouteFromPath(){
+  const parts = location.pathname.split('/').filter(Boolean).map(s => s.toLowerCase());
+  if(parts.length === 0) return null;
+  const line = parts[0];
+  if(!['green','red','orange','blue'].includes(line)) return null;
+  const slug = parts[1];
+  const page = slug && (SLUG_TO_PAGE_BY_LINE[line] || {})[slug];
+  return { line, page: page || LINE_DEFAULT_PAGE[line] };
+}
+
 // Every line now shares the same accent (the Green Line's own green,
 // see --accent in :root) for buttons/toggles/links instead of switching
 // to each line's own brand color — the line-specific colors (train
@@ -7748,7 +7798,7 @@ const LINE_PAGE_KEYS = {
 // only affects the shared UI accent.
 const LINE_ACCENT = { red:null, orange:null, blue:null, green:null };
 
-function revealApp(line){
+function revealApp(line, forcedPage){
   hideAllGateScreens();
   if(state.activeLine !== line){
     // These caches key entries by vehicle id and persist across refresh
@@ -7795,17 +7845,28 @@ function revealApp(line){
       : (LINE_PAGE_KEYS[line] || []).includes(savedPage)
   );
   state.vehicles = []; // avoid a stale frame showing the other line's trains while the new feed loads
-  switchPage(validForThisLine ? savedPage : defaultPage);
+  // A forced page (from a URL like /green/b on initial load) takes
+  // priority over whatever page was last saved locally.
+  const targetPage = (forcedPage && PAGES[forcedPage]) ? forcedPage : (validForThisLine ? savedPage : defaultPage);
+  switchPage(targetPage);
   refreshVehicles();
 }
 
 // Decides what to show right after a successful sign-in (or on load, for an
 // already-signed-in returning visitor): first-timers pick a line; returning
 // users go straight back to whatever they had selected/were viewing before.
-// Decides what to show on page load, regardless of sign-in status: no line
-// chosen yet -> line-select screen; a line already chosen -> straight into
-// that line's app.
+// Decides what to show on page load, regardless of sign-in status: a direct
+// link to a real line (e.g. /green/b) always wins and goes straight in,
+// skipping the line-select screen entirely; otherwise no line chosen yet
+// -> line-select screen, a line already chosen -> straight into that
+// line's app.
 function routeOnLoad(){
+  const fromUrl = parseRouteFromPath();
+  if(fromUrl){
+    try{ localStorage.setItem(LINE_SELECTION_KEY, fromUrl.line); }catch(e){ /* ignore */ }
+    revealApp(fromUrl.line, fromUrl.page);
+    return;
+  }
   let selectedLine = null;
   try{ selectedLine = localStorage.getItem(LINE_SELECTION_KEY); }catch(e){ /* ignore */ }
   if(!selectedLine || !['green','red','orange','blue'].includes(selectedLine)){
