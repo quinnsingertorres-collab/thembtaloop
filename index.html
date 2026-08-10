@@ -918,6 +918,20 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
   </div>
 </div>
 
+<div id="checkingAccessScreen" class="gate-screen" style="display:none;">
+  <div class="gate-card">
+    <h1>Checking access&hellip;</h1>
+  </div>
+</div>
+
+<div id="accessDeniedScreen" class="gate-screen" style="display:none;">
+  <div class="gate-card">
+    <h1>You don't have access</h1>
+    <p>This page is for signed-in moderators only.</p>
+    <button id="accessDeniedBackBtn" class="gate-signin-btn">Back to the app</button>
+  </div>
+</div>
+
 
 <div class="top-bar">
 <div class="brand-group">
@@ -3037,6 +3051,7 @@ function switchPage(key){
   state.currentPage = key;
   try{ localStorage.setItem(LAST_PAGE_KEY, key); }catch(e){ /* ignore */ }
   updateUrlForPage(state.activeLine, key);
+  updateDocumentTitle(state.activeLine, key);
   const page = PAGES[key];
   if(!page.isRoster && !page.isMembers && !page.isModNotifs && !page.isEditLogs && !page.isSettings && !page.isPoints && !page.isBugs && !page.isInspectors) state.lastMainPage = key;
   document.getElementById('pageTitle').textContent = page.label;
@@ -7637,6 +7652,8 @@ function hideAllGateScreens(){
   document.getElementById('lineSelectScreen').style.display = 'none';
   document.getElementById('welcomeScreen').style.display = 'none';
   document.getElementById('privacyWarningScreen').style.display = 'none';
+  document.getElementById('checkingAccessScreen').style.display = 'none';
+  document.getElementById('accessDeniedScreen').style.display = 'none';
 }
 
 // Only a genuine, freshly-completed sign-in action should trigger the
@@ -7668,6 +7685,8 @@ function showLineSelectScreen(){
   hideAllGateScreens();
   applyLineAccent(null);
   document.getElementById('lineSelectScreen').style.display = 'flex';
+  document.title = 'In the Loop';
+  try{ if(location.pathname !== '/home') history.replaceState(null, '', '/home'); }catch(e){ /* ignore */ }
 }
 function applyLineAccent(hex){
   if(hex){ document.body.style.setProperty('--accent', hex); }
@@ -7743,17 +7762,20 @@ const LINE_PAGE_KEYS = {
   green: ['B','C','D','E','SUBWAY','MATTAPAN']
 };
 
-/* ---------------- URL routing (/green/b, /red/ashmont, /orange, ...) ----------------
-   Reflects the current line+branch in the address bar so links can be
-   shared/bookmarked straight to a specific branch. Orange and Blue have
-   only one page each, so they get no branch segment (just /orange, /blue).
-   Non-map pages (Fleet Roster, Settings, Members, etc.) intentionally
-   don't change the URL — only the trackable line/branch pages do.
+/* ---------------- URL routing ----------------
+   Reflects the current line+branch/page in the address bar so links can be
+   shared/bookmarked straight to a specific place in the app. Line/branch
+   pages (map views) get /line/branch — Orange and Blue have only one page
+   each, so they get no branch segment (just /orange, /blue). The Fleet
+   Roster gets /line/roster. A handful of pages are the same regardless of
+   which line is active (Settings, Points, Bugs, Green Line Inspectors,
+   Moderation, Alerts and Notifications, Edit Logs) — those get flat,
+   line-independent paths (e.g. /setting, /points) instead.
    Uses history.replaceState rather than pushState for every switch, so
-   clicking through branches doesn't spam the browser's back/forward
-   history; the URL just tracks current state. Requires a Vercel rewrite
-   (see vercel.json) so a fresh visit to a path like /green/b actually
-   serves index.html instead of 404ing. */
+   clicking through pages doesn't spam the browser's back/forward history;
+   the URL just tracks current state. Requires a Vercel rewrite (see
+   vercel.json) so a fresh visit to a path like /green/b actually serves
+   index.html instead of 404ing. */
 const PAGE_SLUG = {
   B:'b', C:'c', D:'d', E:'e', SUBWAY:'subway', MATTAPAN:'mattapan',
   REDTRUNK:'trunk', REDASHMONT:'ashmont', REDBRAINTREE:'braintree'
@@ -7764,15 +7786,31 @@ const SLUG_TO_PAGE_BY_LINE = {
   orange: {},
   blue: {}
 };
+// Pages that are the same page regardless of which line is currently
+// active — these get a flat URL with no line segment at all.
+const FLAT_ROUTE_TO_PAGE = {
+  'setting': 'SETTINGS',
+  'bugs': 'BUGS',
+  'greenlineinspectors': 'INSPECTORS',
+  'points': 'POINTS',
+  'moderation': 'MEMBERS',
+  'pushalerts': 'MODNOTIFS',
+  'editlog': 'EDITLOGS'
+};
+const PAGE_TO_FLAT_ROUTE = {
+  SETTINGS:'setting', BUGS:'bugs', INSPECTORS:'greenlineinspectors', POINTS:'points',
+  MEMBERS:'moderation', MODNOTIFS:'pushalerts', EDITLOGS:'editlog'
+};
 function isTrackablePage(key){
   return Object.values(LINE_PAGE_KEYS).some(keys => keys.includes(key));
 }
 function pageUrlPath(line, key){
+  if(PAGE_TO_FLAT_ROUTE[key]) return `/${PAGE_TO_FLAT_ROUTE[key]}`;
+  if(key === 'ROSTER') return `/${line}/roster`;
   const slug = PAGE_SLUG[key];
   return slug ? `/${line}/${slug}` : `/${line}`;
 }
 function updateUrlForPage(line, key){
-  if(!isTrackablePage(key)) return;
   const path = pageUrlPath(line, key);
   if(location.pathname !== path){
     history.replaceState(null, '', path);
@@ -7780,15 +7818,47 @@ function updateUrlForPage(line, key){
 }
 // Reads the current address-bar path into { line, page } (page falls back
 // to that line's default if the branch segment is missing/unrecognized),
-// or null if the path doesn't name a real line at all.
+// or null if the path doesn't name a real line/page at all.
 function parseRouteFromPath(){
   const parts = location.pathname.split('/').filter(Boolean).map(s => s.toLowerCase());
   if(parts.length === 0) return null;
-  const line = parts[0];
-  if(!['green','red','orange','blue'].includes(line)) return null;
-  const slug = parts[1];
-  const page = slug && (SLUG_TO_PAGE_BY_LINE[line] || {})[slug];
+  const first = parts[0];
+  if(FLAT_ROUTE_TO_PAGE[first]){
+    let savedLine = null;
+    try{ savedLine = localStorage.getItem(LINE_SELECTION_KEY); }catch(e){ /* ignore */ }
+    const line = ['green','red','orange','blue'].includes(savedLine) ? savedLine : 'green';
+    return { line, page: FLAT_ROUTE_TO_PAGE[first] };
+  }
+  if(!['green','red','orange','blue'].includes(first)) return null;
+  const line = first;
+  const second = parts[1];
+  if(second === 'roster') return { line, page: 'ROSTER' };
+  const page = second && (SLUG_TO_PAGE_BY_LINE[line] || {})[second];
   return { line, page: page || LINE_DEFAULT_PAGE[line] };
+}
+
+// ---------------- Tab title ----------------
+const LINE_TITLE_LABEL = { green:'Green', red:'Red', orange:'Orange', blue:'Blue' };
+const PAGE_TITLE_LABEL = {
+  B:'B', C:'C', D:'D', E:'E', SUBWAY:'Subway', MATTAPAN:'Mattapan',
+  REDTRUNK:'Trunk', REDASHMONT:'Ashmont', REDBRAINTREE:'Braintree'
+};
+function updateDocumentTitle(line, key){
+  const page = PAGES[key];
+  if(!page) return;
+  let label;
+  if(key === 'MATTAPAN'){
+    label = 'Mattapan';
+  }else if(isTrackablePage(key)){
+    const lineLabel = LINE_TITLE_LABEL[line] || '';
+    const branchLabel = PAGE_TITLE_LABEL[key];
+    label = branchLabel ? `${lineLabel} ${branchLabel}` : lineLabel;
+  }else if(page.isRoster){
+    label = `${LINE_TITLE_LABEL[line] || ''} Roster`.trim();
+  }else{
+    label = page.label;
+  }
+  document.title = `In the Loop | ${label}`;
 }
 
 // Every line now shares the same accent (the Green Line's own green,
@@ -7797,6 +7867,39 @@ function parseRouteFromPath(){
 // bubbles, the line-select buttons themselves, etc.) are untouched, this
 // only affects the shared UI accent.
 const LINE_ACCENT = { red:null, orange:null, blue:null, green:null };
+
+// ---------------- Access-gated pages (currently just /moderation) ----------------
+// A direct link straight to /moderation lands before Firebase Auth has
+// resolved whether this visitor is actually signed in, let alone whether
+// they're a moderator (auth state settles asynchronously, well after
+// routeOnLoad() has already run synchronously). Rather than guessing, the
+// requested page is stashed here and a "Checking access..." screen shown;
+// once auth state is known (completeSignIn, the signed-out branch of
+// onAuthStateChanged, or restoreSimulatedSession's fallback all resolve
+// it), the page either opens for real or an access-denied screen is shown.
+let pendingGatedPage = null; // { line, page }
+function resolveGatedPageIfPending(){
+  if(!pendingGatedPage) return;
+  const { line, page } = pendingGatedPage;
+  pendingGatedPage = null;
+  const checkingEl = document.getElementById('checkingAccessScreen');
+  if(checkingEl) checkingEl.style.display = 'none';
+  if(state.activeLine !== line) return; // user navigated elsewhere while we waited
+  if(state.isModerator){
+    switchPage(page);
+  }else{
+    showAccessDeniedScreen();
+  }
+}
+function showAccessDeniedScreen(){
+  hideAllGateScreens();
+  document.title = 'In the Loop | Access denied';
+  document.getElementById('accessDeniedScreen').style.display = 'flex';
+}
+document.getElementById('accessDeniedBackBtn').addEventListener('click', ()=>{
+  hideAllGateScreens();
+  switchPage(LINE_DEFAULT_PAGE[state.activeLine] || 'B');
+});
 
 function revealApp(line, forcedPage){
   hideAllGateScreens();
@@ -7861,10 +7964,26 @@ function revealApp(line, forcedPage){
 // -> line-select screen, a line already chosen -> straight into that
 // line's app.
 function routeOnLoad(){
+  const parts = location.pathname.split('/').filter(Boolean).map(s => s.toLowerCase());
+  if(parts.length === 1 && parts[0] === 'home'){
+    showLineSelectScreen();
+    return;
+  }
   const fromUrl = parseRouteFromPath();
   if(fromUrl){
     try{ localStorage.setItem(LINE_SELECTION_KEY, fromUrl.line); }catch(e){ /* ignore */ }
-    revealApp(fromUrl.line, fromUrl.page);
+    if(fromUrl.page === 'MEMBERS'){
+      // Auth state isn't known yet — load the line normally on its default/
+      // saved page and show a checking-access screen on top while we wait
+      // for Firebase Auth (or the simulated-session fallback) to resolve.
+      pendingGatedPage = { line: fromUrl.line, page: fromUrl.page };
+      revealApp(fromUrl.line);
+      const checkingEl = document.getElementById('checkingAccessScreen');
+      if(checkingEl) checkingEl.style.display = 'flex';
+      document.title = 'In the Loop | Checking access…';
+    }else{
+      revealApp(fromUrl.line, fromUrl.page);
+    }
     return;
   }
   let selectedLine = null;
@@ -7932,6 +8051,7 @@ async function completeSignIn(name, email, uid, photoURL){
     freshSignInInProgress = false;
     showWelcomeScreen(name);
   }
+  resolveGatedPageIfPending();
 }
 
 function resetSignedOutUI(){
@@ -8014,12 +8134,14 @@ if(firebaseReady){
         console.error('Could not read/create user profile in Firestore:', e);
       }
       completeSignIn(displayName, user.email || '', uid, user.photoURL || '');
-    }else if(state.signedIn){
-      resetSignedOutUI();
+    }else{
+      if(state.signedIn) resetSignedOutUI();
+      resolveGatedPageIfPending();
     }
   });
 }else{
   restoreSimulatedSession();
+  resolveGatedPageIfPending();
 }
 
 async function attemptSignIn(){
