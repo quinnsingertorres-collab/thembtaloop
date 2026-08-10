@@ -1076,7 +1076,7 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
     </div>
     <div class="back-link" id="rosterBackBtn">&lsaquo; Back</div>
     <div class="filter-bar">
-      <input type="text" id="rosterSearch" placeholder="Search car number or livery&hellip;">
+      <input type="text" id="rosterSearch" placeholder="Search car number, livery, or notes&hellip;">
       <select id="rosterTypeFilter">
         <option value="ALL">All types</option>
       </select>
@@ -6914,7 +6914,9 @@ async function buildRosterPanel(){
       const carMatch = entry.car.indexOf(search) !== -1;
       const livery = (rosterData[entry.key] && rosterData[entry.key].livery) || '';
       const liveryMatch = livery.toLowerCase().indexOf(searchLower) !== -1;
-      if(!carMatch && !liveryMatch) return false;
+      const notes = (rosterData[entry.key] && rosterData[entry.key].notes) || '';
+      const notesMatch = notes.toLowerCase().indexOf(searchLower) !== -1;
+      if(!carMatch && !liveryMatch && !notesMatch) return false;
     }
     return true;
   });
