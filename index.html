@@ -878,6 +878,7 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
   font-size:12.5px; color:var(--text-dim); padding:7px 0; min-height:20px;
 }
 .roster-edited-by{font-size:10.5px; color:var(--text-faint); margin-top:4px;}
+.roster-section-divider{height:1px; background:var(--border); margin:14px 0;}
 .roster-reset-btn{
   margin-top:8px; font-size:10.5px; padding:4px 10px; border-radius:6px; border:1px solid var(--border);
   background:var(--panel); color:#D64545; cursor:pointer; font-family:'IBM Plex Sans', sans-serif;
@@ -1230,8 +1231,11 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
          buildCarDetailPanel's own roster-row-head/roster-card-summary at
          the top of carDetailBody repeats car number + type again right
          below it — a third title line here would just be more of the same
-         duplicate text stacked at the top of the page. -->
-    <div class="back-link" id="carDetailBackBtn">&lsaquo; Back to Fleet Roster</div>
+         duplicate text stacked at the top of the page. The back link itself
+         now renders inside carDetailBody, on the same row as the car
+         number (see buildCarDetailPanel) — it's re-wired there each build
+         since the element is recreated every time, unlike a normal static
+         listener. -->
     <div id="carDetailBody"></div>
    </div>
   </div>
@@ -7123,6 +7127,7 @@ async function buildRosterPanel(){
           ${isActive ? '<span class="roster-active-badge">Active now</span>' : ''}
         </div>
         <div class="roster-card-summary">${entry.type} \u00b7 ${info.builder} \u00b7 ${rosterBuildYearFor(state.activeLine, entry.type, entry.car)}${seatsSuffix}</div>
+        <div class="roster-section-divider" style="margin:10px 0;"></div>
         ${lastSeenLine}
         ${firstTrackedLine}
         <div class="roster-expand-hint">View details \u203a</div>
@@ -7294,6 +7299,14 @@ function makeCarDetailMarkerIcon(bg, size){
   });
 }
 
+// Same brand hex used on the line-select screen (see .line-select-btn's
+// --line-color) — keeps the track overlay's color consistent with how the
+// app identifies each line everywhere else.
+const LINE_BRAND_HEX = { green:'#00843D', red:'#DA291C', orange:'#ED8B00', blue:'#003DA5' };
+function carDetailTrackLineStyle(){
+  return { color: LINE_BRAND_HEX[state.activeLine] || '#9CA3AF', weight:2.5, opacity:0.85 };
+}
+
 // Green Line track centerlines (incl. yard/branch-junction linework),
 // sourced from MassGIS's official MBTA Rapid Transit Lines dataset and
 // bundled as a static file — fetched once and cached, drawn under the
@@ -7306,7 +7319,7 @@ let greenLineTracksFetchPromise = null;
 function drawGreenLineTracksOnMap(map){
   if(state.activeLine !== 'green') return;
   if(greenLineTracksGeoJSON){
-    L.geoJSON(greenLineTracksGeoJSON, { style: { color:'#9CA3AF', weight:2, opacity:0.65 } }).addTo(map);
+    L.geoJSON(greenLineTracksGeoJSON, { style: carDetailTrackLineStyle() }).addTo(map);
     return;
   }
   if(!greenLineTracksFetchPromise){
@@ -7318,7 +7331,7 @@ function drawGreenLineTracksOnMap(map){
     // The map may have been destroyed (user navigated away) by the time this
     // fetch resolves — only draw onto it if it's still the live instance.
     if(carDetailMapInstance === map){
-      L.geoJSON(data, { style: { color:'#9CA3AF', weight:2, opacity:0.65 } }).addTo(map);
+      L.geoJSON(data, { style: carDetailTrackLineStyle() }).addTo(map);
     }
   });
 }
@@ -7588,16 +7601,22 @@ async function buildCarDetailPanel(){
   const liveInfo = getCarDetailLiveInfo(entry, activeSet);
 
   body.innerHTML = `
-    <div class="roster-row-head" style="margin-bottom:4px;">
-      <span class="roster-car-chip">Car ${entry.car}</span>
-      ${statusBadge}
+    <div class="roster-row-head" style="margin-bottom:4px; justify-content:space-between;">
+      <span class="back-link" id="carDetailBackBtn" style="margin-bottom:0;">&lsaquo; Back to Fleet Roster</span>
+      <span style="display:inline-flex; align-items:center; gap:8px;">
+        <span class="roster-car-chip">Car ${entry.car}</span>
+        ${statusBadge}
+      </span>
     </div>
     <div class="roster-card-summary">${entry.type} · ${info.builder}</div>
+    <div class="roster-section-divider"></div>
     <div id="carDetailStatusBadge">${renderCarDetailStatusBadge(liveInfo)}</div>
     <div id="carDetailMapContainer" style="display:none;"></div>
     <div id="carDetailStatusDetail">${renderCarDetailStatusDetail(liveInfo)}</div>
+    <div class="roster-section-divider"></div>
     ${lastSeenLine}
     ${firstTrackedLine}
+    <div class="roster-section-divider"></div>
     <div class="roster-details" style="display:block; margin-top:10px;">
       ${specsField}
       <div class="roster-field-label">Status</div>
@@ -7622,6 +7641,12 @@ async function buildCarDetailPanel(){
   wireCarDetailEvents(entry, body);
   wireCarDetailMapButton(entry);
   refreshCarDetailMap(liveInfo);
+
+  // The back link is part of this same innerHTML rebuild (so it can share
+  // the title row with the car number), so — unlike the other pages' back
+  // buttons, wired once at load — it needs re-wiring on every call here.
+  const backBtn = document.getElementById('carDetailBackBtn');
+  if(backBtn) backBtn.addEventListener('click', ()=> switchPage('ROSTER'));
 }
 
 document.getElementById('rosterSearch').addEventListener('input', (e)=>{
@@ -8660,10 +8685,10 @@ document.getElementById('siteTitleText').addEventListener('click', showLineSelec
 document.getElementById('signedInBar').addEventListener('click', ()=> switchPage('SETTINGS'));
 document.getElementById('settingsBackBtn').addEventListener('click', ()=> switchPage(state.lastMainPage || 'B'));
 document.getElementById('rosterBackBtn').addEventListener('click', ()=> switchPage(state.lastMainPage || 'B'));
-// Unlike the other back buttons, this always returns to the roster list
-// specifically (not lastMainPage) — a car detail page is only ever reached
-// from there (or a direct link), so that's always the more useful "back."
-document.getElementById('carDetailBackBtn').addEventListener('click', ()=> switchPage('ROSTER'));
+// carDetailBackBtn isn't wired here — it lives inside carDetailBody's own
+// template now (same row as the car number) and is re-wired at the bottom
+// of buildCarDetailPanel() every time that runs, since its innerHTML
+// rebuild recreates the element each time.
 document.getElementById('membersBackBtn').addEventListener('click', ()=> switchPage(state.lastMainPage || 'B'));
 document.getElementById('modNotifsBackBtn').addEventListener('click', ()=> switchPage(state.lastMainPage || 'B'));
 document.getElementById('editLogsBackBtn').addEventListener('click', ()=> switchPage(state.lastMainPage || 'B'));
