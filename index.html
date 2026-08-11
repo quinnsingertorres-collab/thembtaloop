@@ -1213,6 +1213,17 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
    </div>
   </div>
 
+  <div class="panel full-bleed" id="carDetailPanel" style="display:none;">
+   <div class="full-bleed-inner">
+    <div class="panel-head">
+      <h2 id="carDetailTitle">Car</h2>
+      <span class="note" id="carDetailMeta">&mdash;</span>
+    </div>
+    <div class="back-link" id="carDetailBackBtn">&lsaquo; Back to Fleet Roster</div>
+    <div id="carDetailBody"></div>
+   </div>
+  </div>
+
   <div class="panel full-bleed" id="settingsPanel" style="display:none;">
 
     <div class="settings-inner">
@@ -1481,6 +1492,14 @@ const PAGES = {
   },
   SETTINGS: {
     hex:'#374151', label:'Settings', isSettings:true
+  },
+  CARDETAIL: {
+    // No fixed label/hex — this page's identity (which car, which line) is
+    // dynamic per visit, held in state.viewingCarKey/viewingCarNumber
+    // rather than here. switchPage() and updateDocumentTitle() both
+    // special-case isCarDetail to build the right title from that state
+    // instead of reading page.label like every other page does.
+    hex:'#1F2937', label:'Car Detail', isCarDetail:true
   }
 };
 
@@ -2254,7 +2273,7 @@ function rosterBuildYearFor(line, type, car){
   return rosterCarInfoFor(line, type).year;
 }
 
-let state = { vehicles: [], currentPage: 'B', lastMainPage: 'B', live: null, abbreviate: false, staggerBunchedTrains: false, signedIn: false, userName: '', photoURL: '', isModerator: false, isTrustedMember: false, filterDirection: 'ALL', filterType: 'ALL', rosterSearch: '', rosterTypeFilter: 'ALL', notifMaster: true, notifDoubleType8: false, notifPride: false, notifType9: false, notifCarBackInService: false, activeLine: 'green', otherBranchesVisible: { B:false, C:false, D:false, E:false, ashmont:false, braintree:false }, statusChipShowDate: true, statusChipShowWeather: true, clockShowSeconds: true, clock24Hour: false, statusChipPosition: 'below' };
+let state = { vehicles: [], currentPage: 'B', lastMainPage: 'B', live: null, abbreviate: false, staggerBunchedTrains: false, signedIn: false, userName: '', photoURL: '', isModerator: false, isTrustedMember: false, filterDirection: 'ALL', filterType: 'ALL', rosterSearch: '', rosterTypeFilter: 'ALL', notifMaster: true, notifDoubleType8: false, notifPride: false, notifType9: false, notifCarBackInService: false, activeLine: 'green', otherBranchesVisible: { B:false, C:false, D:false, E:false, ashmont:false, braintree:false }, statusChipShowDate: true, statusChipShowWeather: true, clockShowSeconds: true, clock24Hour: false, statusChipPosition: 'below', viewingCarKey: null, viewingCarNumber: null };
 let layout = null; // computed pixel layout for the current ladder
 
 // Tracks, per vehicle id, when it was first observed STOPPED_AT its current
@@ -3066,8 +3085,11 @@ function switchPage(key){
   updateUrlForPage(state.activeLine, key);
   updateDocumentTitle(state.activeLine, key);
   const page = PAGES[key];
-  if(!page.isRoster && !page.isMembers && !page.isModNotifs && !page.isEditLogs && !page.isSettings && !page.isPoints && !page.isBugs && !page.isInspectors) state.lastMainPage = key;
-  document.getElementById('pageTitle').textContent = page.label;
+  if(!page.isRoster && !page.isMembers && !page.isModNotifs && !page.isEditLogs && !page.isSettings && !page.isPoints && !page.isBugs && !page.isInspectors && !page.isCarDetail) state.lastMainPage = key;
+  // Car detail pages don't have a fixed label like every other page — the
+  // header shows "Car <number>" built from whichever car is currently
+  // being viewed (see state.viewingCarNumber, set just before this runs).
+  document.getElementById('pageTitle').textContent = page.isCarDetail ? `Car ${state.viewingCarNumber || ''}` : page.label;
   if(typeof updateTitleCenterVar === 'function') updateTitleCenterVar();
   buildNav();
   renderOtherBranchesToggles();
@@ -3081,6 +3103,7 @@ function switchPage(key){
   const bugsPanel = document.getElementById('bugsPanel');
   const inspectorsPanel = document.getElementById('inspectorsPanel');
   const settingsPanel = document.getElementById('settingsPanel');
+  const carDetailPanel = document.getElementById('carDetailPanel');
 
   mainGrid.style.display = 'none';
   const trainsPanelToggleBtn = document.getElementById('trainsPanelToggle');
@@ -3093,6 +3116,7 @@ function switchPage(key){
   bugsPanel.style.display = 'none';
   inspectorsPanel.style.display = 'none';
   settingsPanel.style.display = 'none';
+  carDetailPanel.style.display = 'none';
   // The top bar is only pinned (position:fixed on desktop) while the
   // track map itself is on screen — every other page (Settings, Fleet
   // Roster, etc.) removes this class and lets it scroll away normally,
@@ -3102,17 +3126,22 @@ function switchPage(key){
   document.body.classList.remove('track-map-page');
   // Hides the branch/route-selector row (not the whole bottom-nav — the
   // time/weather chip stays) while Fleet Roster is open; see the CSS rule.
-  document.body.classList.toggle('roster-page-open', !!page.isRoster);
+  document.body.classList.toggle('roster-page-open', !!(page.isRoster || page.isCarDetail));
   // The desktop-docked car-info panel only makes sense over the track map —
   // close it on any other page so it doesn't linger on top of Settings,
   // Fleet Roster, etc.
-  if(page.isRoster || page.isMembers || page.isModNotifs || page.isEditLogs || page.isPoints || page.isBugs || page.isInspectors || page.isSettings){
+  if(page.isRoster || page.isMembers || page.isModNotifs || page.isEditLogs || page.isPoints || page.isBugs || page.isInspectors || page.isSettings || page.isCarDetail){
     document.getElementById('carModalOverlay').classList.remove('show');
   }
 
   if(page.isRoster){
     rosterPanel.style.display = 'block';
     buildRosterPanel();
+    return;
+  }
+  if(page.isCarDetail){
+    carDetailPanel.style.display = 'block';
+    buildCarDetailPanel();
     return;
   }
   if(page.isMembers){
@@ -6669,6 +6698,8 @@ async function refreshVehicles(){
   buildNav();
   if(state.currentPage === 'ROSTER'){
     updateRosterLiveState();
+  }else if(state.currentPage === 'CARDETAIL'){
+    updateCarDetailLiveState();
   }else{
     renderTrainDots();
     renderVehicleList();
@@ -6902,11 +6933,6 @@ document.getElementById('inspectorsSearch').addEventListener('input', (e)=>{
 // immediately without costing another read.
 let rosterPanelDataCache = null;
 let rosterPanelDataCacheTs = 0;
-// Which roster card (by entry.key) is currently expanded in the grid, if
-// any — persisted here (rather than only as a DOM class) so that
-// buildRosterPanel() re-renders triggered by a save/reset/GLTPS click don't
-// snap the card the user was just editing back to its collapsed state.
-let rosterExpandedKey = null;
 const ROSTER_PANEL_CACHE_TTL_MS = 15 * 60 * 1000;
 
 // Pair history (pair_history/{key}, written server-side by syncLastSeenCars
@@ -7030,6 +7056,10 @@ async function buildRosterPanel(){
   // field is Green-only below.
   const showGltps = state.activeLine === 'green';
 
+  // The list itself is now just a summary — tapping a row navigates to
+  // that car's own page (see openCarDetail below) instead of expanding
+  // inline, so all the editable fields (status, livery, notes, GLTPS,
+  // pair history, etc.) live only in buildCarDetailPanel() now, not here.
   list.innerHTML = filtered.map(entry=>{
     const data = rosterData[entry.key] || {};
     const gltps = showGltps ? gltpsMap[entry.car] : null;
@@ -7047,80 +7077,12 @@ async function buildRosterPanel(){
     const statusColor = STATUS_COLORS[effectiveStatus]
       || (/^Scrapped/.test(effectiveStatus) ? STATUS_COLORS['Scrapped'] : '')
       || (/^Retired/.test(effectiveStatus) ? STATUS_COLORS['Retired'] : '');
-    const gltpsColor = gltps
-      ? (gltps.status === 'Installed' ? '#0F8A4B' : (gltps.status === 'Not installed' ? '#D64545' : 'var(--text-faint)'))
-      : (entry.type === 'Type 10' ? '#0F8A4B' : '');
-
-    const editedLine = data.editedBy
-      ? `<div class="roster-edited-by">Last edited by ${renderNameWithTag(data.editedBy, data.editedByUid, tagMap)} (${timeAgo(new Date(data.ts).toISOString())})</div>`
-      : '';
-    const resetBtn = (state.isModerator && (data.livery || data.notes || data.status || data.rebuildStatus || data.workCarType))
-      ? `<button class="roster-reset-btn" data-reset="${entry.key}">Reset entry (moderator)</button>`
-      : '';
     const statusBadge = effectiveStatus
       ? `<span class="roster-status-badge" style="background:${statusColor}">${effectiveStatus}</span>`
       : '';
 
-    const liveryField = state.signedIn
-      ? `<input type="text" class="roster-input" data-car="${entry.car}" data-field="livery" data-old-value="${(data.livery||'').replace(/"/g,'&quot;')}" value="${(data.livery || '').replace(/"/g, '&quot;')}" placeholder="e.g. Standard livery, Pride wrap...">`
-      : `<div class="roster-readonly">${data.livery ? data.livery : '<span style="opacity:.5;">No livery info yet</span>'}</div>`;
-
-    const notesField = state.signedIn
-      ? `<textarea class="roster-textarea" data-car="${entry.car}" data-field="notes" data-old-value="${(data.notes||'').replace(/"/g,'&quot;')}" placeholder="Notes about this car...">${data.notes || ''}</textarea>`
-      : `<div class="roster-readonly">${data.notes ? data.notes : '<span style="opacity:.5;">No notes yet</span>'}</div>`;
-
-    const statusField = state.signedIn
-      ? `<select class="roster-input" data-car="${entry.car}" data-field="status" data-old-value="${effectiveStatus}" style="color:${statusColor};">
-           <option value="" ${!effectiveStatus ? 'selected' : ''}>Not set</option>
-           <option value="Not yet delivered" ${effectiveStatus==='Not yet delivered' ? 'selected' : ''}>Not yet delivered</option>
-           <option value="In Service" ${effectiveStatus==='In Service' ? 'selected' : ''}>In Service</option>
-           <option value="Out of Service" ${effectiveStatus==='Out of Service' ? 'selected' : ''}>Out of Service</option>
-           <option value="Out for Rebuild" ${effectiveStatus==='Out for Rebuild' ? 'selected' : ''}>Out for Rebuild</option>
-           <option value="Testing" ${effectiveStatus==='Testing' ? 'selected' : ''}>Testing</option>
-           <option value="Work Car" ${effectiveStatus==='Work Car' ? 'selected' : ''}>Work Car</option>
-           <option value="Retired" ${effectiveStatus==='Retired' ? 'selected' : ''}>Retired</option>
-           <option value="Scrapped" ${effectiveStatus==='Scrapped' ? 'selected' : ''}>Scrapped</option>
-         </select>`
-      : `<div class="roster-readonly" style="color:${statusColor};">${effectiveStatus || '<span style="opacity:.5;">Not set</span>'}</div>`;
-
-    const scrapDateField = (data.status === 'Scrapped') ? `
-        <div class="roster-field-label">Scrap date (if known)</div>
-        ${state.signedIn
-          ? `<input type="text" class="roster-input" data-car="${entry.car}" data-field="scrapDate" data-old-value="${(data.scrapDate||'').replace(/"/g,'&quot;')}" value="${(data.scrapDate || '').replace(/"/g, '&quot;')}" placeholder="e.g. 2019 or 2019-05">`
-          : `<div class="roster-readonly">${data.scrapDate ? data.scrapDate : '<span style="opacity:.5;">Unknown</span>'}</div>`}
-      ` : '';
-
-    const workCarTypeField = (data.status === 'Work Car') ? `
-        <div class="roster-field-label">Work car type</div>
-        ${state.signedIn
-          ? `<input type="text" class="roster-input" data-car="${entry.car}" data-field="workCarType" data-old-value="${(data.workCarType||'').replace(/"/g,'&quot;')}" value="${(data.workCarType || '').replace(/"/g, '&quot;')}" placeholder="e.g. Snow plow, rail grinder, de-icer...">`
-          : `<div class="roster-readonly">${data.workCarType ? data.workCarType : '<span style="opacity:.5;">Unknown</span>'}</div>`}
-      ` : '';
-
-    const rebuildField = entry.hasRebuildStatus ? `
-        <div class="roster-field-label">Rebuild status</div>
-        ${state.signedIn
-          ? `<select class="roster-input" data-car="${entry.car}" data-field="rebuildStatus" data-old-value="${data.rebuildStatus||''}">
-               <option value="" ${!data.rebuildStatus ? 'selected' : ''}>Not set</option>
-               <option value="Rebuilt" ${data.rebuildStatus==='Rebuilt' ? 'selected' : ''}>Rebuilt</option>
-               <option value="Not rebuilt" ${data.rebuildStatus==='Not rebuilt' ? 'selected' : ''}>Not rebuilt</option>
-             </select>`
-          : `<div class="roster-readonly">${data.rebuildStatus || '<span style="opacity:.5;">Not set</span>'}</div>`}
-      ` : '';
-
-    const gltpsField = showGltps ? `
-        <div class="roster-field-label">GLTPS</div>
-        <div class="roster-readonly" style="color:${gltpsColor};">${gltps ? gltps.status : (entry.type === 'Type 10' ? 'Installed' : 'Unreported')}</div>
-        ${(state.signedIn && data.status !== 'Scrapped') ? `
-        <div class="gltps-row">
-          <button class="gltps-btn${gltps && gltps.status==='Installed' ? ' active' : ''}" data-gltps-car="${entry.car}" data-status="Installed">Installed</button>
-          <button class="gltps-btn${gltps && gltps.status==='Not installed' ? ' active' : ''}" data-gltps-car="${entry.car}" data-status="Not installed">Not installed</button>
-          <button class="gltps-btn${gltps && gltps.status==='Unknown' ? ' active' : ''}" data-gltps-car="${entry.car}" data-status="Unknown">Unknown</button>
-        </div>` : ''}
-      ` : '';
-
     const lastSeenLine = `<div class="roster-edited-by" data-last-seen-line="${entry.key}"${data.lastSeenStop ? '' : ' style="opacity:.6;"'}>${renderLastSeenText(data)}</div>`;
-    const firstTrackedLine = `<div class="roster-edited-by" data-first-tracked-line="${entry.key}"${(data.firstTrackedToday && data.trackingDay === todayDateString()) ? '' : ' style="opacity:.6;"'}>${renderFirstTrackedText(data)}</div>`;
+    const firstTrackedLine = `<div class="roster-edited-by">${renderFirstTrackedText(data)}</div>`;
 
     // Green keeps its existing GLTPS-aware seat logic (getSeatCount, which
     // knocks 2 seats off Type 7/8 cars that have GLTPS hardware installed)
@@ -7130,29 +7092,8 @@ async function buildRosterPanel(){
     const seats = showGltps ? getSeatCount(entry.type, gltps ? gltps.status : null) : (info.seats !== undefined ? info.seats : null);
     const seatsSuffix = (seats !== null && seats !== undefined) ? ` \u00b7 ${seats} seats` : '';
 
-    // Car measurements + traction/propulsion equipment, sourced from the
-    // MBTA Vehicle Inventory doc (07/28/26 version), shown for every line
-    // including Green (this is separate from the seats field above, so it
-    // doesn't touch Green's existing seat-count logic at all).
-    const specParts = [
-      info.width ? `Width ${info.width}` : null,
-      info.length ? `Length ${info.length}` : null,
-      info.electrical ? `Electrical: ${info.electrical}` : null
-    ].filter(Boolean);
-    const specsField = specParts.length ? `
-        <div class="roster-field-label">Car specs</div>
-        <div class="roster-readonly">${specParts.join(' \u00b7 ')}</div>
-      ` : '';
-
-    const submitBtn = state.signedIn
-      ? `<button class="account-btn roster-submit-btn" data-submit="${entry.key}" style="margin-top:10px;">Submit changes</button>
-         <span class="roster-submit-note" data-submit-note="${entry.key}"></span>`
-      : '';
-
-    const isExpanded = rosterExpandedKey === entry.key;
-
     return `
-      <div class="roster-row${isExpanded ? ' expanded' : ''}" data-car="${entry.car}" data-roster-toggle="${entry.key}">
+      <div class="roster-row" data-car="${entry.car}" data-roster-toggle="${entry.key}">
         <div class="roster-row-head">
           <span class="roster-car-chip">Car ${entry.car}</span>
           ${statusBadge}
@@ -7161,68 +7102,169 @@ async function buildRosterPanel(){
         <div class="roster-card-summary">${entry.type} \u00b7 ${info.builder} \u00b7 ${rosterBuildYearFor(state.activeLine, entry.type, entry.car)}${seatsSuffix}</div>
         ${lastSeenLine}
         ${firstTrackedLine}
-        <div class="roster-expand-hint" data-roster-hint="${entry.key}">${isExpanded ? 'Hide details \u25b4' : 'Tap for details \u25be'}</div>
-        <div class="roster-details" id="rosterDetails-${entry.key}">
-          ${specsField}
-          <div class="roster-field-label">Status</div>
-          ${statusField}
-          ${scrapDateField}
-          ${workCarTypeField}
-          ${rebuildField}
-          ${gltpsField}
-          <div class="roster-field-label">Livery / wrap</div>
-          ${liveryField}
-          <div class="roster-field-label">Notes</div>
-          ${notesField}
-          <div class="roster-field-label">Pair history</div>
-          <div id="pairHistory-${entry.key}" style="font-size:12px; opacity:.5;">${isExpanded ? 'Loading\u2026' : 'Tap for details to load'}</div>
-          ${submitBtn}
-          ${editedLine}
-          ${resetBtn}
-        </div>
+        <div class="roster-expand-hint">View details \u203a</div>
       </div>`;
   }).join('');
 
   list.querySelectorAll('[data-roster-toggle]').forEach(row=>{
-    row.addEventListener('click', (e)=>{
-      // Don't toggle when the click landed on an interactive control inside
-      // an already-expanded card (inputs/selects/textareas/buttons/links).
-      if(e.target.closest('button, input, select, textarea, a')) return;
-      const key = row.dataset.rosterToggle;
-      const hint = list.querySelector(`[data-roster-hint="${key}"]`);
-      const isOpen = row.classList.contains('expanded');
-      row.classList.toggle('expanded', !isOpen);
-      rosterExpandedKey = isOpen ? null : key;
-      if(hint) hint.textContent = isOpen ? 'Tap for details \u25be' : 'Hide details \u25b4';
-      if(!isOpen) loadAndRenderPairHistory(key, state.activeLine);
+    row.addEventListener('click', ()=>{
+      openCarDetail(row.dataset.rosterToggle, row.dataset.car);
     });
   });
-  // A re-render (search/filter change, a save going through, etc.) rebuilds
-  // this whole list from scratch, which would otherwise leave an already-
-  // expanded card's pair history stuck on "Loading\u2026" forever since nothing
-  // re-triggers the fetch for it. loadPairHistory's own cache means this is
-  // a no-op read after the first time, not a fresh fetch on every render.
-  if(rosterExpandedKey) loadAndRenderPairHistory(rosterExpandedKey, state.activeLine);
+}
 
+// Navigates from a roster list row to that car's own page (/line/carnumber
+// — see pageUrlPath's CARDETAIL case and buildCarDetailPanel below).
+function openCarDetail(key, carNumber){
+  state.viewingCarKey = key;
+  state.viewingCarNumber = carNumber;
+  switchPage('CARDETAIL');
+}
+
+/* ---------------- Car detail page (/line/carnumber) ---------------- */
+
+// The one currently-tracked vehicle (if any) whose consist includes this
+// roster car number — same matching getActiveCarSet() already uses for the
+// "Active now" badge, just resolved to the actual vehicle object instead of
+// only a yes/no.
+function findActiveVehicleForCar(carNum){
+  return state.vehicles.find(v => getCarNumbersForVehicle(v).includes(carNum)) || null;
+}
+
+// Given a live vehicle, finds the nearest other vehicle on the same
+// branch and heading the same direction that's ahead of it (the "leader")
+// and behind it (the "follower"). Reuses the exact same branch/direction
+// pool logic as getUpcoming() above, just centered on this vehicle's own
+// position instead of a station index.
+function getLeaderAndFollower(v){
+  const ownBranch = getEffectiveBranchForToggle(v);
+  const pageKey = BRANCH_ID_TO_PAGE_KEY[ownBranch] || ownBranch;
+  if(!PAGES[pageKey]) return { leader:null, follower:null };
+  const ownIdx = findStopIndex(pageKey, v.stopName);
+  if(ownIdx === null) return { leader:null, follower:null };
+
+  const pool = state.vehicles.filter(other=>{
+    if(other.id === v.id) return false;
+    if(other.direction !== v.direction) return false;
+    const otherBranch = getEffectiveBranchForToggle(other);
+    const otherPageKey = BRANCH_ID_TO_PAGE_KEY[otherBranch] || otherBranch;
+    return otherPageKey === pageKey;
+  }).map(other => ({ v: other, idx: findStopIndex(pageKey, other.stopName) }))
+    .filter(x => x.idx !== null);
+
+  // Direction 0 runs from lower stop index to higher (see parseRouteFromPath/
+  // getUpcoming's own direction convention above) — so "ahead" means a
+  // higher index; direction 1 runs the other way, so "ahead" means lower.
+  let ahead, behind;
+  if(v.direction === 0){
+    ahead = pool.filter(x => x.idx > ownIdx).sort((a,b) => a.idx - b.idx);
+    behind = pool.filter(x => x.idx < ownIdx).sort((a,b) => b.idx - a.idx);
+  }else{
+    ahead = pool.filter(x => x.idx < ownIdx).sort((a,b) => b.idx - a.idx);
+    behind = pool.filter(x => x.idx > ownIdx).sort((a,b) => a.idx - b.idx);
+  }
+  return { leader: ahead[0] ? ahead[0].v : null, follower: behind[0] ? behind[0].v : null };
+}
+
+// The branch/page this car currently belongs to, for the "view on live
+// map" button — from its live vehicle if it's active right now, otherwise
+// this line's default page (there's no live position to point at for a
+// car that isn't currently in service).
+function carDetailMapPageKey(entry){
+  const v = findActiveVehicleForCar(entry.car);
+  if(v){
+    const ownBranch = getEffectiveBranchForToggle(v);
+    const pageKey = BRANCH_ID_TO_PAGE_KEY[ownBranch] || ownBranch;
+    if(PAGES[pageKey]) return pageKey;
+  }
+  return LINE_DEFAULT_PAGE[state.activeLine] || 'B';
+}
+
+function wireCarDetailMapButton(entry){
+  const mapBtn = document.getElementById('carDetailViewMapBtn');
+  if(mapBtn) mapBtn.addEventListener('click', ()=> switchPage(carDetailMapPageKey(entry)));
+}
+
+// Renders the "is this car in service right now" block: an in-service
+// badge, and — only when it's actually active — its leader/follower and
+// current stop. This lives in its own DOM region (#carDetailLiveStatus) so
+// updateCarDetailLiveState() below can refresh just this part every 10s
+// poll without touching (and losing in-progress edits in) the roster
+// fields the rest of the page shows.
+function renderCarDetailLiveStatus(entry, activeSet){
+  const isActive = activeSet.has(entry.car);
+  if(!isActive){
+    return `<span class="roster-status-badge" style="background:#6B7280; display:inline-block; margin-bottom:12px;">Not currently in service</span>`;
+  }
+  const v = findActiveVehicleForCar(entry.car);
+  if(!v){
+    // Shouldn't normally happen (activeSet and state.vehicles come from the
+    // same poll) — guards against a one-poll race between the two reads.
+    return `<span class="roster-status-badge" style="background:#0F8A4B; display:inline-block; margin-bottom:12px;">In service now</span>`;
+  }
+  const { leader, follower } = getLeaderAndFollower(v);
+  const dirLabel = v.direction === 0 ? dirLabels().west : dirLabels().east;
+  const describeVehicle = (other) => {
+    const otherLabel = state.activeLine === 'green' ? other.label : formatCarNumberForDisplay(String(other.label).split('-')[0]);
+    return `Car ${otherLabel} · near ${displayName(other.stopName || '—')}`;
+  };
+
+  return `
+    <span class="roster-status-badge" style="background:#0F8A4B; display:inline-block; margin-bottom:10px;">In service now · ${dirLabel}</span>
+    <div style="border:1px solid var(--border); border-radius:10px; padding:4px 12px; margin-bottom:12px;">
+      <div style="padding:8px 0; ${!leader ? 'opacity:.5;' : ''}">
+        <div style="font-size:10px; text-transform:uppercase; letter-spacing:.04em; opacity:.7;">Leader (ahead)</div>
+        <div style="font-size:13px;">${leader ? describeVehicle(leader) : 'None currently tracked ahead'}</div>
+      </div>
+      <div style="height:1px; background:var(--border);"></div>
+      <div style="padding:8px 0; font-weight:700;">
+        <div style="font-size:10px; text-transform:uppercase; letter-spacing:.04em; opacity:.7;">This car</div>
+        <div style="font-size:13px;">near ${displayName(v.stopName || '—')} · ${statusText(v.status)}</div>
+      </div>
+      <div style="height:1px; background:var(--border);"></div>
+      <div style="padding:8px 0; ${!follower ? 'opacity:.5;' : ''}">
+        <div style="font-size:10px; text-transform:uppercase; letter-spacing:.04em; opacity:.7;">Follower (behind)</div>
+        <div style="font-size:13px;">${follower ? describeVehicle(follower) : 'None currently tracked behind'}</div>
+      </div>
+    </div>
+    <button class="account-btn" id="carDetailViewMapBtn" style="margin-bottom:14px;">View on live track map ›</button>
+  `;
+}
+
+// Lightweight per-poll refresh (called from refreshVehicles, same pattern
+// as updateRosterLiveState) — only touches the live-status region above,
+// never the roster edit fields below it, so a signed-in user mid-edit on
+// this page never has their in-progress changes clobbered every 10s.
+function updateCarDetailLiveState(){
+  if(state.currentPage !== 'CARDETAIL' || !state.viewingCarKey) return;
+  const entry = ROSTER_CARS.find(e => e.key === state.viewingCarKey);
+  if(!entry) return;
+  const el = document.getElementById('carDetailLiveStatus');
+  if(!el) return;
+  el.innerHTML = renderCarDetailLiveStatus(entry, getActiveCarSet());
+  wireCarDetailMapButton(entry);
+}
+
+// Submit/GLTPS/reset button wiring, scoped to whatever container is passed
+// in — factored out of buildRosterPanel's old inline version so the same
+// logic works against this page's single-card container instead of the
+// roster list. onAfterSave re-renders just this page (buildCarDetailPanel),
+// not the whole roster list.
+function wireCarDetailEvents(entry, container){
   const POINTS_BY_FIELD = { status:5, livery:8, rebuildStatus:15 };
   const EDITABLE_FIELDS = ['status', 'scrapDate', 'workCarType', 'rebuildStatus', 'livery', 'notes'];
 
-  list.querySelectorAll('[data-submit]').forEach(btn=>{
-    btn.addEventListener('click', async ()=>{
+  const submitBtn = container.querySelector('[data-submit]');
+  if(submitBtn){
+    submitBtn.addEventListener('click', async ()=>{
       if(!state.signedIn) return;
-      // The submit button's own data-submit value is the storage key
-      // (line-prefixed for Red/Orange/Blue \u2014 see buildRosterCarList), not
-      // necessarily the plain car number shown on screen, so find the row
-      // via DOM structure rather than re-matching on a car number that
-      // might not even be unique across lines.
-      const key = btn.dataset.submit;
-      const row = btn.closest('.roster-row');
-      const note = list.querySelector(`[data-submit-note="${key}"]`);
+      const key = submitBtn.dataset.submit;
+      const note = container.querySelector(`[data-submit-note="${key}"]`);
       const patch = {};
       let pointsToAward = 0;
 
       EDITABLE_FIELDS.forEach(field=>{
-        const el = row.querySelector(`[data-field="${field}"]`);
+        const el = container.querySelector(`[data-field="${field}"]`);
         if(!el) return;
         const oldValue = el.dataset.oldValue || '';
         const newValue = el.value;
@@ -7241,44 +7283,188 @@ async function buildRosterPanel(){
         return;
       }
 
-      btn.disabled = true;
-      btn.textContent = 'Submitting\u2026';
-      const saved = await saveRosterEntry(key, patch, row.dataset.car);
-      // Merge the save straight into the cache instead of letting the next
-      // buildRosterPanel() call trigger a fresh pull to see it \u2014 this is a
-      // partial patch (a roster entry has several independently-editable
-      // fields), so merge rather than replace.
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Submitting…';
+      const saved = await saveRosterEntry(key, patch, entry.car);
       if(rosterPanelDataCache) rosterPanelDataCache.rosterData[key] = Object.assign({}, rosterPanelDataCache.rosterData[key], saved);
       if(pointsToAward > 0) awardPoints(pointsToAward);
-      buildRosterPanel();
+      buildCarDetailPanel();
     });
-  });
+  }
 
-  list.querySelectorAll('[data-gltps-car]').forEach(btn=>{
+  container.querySelectorAll('[data-gltps-car]').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
       const car = btn.dataset.gltpsCar;
       const status = btn.dataset.status;
-      // Read the current value from the same cache buildRosterPanel already
-      // loaded, instead of a dedicated loadGltps() pull just to check
-      // whether this click actually changes anything.
       const cached = await loadRosterPanelData();
       const changed = !cached.gltpsMap[car] || cached.gltpsMap[car].status !== status;
       const saved = await saveGltpsEntry(car, status);
       cached.gltpsMap[car] = saved;
       if(changed) awardPoints(3);
-      buildRosterPanel();
+      buildCarDetailPanel();
     });
   });
 
-  list.querySelectorAll('[data-reset]').forEach(btn=>{
-    btn.addEventListener('click', async ()=>{
+  const resetBtn = container.querySelector('[data-reset]');
+  if(resetBtn){
+    resetBtn.addEventListener('click', async ()=>{
       if(!state.isModerator) return;
-      const key = btn.dataset.reset;
+      const key = resetBtn.dataset.reset;
       await resetRosterEntry(key);
       if(rosterPanelDataCache) delete rosterPanelDataCache.rosterData[key];
-      buildRosterPanel();
+      buildCarDetailPanel();
     });
-  });
+  }
+}
+
+async function buildCarDetailPanel(){
+  const body = document.getElementById('carDetailBody');
+  const entry = ROSTER_CARS.find(e => e.key === state.viewingCarKey);
+  if(!entry){
+    body.innerHTML = '<div class="empty-state">Car not found on this line.</div>';
+    return;
+  }
+
+  const { rosterData, gltpsMap, tagMap } = await loadRosterPanelData();
+  const activeSet = getActiveCarSet();
+  const data = rosterData[entry.key] || {};
+  const showGltps = state.activeLine === 'green';
+  const gltps = showGltps ? gltpsMap[entry.car] : null;
+  const info = rosterCarInfoFor(state.activeLine, entry.type);
+
+  document.getElementById('carDetailTitle').textContent = `Car ${entry.car}`;
+  document.getElementById('carDetailMeta').textContent = entry.type;
+
+  const STATUS_COLORS = { 'In Service':'#0F8A4B', 'Out of Service':'#D64545', 'Scrapped':'#6B7280', 'Not yet delivered':'#B45309', 'Out for Rebuild':'#7C3AED', 'Testing':'#0891B2', 'Retired':'#6B7280', 'Work Car':'#EA580C' };
+  const effectiveStatus = data.status || (entry.notYetDelivered ? 'Not yet delivered' : '') || (entry.retired ? entry.retiredNote : '');
+  const statusColor = STATUS_COLORS[effectiveStatus]
+    || (/^Scrapped/.test(effectiveStatus) ? STATUS_COLORS['Scrapped'] : '')
+    || (/^Retired/.test(effectiveStatus) ? STATUS_COLORS['Retired'] : '');
+  const gltpsColor = gltps
+    ? (gltps.status === 'Installed' ? '#0F8A4B' : (gltps.status === 'Not installed' ? '#D64545' : 'var(--text-faint)'))
+    : (entry.type === 'Type 10' ? '#0F8A4B' : '');
+
+  const editedLine = data.editedBy
+    ? `<div class="roster-edited-by">Last edited by ${renderNameWithTag(data.editedBy, data.editedByUid, tagMap)} (${timeAgo(new Date(data.ts).toISOString())})</div>`
+    : '';
+  const resetBtn = (state.isModerator && (data.livery || data.notes || data.status || data.rebuildStatus || data.workCarType))
+    ? `<button class="roster-reset-btn" data-reset="${entry.key}">Reset entry (moderator)</button>`
+    : '';
+  const statusBadge = effectiveStatus
+    ? `<span class="roster-status-badge" style="background:${statusColor}">${effectiveStatus}</span>`
+    : '';
+
+  const liveryField = state.signedIn
+    ? `<input type="text" class="roster-input" data-car="${entry.car}" data-field="livery" data-old-value="${(data.livery||'').replace(/"/g,'&quot;')}" value="${(data.livery || '').replace(/"/g, '&quot;')}" placeholder="e.g. Standard livery, Pride wrap...">`
+    : `<div class="roster-readonly">${data.livery ? data.livery : '<span style="opacity:.5;">No livery info yet</span>'}</div>`;
+
+  const notesField = state.signedIn
+    ? `<textarea class="roster-textarea" data-car="${entry.car}" data-field="notes" data-old-value="${(data.notes||'').replace(/"/g,'&quot;')}" placeholder="Notes about this car...">${data.notes || ''}</textarea>`
+    : `<div class="roster-readonly">${data.notes ? data.notes : '<span style="opacity:.5;">No notes yet</span>'}</div>`;
+
+  const statusField = state.signedIn
+    ? `<select class="roster-input" data-car="${entry.car}" data-field="status" data-old-value="${effectiveStatus}" style="color:${statusColor};">
+         <option value="" ${!effectiveStatus ? 'selected' : ''}>Not set</option>
+         <option value="Not yet delivered" ${effectiveStatus==='Not yet delivered' ? 'selected' : ''}>Not yet delivered</option>
+         <option value="In Service" ${effectiveStatus==='In Service' ? 'selected' : ''}>In Service</option>
+         <option value="Out of Service" ${effectiveStatus==='Out of Service' ? 'selected' : ''}>Out of Service</option>
+         <option value="Out for Rebuild" ${effectiveStatus==='Out for Rebuild' ? 'selected' : ''}>Out for Rebuild</option>
+         <option value="Testing" ${effectiveStatus==='Testing' ? 'selected' : ''}>Testing</option>
+         <option value="Work Car" ${effectiveStatus==='Work Car' ? 'selected' : ''}>Work Car</option>
+         <option value="Retired" ${effectiveStatus==='Retired' ? 'selected' : ''}>Retired</option>
+         <option value="Scrapped" ${effectiveStatus==='Scrapped' ? 'selected' : ''}>Scrapped</option>
+       </select>`
+    : `<div class="roster-readonly" style="color:${statusColor};">${effectiveStatus || '<span style="opacity:.5;">Not set</span>'}</div>`;
+
+  const scrapDateField = (data.status === 'Scrapped') ? `
+      <div class="roster-field-label">Scrap date (if known)</div>
+      ${state.signedIn
+        ? `<input type="text" class="roster-input" data-car="${entry.car}" data-field="scrapDate" data-old-value="${(data.scrapDate||'').replace(/"/g,'&quot;')}" value="${(data.scrapDate || '').replace(/"/g, '&quot;')}" placeholder="e.g. 2019 or 2019-05">`
+        : `<div class="roster-readonly">${data.scrapDate ? data.scrapDate : '<span style="opacity:.5;">Unknown</span>'}</div>`}
+    ` : '';
+
+  const workCarTypeField = (data.status === 'Work Car') ? `
+      <div class="roster-field-label">Work car type</div>
+      ${state.signedIn
+        ? `<input type="text" class="roster-input" data-car="${entry.car}" data-field="workCarType" data-old-value="${(data.workCarType||'').replace(/"/g,'&quot;')}" value="${(data.workCarType || '').replace(/"/g, '&quot;')}" placeholder="e.g. Snow plow, rail grinder, de-icer...">`
+        : `<div class="roster-readonly">${data.workCarType ? data.workCarType : '<span style="opacity:.5;">Unknown</span>'}</div>`}
+    ` : '';
+
+  const rebuildField = entry.hasRebuildStatus ? `
+      <div class="roster-field-label">Rebuild status</div>
+      ${state.signedIn
+        ? `<select class="roster-input" data-car="${entry.car}" data-field="rebuildStatus" data-old-value="${data.rebuildStatus||''}">
+             <option value="" ${!data.rebuildStatus ? 'selected' : ''}>Not set</option>
+             <option value="Rebuilt" ${data.rebuildStatus==='Rebuilt' ? 'selected' : ''}>Rebuilt</option>
+             <option value="Not rebuilt" ${data.rebuildStatus==='Not rebuilt' ? 'selected' : ''}>Not rebuilt</option>
+           </select>`
+        : `<div class="roster-readonly">${data.rebuildStatus || '<span style="opacity:.5;">Not set</span>'}</div>`}
+    ` : '';
+
+  const gltpsField = showGltps ? `
+      <div class="roster-field-label">GLTPS</div>
+      <div class="roster-readonly" style="color:${gltpsColor};">${gltps ? gltps.status : (entry.type === 'Type 10' ? 'Installed' : 'Unreported')}</div>
+      ${(state.signedIn && data.status !== 'Scrapped') ? `
+      <div class="gltps-row">
+        <button class="gltps-btn${gltps && gltps.status==='Installed' ? ' active' : ''}" data-gltps-car="${entry.car}" data-status="Installed">Installed</button>
+        <button class="gltps-btn${gltps && gltps.status==='Not installed' ? ' active' : ''}" data-gltps-car="${entry.car}" data-status="Not installed">Not installed</button>
+        <button class="gltps-btn${gltps && gltps.status==='Unknown' ? ' active' : ''}" data-gltps-car="${entry.car}" data-status="Unknown">Unknown</button>
+      </div>` : ''}
+    ` : '';
+
+  const lastSeenLine = `<div class="roster-edited-by"${data.lastSeenStop ? '' : ' style="opacity:.6;"'}>${renderLastSeenText(data)}</div>`;
+  const firstTrackedLine = `<div class="roster-edited-by">${renderFirstTrackedText(data)}</div>`;
+
+  const seats = showGltps ? getSeatCount(entry.type, gltps ? gltps.status : null) : (info.seats !== undefined ? info.seats : null);
+  const seatsSuffix = (seats !== null && seats !== undefined) ? ` · ${seats} seats` : '';
+
+  const specParts = [
+    info.width ? `Width ${info.width}` : null,
+    info.length ? `Length ${info.length}` : null,
+    info.electrical ? `Electrical: ${info.electrical}` : null
+  ].filter(Boolean);
+  const specsField = specParts.length ? `
+      <div class="roster-field-label">Car specs</div>
+      <div class="roster-readonly">${specParts.join(' · ')}</div>
+    ` : '';
+
+  const submitBtn = state.signedIn
+    ? `<button class="account-btn roster-submit-btn" data-submit="${entry.key}" style="margin-top:10px;">Submit changes</button>
+       <span class="roster-submit-note" data-submit-note="${entry.key}"></span>`
+    : '';
+
+  body.innerHTML = `
+    <div id="carDetailLiveStatus">${renderCarDetailLiveStatus(entry, activeSet)}</div>
+    <div class="roster-row-head" style="margin-bottom:4px;">
+      <span class="roster-car-chip">Car ${entry.car}</span>
+      ${statusBadge}
+    </div>
+    <div class="roster-card-summary">${entry.type} · ${info.builder} · ${rosterBuildYearFor(state.activeLine, entry.type, entry.car)}${seatsSuffix}</div>
+    ${lastSeenLine}
+    ${firstTrackedLine}
+    <div class="roster-details" style="display:block; margin-top:10px;">
+      ${specsField}
+      <div class="roster-field-label">Status</div>
+      ${statusField}
+      ${scrapDateField}
+      ${workCarTypeField}
+      ${rebuildField}
+      ${gltpsField}
+      <div class="roster-field-label">Livery / wrap</div>
+      ${liveryField}
+      <div class="roster-field-label">Notes</div>
+      ${notesField}
+      <div class="roster-field-label">Pair history</div>
+      <div id="pairHistory-${entry.key}" style="font-size:12px; opacity:.5;">Loading…</div>
+      ${submitBtn}
+      ${editedLine}
+      ${resetBtn}
+    </div>
+  `;
+
+  loadAndRenderPairHistory(entry.key, state.activeLine);
+  wireCarDetailEvents(entry, body);
+  wireCarDetailMapButton(entry);
 }
 
 document.getElementById('rosterSearch').addEventListener('input', (e)=>{
@@ -7910,6 +8096,7 @@ function isTrackablePage(key){
 function pageUrlPath(line, key){
   if(PAGE_TO_FLAT_ROUTE[key]) return `/${PAGE_TO_FLAT_ROUTE[key]}`;
   if(key === 'ROSTER') return `/${line}/roster`;
+  if(key === 'CARDETAIL' && state.viewingCarNumber) return `/${line}/${state.viewingCarNumber}`;
   const slug = PAGE_SLUG[key];
   return slug ? `/${line}/${slug}` : `/${line}`;
 }
@@ -7937,7 +8124,14 @@ function parseRouteFromPath(){
   const second = parts[1];
   if(second === 'roster') return { line, page: 'ROSTER' };
   const page = second && (SLUG_TO_PAGE_BY_LINE[line] || {})[second];
-  return { line, page: page || LINE_DEFAULT_PAGE[line] };
+  if(page) return { line, page };
+  // Not a known branch slug — could still be a car number (/green/3647).
+  // Left unvalidated here since ROSTER_CARS isn't guaranteed to reflect
+  // this line yet; revealApp() checks it against the real roster list
+  // once it does, and falls back to this line's default page if it's not
+  // a real car after all.
+  if(second) return { line, page: 'CARDETAIL', carNumber: second };
+  return { line, page: LINE_DEFAULT_PAGE[line] };
 }
 
 // ---------------- Tab title ----------------
@@ -7958,6 +8152,8 @@ function updateDocumentTitle(line, key){
     label = branchLabel ? `${lineLabel} ${branchLabel}` : lineLabel;
   }else if(page.isRoster){
     label = `${LINE_TITLE_LABEL[line] || ''} Roster`.trim();
+  }else if(page.isCarDetail){
+    label = `Car ${state.viewingCarNumber || ''}`.trim();
   }else{
     label = page.label;
   }
@@ -8004,7 +8200,7 @@ document.getElementById('accessDeniedBackBtn').addEventListener('click', ()=>{
   switchPage(LINE_DEFAULT_PAGE[state.activeLine] || 'B');
 });
 
-function revealApp(line, forcedPage){
+function revealApp(line, forcedPage, forcedCarNumber){
   hideAllGateScreens();
   if(state.activeLine !== line){
     // These caches key entries by vehicle id and persist across refresh
@@ -8053,7 +8249,23 @@ function revealApp(line, forcedPage){
   state.vehicles = []; // avoid a stale frame showing the other line's trains while the new feed loads
   // A forced page (from a URL like /green/b on initial load) takes
   // priority over whatever page was last saved locally.
-  const targetPage = (forcedPage && PAGES[forcedPage]) ? forcedPage : (validForThisLine ? savedPage : defaultPage);
+  let targetPage;
+  if(forcedPage === 'CARDETAIL' && forcedCarNumber){
+    // ROSTER_CARS was just rebuilt above for this exact line, so this is
+    // checking against the real fleet list, not guessing. A car number
+    // that doesn't exist on this line (typo, stale link, wrong line)
+    // falls back the same way any other unrecognized URL would.
+    const entry = ROSTER_CARS.find(e => e.car === forcedCarNumber);
+    if(entry){
+      state.viewingCarKey = entry.key;
+      state.viewingCarNumber = entry.car;
+      targetPage = 'CARDETAIL';
+    }else{
+      targetPage = validForThisLine ? savedPage : defaultPage;
+    }
+  }else{
+    targetPage = (forcedPage && PAGES[forcedPage]) ? forcedPage : (validForThisLine ? savedPage : defaultPage);
+  }
   switchPage(targetPage);
   refreshVehicles();
 }
@@ -8085,7 +8297,7 @@ function routeOnLoad(){
       if(checkingEl) checkingEl.style.display = 'flex';
       document.title = 'In the Loop | Checking access…';
     }else{
-      revealApp(fromUrl.line, fromUrl.page);
+      revealApp(fromUrl.line, fromUrl.page, fromUrl.carNumber);
     }
     return;
   }
@@ -8291,6 +8503,10 @@ document.getElementById('siteTitleText').addEventListener('click', showLineSelec
 document.getElementById('signedInBar').addEventListener('click', ()=> switchPage('SETTINGS'));
 document.getElementById('settingsBackBtn').addEventListener('click', ()=> switchPage(state.lastMainPage || 'B'));
 document.getElementById('rosterBackBtn').addEventListener('click', ()=> switchPage(state.lastMainPage || 'B'));
+// Unlike the other back buttons, this always returns to the roster list
+// specifically (not lastMainPage) — a car detail page is only ever reached
+// from there (or a direct link), so that's always the more useful "back."
+document.getElementById('carDetailBackBtn').addEventListener('click', ()=> switchPage('ROSTER'));
 document.getElementById('membersBackBtn').addEventListener('click', ()=> switchPage(state.lastMainPage || 'B'));
 document.getElementById('modNotifsBackBtn').addEventListener('click', ()=> switchPage(state.lastMainPage || 'B'));
 document.getElementById('editLogsBackBtn').addEventListener('click', ()=> switchPage(state.lastMainPage || 'B'));
