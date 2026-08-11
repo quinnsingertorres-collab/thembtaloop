@@ -351,11 +351,11 @@ function todayDateString(){
 // write.
 const LAST_SEEN_STATE_REF = () => db.collection('bot_state').doc('roster_last_seen');
 const FIRST_TRACKED_STATE_REF = () => db.collection('bot_state').doc('first_tracked_today');
+// Also holds the Green Line train-spotting alert state (an `alerts` field
+// alongside `cars`) — see the shared read/write at the end of
+// syncLastSeenCars, which piggybacks that onto this same doc rather than
+// paying for a whole separate one.
 const PAIR_STATE_REF = () => db.collection('bot_state').doc('pair_tracking');
-// Which vehicle ids were already pushed about as of the last run, for the
-// Green Line train-spotting alerts below — same "remember across runs so we
-// don't re-notify every single minute" need as the three refs above.
-const TRAIN_SPOTTING_STATE_REF = () => db.collection('bot_state').doc('train_spotting_alerts');
 
 // Same numeric range as index.html's getCarType() uses for 'Type 8' — kept
 // minimal here (just the one range this needs) rather than porting the
@@ -464,10 +464,22 @@ exports.syncLastSeenCars = onSchedule({ schedule: 'every 1 minutes', secrets: [V
   await stateRef.set({ stops: nextStops, updatedAt: now });
   await firstTrackedRef.set({ cars: nextActive, updatedAt: now });
 
-  // ---- pair tracking, from the same carriages data ----
+  // ---- pair tracking + Green Line train-spotting push alerts, sharing one
+  // state doc read/write ----
+  // These are two different concerns (which car is paired with which; which
+  // vehicles are currently double-Type-8s or the Pride car) but both only
+  // need one get()+set() per run to remember their state between
+  // invocations, so they share PAIR_STATE_REF's doc (an `alerts` field
+  // alongside the existing `cars` field) instead of each having their own —
+  // a second full state doc here would just be another +1,440 reads and
+  // +1,440 writes/day for something that fits in the read/write this
+  // function is already doing anyway.
   const pairStateRef = PAIR_STATE_REF();
   const pairStateSnap = await pairStateRef.get();
-  const priorPairs = pairStateSnap.exists ? (pairStateSnap.data().cars || {}) : {};
+  const priorState = pairStateSnap.exists ? pairStateSnap.data() : {};
+  const priorPairs = priorState.cars || {};
+  const priorAlerts = priorState.alerts || {};
+
   const nextPairs = {};
   const pairChanges = [];
   current.forEach(({ key, partner }) => {
@@ -476,55 +488,67 @@ exports.syncLastSeenCars = onSchedule({ schedule: 'every 1 minutes', secrets: [V
       pairChanges.push({ key, partner: partner || null });
     }
   });
+  // Carry forward any car that isn't in this particular run's data (a train
+  // between trips, a brief AVL gap, or just not currently in service) rather
+  // than dropping it from state entirely. Without this, the write below
+  // would silently wipe its last-known pairing every time it's temporarily
+  // untracked — so the next time it reappears, even paired with the exact
+  // same partner as before, priorPairs[key] would read as undefined and
+  // this run's comparison above would wrongly treat that as a brand-new
+  // pairing, writing a spurious pair_history entry for a partner that never
+  // actually changed. This mirrors the same "don't lose state just because
+  // a car missed one poll" reasoning as the first-tracked-today carry-forward
+  // above — just without a grace-period cutoff, since there's no harm in
+  // remembering a car's last pairing indefinitely (it only prevents noise;
+  // it never touches the actual pair_history docs by itself).
+  Object.keys(priorPairs).forEach(key=>{
+    if(!Object.prototype.hasOwnProperty.call(nextPairs, key)) nextPairs[key] = priorPairs[key];
+  });
   if(pairChanges.length) await commitPairChanges(pairChanges, now);
-  await pairStateRef.set({ cars: nextPairs, updatedAt: now });
 
   // ---- Green Line train-spotting push alerts (double Type 8s, Pride car) ----
   // Server-side equivalent of index.html's checkTrainNotifications, which
   // only fires while someone has a tab open — this is what makes the same
   // two conditions trigger a real push even when nobody does. Green Line
   // only: Type 8s and the Pride car (3706) don't run on any other line.
-  // Tracks which vehicle ids were already alerted-on between runs (same
-  // "remember across invocations" need as last-seen/pair-tracking above) so
-  // a train doesn't get pushed about again every single minute it's still
+  // Tracks which vehicle ids were already alerted-on between runs so a
+  // train doesn't get pushed about again every single minute it's still
   // running the same consist — only when it newly starts (or resumes)
   // matching.
-  if(greenVehicles.length){
-    const alertStateRef = TRAIN_SPOTTING_STATE_REF();
-    const alertStateSnap = await alertStateRef.get();
-    const priorAlerts = alertStateSnap.exists ? alertStateSnap.data() : {};
-    const priorDoubleType8 = new Set(priorAlerts.doubleType8 || []);
-    const priorPride = new Set(priorAlerts.pride || []);
+  const priorDoubleType8 = new Set(priorAlerts.doubleType8 || []);
+  const priorPride = new Set(priorAlerts.pride || []);
+  const nextDoubleType8 = [];
+  const nextPride = [];
+  const pushes = [];
 
-    const nextDoubleType8 = [];
-    const nextPride = [];
-    const pushes = [];
-
-    greenVehicles.forEach(v => {
-      const cars = v.carNums || [];
-      if(cars.length >= 2 && isType8CarNumber(cars[0]) && isType8CarNumber(cars[1])){
-        nextDoubleType8.push(v.id);
-        if(!priorDoubleType8.has(v.id)){
-          pushes.push(sendToFilteredSubscribers('notifyDoubleType8', {
-            title: 'Double Type 8s spotted',
-            body: `Cars ${v.label} are both Type 8s`,
-            url: './'
-          }));
-        }
+  greenVehicles.forEach(v => {
+    const cars = v.carNums || [];
+    if(cars.length >= 2 && isType8CarNumber(cars[0]) && isType8CarNumber(cars[1])){
+      nextDoubleType8.push(v.id);
+      if(!priorDoubleType8.has(v.id)){
+        pushes.push(sendToFilteredSubscribers('notifyDoubleType8', {
+          title: 'Double Type 8s spotted',
+          body: `Cars ${v.label} are both Type 8s`,
+          url: './'
+        }));
       }
-      if(cars.includes(PRIDE_CAR_NUMBER)){
-        nextPride.push(v.id);
-        if(!priorPride.has(v.id)){
-          pushes.push(sendToFilteredSubscribers('notifyPride', {
-            title: 'Pride train spotted',
-            body: `Car ${v.label} is running today`,
-            url: './'
-          }));
-        }
+    }
+    if(cars.includes(PRIDE_CAR_NUMBER)){
+      nextPride.push(v.id);
+      if(!priorPride.has(v.id)){
+        pushes.push(sendToFilteredSubscribers('notifyPride', {
+          title: 'Pride train spotted',
+          body: `Car ${v.label} is running today`,
+          url: './'
+        }));
       }
-    });
+    }
+  });
+  if(pushes.length) await Promise.all(pushes);
 
-    if(pushes.length) await Promise.all(pushes);
-    await alertStateRef.set({ doubleType8: nextDoubleType8, pride: nextPride, updatedAt: now });
-  }
+  await pairStateRef.set({
+    cars: nextPairs,
+    alerts: { doubleType8: nextDoubleType8, pride: nextPride },
+    updatedAt: now
+  });
 });

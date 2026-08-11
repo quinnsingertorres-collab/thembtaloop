@@ -652,6 +652,19 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
 .modal-overlay{position:fixed; inset:0; background:rgba(0,0,0,0.45); display:none; align-items:center; justify-content:center; z-index:100; padding:16px;}
 .modal-overlay.show{display:flex;}
 .modal-card{background:var(--panel); border-radius:14px; padding:20px; width:420px; max-width:100%; box-shadow:0 12px 40px rgba(0,0,0,0.35); max-height:80vh; overflow-y:auto; overflow-x:hidden; scrollbar-width:none; -ms-overflow-style:none; position:relative; overscroll-behavior:contain;}
+@media (max-width:899px){
+  /* On mobile this is a true centered popup (the desktop rules below, at
+     min-width:900px, are what turn it into a docked side panel instead —
+     this only touches the popup case). .modal-overlay is position:fixed
+     with inset:0, so its own padding is the ONLY thing standing between the
+     card and the actual screen edge — body's padding doesn't apply here,
+     since a fixed element ignores ancestor padding entirely. 16px read as
+     a bit tight for a full-screen popup; a little more room on all sides,
+     plus a bit extra inside the card itself so its own text/buttons don't
+     crowd its rounded corners either. */
+  .modal-overlay{padding:22px 18px;}
+  .modal-card{padding:22px;}
+}
 @media (min-width:900px){
   /* On desktop this docks as a left-side panel that's actually part of the
      page rather than a modal sitting on top of it. It stays permanently in
