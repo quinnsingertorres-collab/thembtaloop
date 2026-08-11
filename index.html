@@ -883,7 +883,16 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
   background:var(--panel); color:#D64545; cursor:pointer; font-family:'IBM Plex Sans', sans-serif;
 }
 .storage-note{font-size:11px; color:var(--text-faint); margin-top:12px; line-height:1.5;}
+/* Car detail page's real geographic mini-map (Leaflet + CARTO dark tiles).
+   Leaflet's own CSS handles the tile grid/marker positioning internally;
+   this just gives the container a fixed height and rounds its corners to
+   match the rest of the roster/car-detail cards. */
+#carDetailMapContainer{height:240px; border-radius:10px; overflow:hidden; margin-bottom:14px; background:var(--panel);}
+#carDetailMapContainer .leaflet-control-attribution{background:rgba(11,20,32,0.75); color:var(--text-faint); font-size:9px;}
+#carDetailMapContainer .leaflet-control-attribution a{color:var(--text-faint);}
 </style>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
@@ -3117,6 +3126,12 @@ function switchPage(key){
   inspectorsPanel.style.display = 'none';
   settingsPanel.style.display = 'none';
   carDetailPanel.style.display = 'none';
+  // Any live Leaflet map instance is tied to a DOM node inside carDetailBody;
+  // hiding the panel above doesn't tear it down, so explicitly destroy it on
+  // every navigation. Harmless no-op if nothing's been created yet, and
+  // buildCarDetailPanel()/refreshCarDetailMap() will recreate it immediately
+  // if the destination page is CARDETAIL again.
+  if(typeof destroyCarDetailMap === 'function') destroyCarDetailMap();
   // The top bar is only pinned (position:fixed on desktop) while the
   // track map itself is on screen — every other page (Settings, Fleet
   // Roster, etc.) removes this class and lets it scroll away normally,
@@ -7209,8 +7224,11 @@ function renderCarDetailLiveStatus(entry, activeSet){
     return `Car ${otherLabel} · near ${displayName(other.stopName || '—')}`;
   };
 
+  const hasCoords = typeof v.lat === 'number' && typeof v.lon === 'number';
+
   return `
     <span class="roster-status-badge" style="background:#0F8A4B; display:inline-block; margin-bottom:10px;">In service now · ${dirLabel}</span>
+    ${hasCoords ? '<div id="carDetailMapContainer"></div>' : ''}
     <div style="border:1px solid var(--border); border-radius:10px; padding:4px 12px; margin-bottom:12px;">
       <div style="padding:8px 0; ${!leader ? 'opacity:.5;' : ''}">
         <div style="font-size:10px; text-transform:uppercase; letter-spacing:.04em; opacity:.7;">Leader (ahead)</div>
@@ -7231,6 +7249,67 @@ function renderCarDetailLiveStatus(entry, activeSet){
   `;
 }
 
+// ---- Leaflet mini-map (real geographic position, not the schematic
+// ladder) — CARTO's free dark tile set, no API key needed, matches the
+// app's own dark theme. Rebuilt fresh on every render/poll rather than
+// having its marker updated in place: renderCarDetailLiveStatus's HTML
+// (including a brand-new #carDetailMapContainer) replaces the DOM every
+// time it runs, which would orphan any previous Leaflet instance anyway —
+// destroying the old one first and creating a new one on the fresh
+// container is simpler and safer than trying to keep one alive across
+// innerHTML swaps. Map tiles are cached by the browser, so this is cheap.
+let carDetailMapInstance = null;
+function destroyCarDetailMap(){
+  if(carDetailMapInstance){
+    try{ carDetailMapInstance.remove(); }catch(e){ /* ignore */ }
+    carDetailMapInstance = null;
+  }
+}
+function initCarDetailMap(v, leader, follower){
+  const container = document.getElementById('carDetailMapContainer');
+  if(!container || typeof L === 'undefined') return; // Leaflet failed to load — degrade to just the button/text above
+  destroyCarDetailMap();
+  const map = L.map(container, { attributionControl: true, zoomControl: true }).setView([v.lat, v.lon], 15);
+  carDetailMapInstance = map;
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    attribution: '&copy; OpenStreetMap &copy; CARTO',
+    maxZoom: 19
+  }).addTo(map);
+
+  const makeIcon = (bg, size) => L.divIcon({
+    className: '',
+    html: `<div style="width:${size}px; height:${size}px; border-radius:50%; background:${bg}; border:2px solid #fff; box-shadow:0 1px 4px rgba(0,0,0,0.5);"></div>`,
+    iconSize: [size, size],
+    iconAnchor: [size/2, size/2]
+  });
+
+  L.marker([v.lat, v.lon], { icon: makeIcon('#0F8A4B', 20) }).addTo(map)
+    .bindPopup(`This car${state.viewingCarNumber ? ` — Car ${state.viewingCarNumber}` : ''}`);
+
+  [leader, follower].forEach(other=>{
+    if(other && typeof other.lat === 'number' && typeof other.lon === 'number'){
+      const otherLabel = state.activeLine === 'green' ? other.label : formatCarNumberForDisplay(String(other.label).split('-')[0]);
+      L.marker([other.lat, other.lon], { icon: makeIcon('#374151', 14) }).addTo(map)
+        .bindPopup(`Car ${otherLabel}`);
+    }
+  });
+}
+// Called right after renderCarDetailLiveStatus's HTML lands in the DOM
+// (both on a full build and on the 10s poll refresh) — creates a fresh map
+// if the car is active with real coordinates, or just cleans up any
+// previous instance if it isn't (nothing to show, and #carDetailMapContainer
+// won't exist in the new HTML either way).
+function refreshCarDetailMap(entry, activeSet){
+  const isActive = activeSet.has(entry.car);
+  const v = isActive ? findActiveVehicleForCar(entry.car) : null;
+  if(v && typeof v.lat === 'number' && typeof v.lon === 'number'){
+    const { leader, follower } = getLeaderAndFollower(v);
+    initCarDetailMap(v, leader, follower);
+  }else{
+    destroyCarDetailMap();
+  }
+}
+
 // Lightweight per-poll refresh (called from refreshVehicles, same pattern
 // as updateRosterLiveState) — only touches the live-status region above,
 // never the roster edit fields below it, so a signed-in user mid-edit on
@@ -7241,8 +7320,10 @@ function updateCarDetailLiveState(){
   if(!entry) return;
   const el = document.getElementById('carDetailLiveStatus');
   if(!el) return;
-  el.innerHTML = renderCarDetailLiveStatus(entry, getActiveCarSet());
+  const activeSet = getActiveCarSet();
+  el.innerHTML = renderCarDetailLiveStatus(entry, activeSet);
   wireCarDetailMapButton(entry);
+  refreshCarDetailMap(entry, activeSet);
 }
 
 // Submit/GLTPS/reset button wiring, scoped to whatever container is passed
@@ -7465,6 +7546,7 @@ async function buildCarDetailPanel(){
   loadAndRenderPairHistory(entry.key, state.activeLine);
   wireCarDetailEvents(entry, body);
   wireCarDetailMapButton(entry);
+  refreshCarDetailMap(entry, activeSet);
 }
 
 document.getElementById('rosterSearch').addEventListener('input', (e)=>{
