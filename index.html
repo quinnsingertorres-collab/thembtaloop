@@ -2744,6 +2744,20 @@ function renderLastSeenText(data){
   return `Last tracked: ${displayName(data.lastSeenStop)}${timeText}`;
 }
 
+// firstTrackedToday/trackingDay are written server-side by syncLastSeenCars
+// (functions/index.js): the time this car was first seen active today,
+// holding steady through brief tracker gaps and clearing once it's been
+// missing longer than that function's grace period. trackingDay is checked
+// against today's date here too (not just trusted from the write) in case
+// the value is stale by the time it's read.
+function renderFirstTrackedText(data){
+  if(!data || !data.firstTrackedToday || data.trackingDay !== todayDateString()){
+    return 'Not tracked yet today';
+  }
+  const timeStr = new Date(data.firstTrackedToday).toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' });
+  return `First tracked today: ${timeStr}`;
+}
+
 /* ---------------- Personal preferences (dark mode, abbreviations) ---------------- */
 const PREFS_KEY = 'user_prefs_v1';
 const SESSION_KEY = 'signed_in_session_v1';
@@ -6894,6 +6908,79 @@ let rosterPanelDataCacheTs = 0;
 // snap the card the user was just editing back to its collapsed state.
 let rosterExpandedKey = null;
 const ROSTER_PANEL_CACHE_TTL_MS = 15 * 60 * 1000;
+
+// Pair history (pair_history/{key}, written server-side by syncLastSeenCars
+// in functions/index.js) is only ever needed for the one car a user
+// actually expands, so unlike the roster/GLTPS/tags data above it's fetched
+// on demand rather than preloaded for the whole fleet — cached per car key
+// afterward so re-expanding the same row doesn't refetch.
+let pairHistoryCache = {};
+async function loadPairHistory(key){
+  if(pairHistoryCache[key] !== undefined) return pairHistoryCache[key];
+  if(!firebaseReady){ pairHistoryCache[key] = []; return []; }
+  try{
+    const snap = await fbDb.collection('pair_history').doc(key).get();
+    const entries = snap.exists ? (snap.data().entries || []) : [];
+    pairHistoryCache[key] = entries;
+    return entries;
+  }catch(e){ console.error(e); return []; }
+}
+
+// A key like "red-3803" or "blue-0700" -> just the car number, formatted
+// the same way the rest of the roster displays car numbers (Blue Line
+// zero-padding included).
+function displayPartnerLabel(key, line){
+  if(!key) return 'Unpaired';
+  const prefix = line + '-';
+  const plain = key.indexOf(prefix) === 0 ? key.slice(prefix.length) : key;
+  return formatCarNumberForDisplay(plain);
+}
+
+// Mirrors Eamon's Discord example format: an icon, the partner (or
+// "Unpaired"), a date/time range (date omitted from the end time when it's
+// the same day as the start), and a plain-language duration. A short,
+// already-ended pairing gets a distinct warning icon since a stretch that
+// brief is more likely a momentary tracker mixup than a real swap.
+const PAIR_HISTORY_GLITCH_MAX_MIN = 10;
+function formatPairHistoryEntry(entry, line){
+  const from = new Date(entry.from);
+  const to = entry.to ? new Date(entry.to) : null;
+  const dateOpts = { month:'numeric', day:'numeric', timeZone:'America/New_York' };
+  const timeOpts = { hour:'numeric', minute:'2-digit', timeZone:'America/New_York' };
+  const fromDateStr = from.toLocaleDateString('en-US', dateOpts);
+  const fromTimeStr = from.toLocaleTimeString('en-US', timeOpts);
+  let toStr;
+  if(!to){
+    toStr = 'present';
+  }else{
+    const toDateStr = to.toLocaleDateString('en-US', dateOpts);
+    const toTimeStr = to.toLocaleTimeString('en-US', timeOpts);
+    toStr = (toDateStr === fromDateStr) ? toTimeStr : `${toDateStr} ${toTimeStr}`;
+  }
+  const durationMs = (to ? to.getTime() : Date.now()) - from.getTime();
+  const durationMin = Math.round(durationMs / 60000);
+  const durationStr = durationMin < 60 ? `${durationMin} min` : `${Math.round(durationMin / 60)} hours`;
+
+  const isLikelyGlitch = !!to && durationMin < PAIR_HISTORY_GLITCH_MAX_MIN;
+  const icon = !entry.partner ? '❌' : (isLikelyGlitch ? '⚠️' : '🚋');
+  const label = displayPartnerLabel(entry.partner, line);
+
+  return `<div style="font-size:12px; opacity:.85; margin-top:3px;">${icon} <strong>${label}</strong> — ${fromDateStr} ${fromTimeStr} to ${toStr} — ${durationStr}${isLikelyGlitch ? ' <span style="opacity:.7;">(possible tracker glitch)</span>' : ''}</div>`;
+}
+
+async function loadAndRenderPairHistory(key, line){
+  const el = document.getElementById(`pairHistory-${key}`);
+  if(!el) return;
+  const entries = await loadPairHistory(key);
+  // The roster may have re-rendered (line switch, filter change) by the
+  // time this resolves — make sure this element is still the one on screen
+  // before touching it.
+  if(!document.body.contains(el)) return;
+  el.innerHTML = entries.length
+    ? entries.map(entry => formatPairHistoryEntry(entry, line)).join('')
+    : '<span style="opacity:.5;">No pair history recorded yet.</span>';
+}
+
 async function loadRosterPanelData(forceRefresh){
   const isStale = !rosterPanelDataCache || (Date.now() - rosterPanelDataCacheTs) >= ROSTER_PANEL_CACHE_TTL_MS;
   if(forceRefresh || isStale){
@@ -7033,6 +7120,7 @@ async function buildRosterPanel(){
       ` : '';
 
     const lastSeenLine = `<div class="roster-edited-by" data-last-seen-line="${entry.key}"${data.lastSeenStop ? '' : ' style="opacity:.6;"'}>${renderLastSeenText(data)}</div>`;
+    const firstTrackedLine = `<div class="roster-edited-by" data-first-tracked-line="${entry.key}"${(data.firstTrackedToday && data.trackingDay === todayDateString()) ? '' : ' style="opacity:.6;"'}>${renderFirstTrackedText(data)}</div>`;
 
     // Green keeps its existing GLTPS-aware seat logic (getSeatCount, which
     // knocks 2 seats off Type 7/8 cars that have GLTPS hardware installed)
@@ -7072,6 +7160,7 @@ async function buildRosterPanel(){
         </div>
         <div class="roster-card-summary">${entry.type} \u00b7 ${info.builder} \u00b7 ${rosterBuildYearFor(state.activeLine, entry.type, entry.car)}${seatsSuffix}</div>
         ${lastSeenLine}
+        ${firstTrackedLine}
         <div class="roster-expand-hint" data-roster-hint="${entry.key}">${isExpanded ? 'Hide details \u25b4' : 'Tap for details \u25be'}</div>
         <div class="roster-details" id="rosterDetails-${entry.key}">
           ${specsField}
@@ -7085,6 +7174,8 @@ async function buildRosterPanel(){
           ${liveryField}
           <div class="roster-field-label">Notes</div>
           ${notesField}
+          <div class="roster-field-label">Pair history</div>
+          <div id="pairHistory-${entry.key}" style="font-size:12px; opacity:.5;">${isExpanded ? 'Loading\u2026' : 'Tap for details to load'}</div>
           ${submitBtn}
           ${editedLine}
           ${resetBtn}
@@ -7103,8 +7194,15 @@ async function buildRosterPanel(){
       row.classList.toggle('expanded', !isOpen);
       rosterExpandedKey = isOpen ? null : key;
       if(hint) hint.textContent = isOpen ? 'Tap for details \u25be' : 'Hide details \u25b4';
+      if(!isOpen) loadAndRenderPairHistory(key, state.activeLine);
     });
   });
+  // A re-render (search/filter change, a save going through, etc.) rebuilds
+  // this whole list from scratch, which would otherwise leave an already-
+  // expanded card's pair history stuck on "Loading\u2026" forever since nothing
+  // re-triggers the fetch for it. loadPairHistory's own cache means this is
+  // a no-op read after the first time, not a fresh fetch on every render.
+  if(rosterExpandedKey) loadAndRenderPairHistory(rosterExpandedKey, state.activeLine);
 
   const POINTS_BY_FIELD = { status:5, livery:8, rebuildStatus:15 };
   const EDITABLE_FIELDS = ['status', 'scrapDate', 'workCarType', 'rebuildStatus', 'livery', 'notes'];

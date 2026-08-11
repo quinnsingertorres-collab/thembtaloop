@@ -13,6 +13,16 @@
 // write every visitor's browser made independently (redundant duplicate
 // writes any time more than one person had the site open) with a single
 // centralized writer, regardless of how many people are viewing the site.
+// The same run also maintains two more pieces of roster data from that
+// same MBTA data, at no extra API cost:
+//   - firstTrackedToday / trackingDay on each roster doc: when a car was
+//     first seen active today, holding steady through brief tracker gaps
+//     and only resetting once it's been missing longer than a grace
+//     period (see FIRST_TRACKED_GRACE_MS below).
+//   - a pair_history/{key} doc per car logging which other car it's been
+//     physically coupled with over time (from the same "carriages" data
+//     already fetched for last-seen tracking), with a from/to timestamp
+//     per stretch — including "unpaired" stretches.
 //
 // What this does NOT do (yet):
 // Automatic detections made client-side (double Type 8s, Type 9 cars, Pride
@@ -179,7 +189,19 @@ async function fetchLineVehicles(line, url){
     const stopName = stopRel ? (included['stop:' + stopRel.id] || {}).name : null;
     if(!stopName) return;
     const carNums = getCarNumbersForVehicle(line, v.attributes.label, v.attributes.carriages);
-    carNums.forEach(carNum => results.push({ key: rosterStorageKey(line, carNum), stopName }));
+    const keys = carNums.map(n => rosterStorageKey(line, n));
+    // Married pairs are fixed 2-car units — a 4-car train (two pairs
+    // coupled together) isn't one big "partner group," it's two separate
+    // pairs, so partners are matched up by adjacent position in the
+    // consist (0-1, 2-3, ...) rather than treating everyone in the train
+    // as everyone else's partner. A car with no adjacent partner (running
+    // alone, or an odd one out) has partner: null ("unpaired").
+    keys.forEach((key, i) => {
+      const pairStart = i - (i % 2);
+      const partnerIdx = (i % 2 === 0) ? pairStart + 1 : pairStart;
+      const partner = keys[partnerIdx] || null;
+      results.push({ key, stopName, partner });
+    });
   });
   return results;
 }
@@ -187,30 +209,72 @@ async function fetchLineVehicles(line, url){
 // Firestore batched writes cap at 500 operations each, so writes get
 // chunked across as many batches as needed rather than assuming everything
 // fits in one.
-async function commitInChunks(writes, ts){
+async function commitRosterPatches(entries){
   const CHUNK_SIZE = 450;
-  for(let i = 0; i < writes.length; i += CHUNK_SIZE){
-    const chunk = writes.slice(i, i + CHUNK_SIZE);
+  for(let i = 0; i < entries.length; i += CHUNK_SIZE){
+    const chunk = entries.slice(i, i + CHUNK_SIZE);
     const batch = db.batch();
-    chunk.forEach(({ key, stopName }) => {
-      batch.set(db.collection('roster').doc(key), {
-        lastSeenAt: ts, lastSeenStop: stopName
-      }, { merge: true });
+    chunk.forEach(([key, patch]) => {
+      batch.set(db.collection('roster').doc(key), patch, { merge: true });
     });
     await batch.commit();
   }
 }
 
+// A car missing from the live feed for less than this is assumed to be a
+// brief tracker/AVL hiccup rather than actually pulled from service —
+// matches index.html's own "10 minute grace period before a train
+// disappears from the map" convention (NON_TERMINUS_KEEP_ALIVE_MS), with a
+// little extra buffer since this runs on a 1-minute server poll rather
+// than continuous client-side GPS.
+const FIRST_TRACKED_GRACE_MS = 15 * 60 * 1000; // 15 minutes
+
+// Bounds how far back a car's pair-history entries are kept (Eamon's "last
+// 2 weeks or so," with headroom) and how many stretches a single doc can
+// accumulate, so pair_history docs don't grow unbounded.
+const PAIR_HISTORY_MAX_AGE_MS = 21 * 24 * 60 * 60 * 1000; // 3 weeks
+const PAIR_HISTORY_MAX_ENTRIES = 40;
+
+// MBTA's service day doesn't end at midnight — matches index.html's own
+// todayDateString(): shifting back 3.5h before taking the date means a
+// late-night trip before ~3:30am Eastern still counts as the previous
+// day's service, instead of flipping over at midnight.
+function todayDateString(){
+  const shifted = new Date(Date.now() - (3.5 * 60 * 60 * 1000));
+  return shifted.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+}
+
 // Every invocation of a scheduled function starts with a clean process — no
-// memory of the last run — so "did this car's station actually change"
-// has to be persisted somewhere between runs. Without this, the first
-// version of this function wrote every currently-tracked car's position on
-// every single 1-minute run regardless of whether it moved, which is what
-// the client-side throttling (lastSeenCache) used to prevent. A single
-// small state doc (same pattern as functions-webhooks' bot_state/
-// train_spotting) holds the last-known station per car; only cars whose
-// station actually changed since the last run get an actual roster write.
+// memory of the last run — so "did anything actually change" has to be
+// persisted somewhere between runs, for all three things this function
+// tracks. Without this, the first version of this function wrote every
+// currently-tracked car's position on every single 1-minute run regardless
+// of whether it moved. Three small state docs (same pattern as
+// functions-webhooks' bot_state/train_spotting) hold what was true as of
+// the last run; only real changes turn into an actual roster/pair_history
+// write.
 const LAST_SEEN_STATE_REF = () => db.collection('bot_state').doc('roster_last_seen');
+const FIRST_TRACKED_STATE_REF = () => db.collection('bot_state').doc('first_tracked_today');
+const PAIR_STATE_REF = () => db.collection('bot_state').doc('pair_tracking');
+
+async function commitPairChanges(changes, ts){
+  await Promise.all(changes.map(async ({ key, partner }) => {
+    const ref = db.collection('pair_history').doc(key);
+    try{
+      const snap = await ref.get();
+      const entries = snap.exists ? (snap.data().entries || []) : [];
+      if(entries.length){
+        entries[entries.length - 1].to = ts;
+      }
+      entries.push({ partner, from: ts, to: null });
+      const cutoff = ts - PAIR_HISTORY_MAX_AGE_MS;
+      const trimmed = entries.filter(e => (e.to || ts) >= cutoff).slice(-PAIR_HISTORY_MAX_ENTRIES);
+      await ref.set({ entries: trimmed, updatedAt: ts });
+    }catch(e){
+      console.error(`Failed to update pair history for ${key}:`, e);
+    }
+  }));
+}
 
 exports.syncLastSeenCars = onSchedule('every 1 minutes', async () => {
   const settled = await Promise.allSettled(
@@ -227,20 +291,75 @@ exports.syncLastSeenCars = onSchedule('every 1 minutes', async () => {
   });
   if(current.length === 0) return;
 
+  const now = Date.now();
+  const today = todayDateString();
+
+  // ---- last-seen station + first-tracked-today, merged into one roster
+  // write per car when either changes ----
   const stateRef = LAST_SEEN_STATE_REF();
-  const stateSnap = await stateRef.get();
+  const firstTrackedRef = FIRST_TRACKED_STATE_REF();
+  const [stateSnap, firstTrackedSnap] = await Promise.all([stateRef.get(), firstTrackedRef.get()]);
   const priorStops = stateSnap.exists ? (stateSnap.data().stops || {}) : {};
+  const priorActive = firstTrackedSnap.exists ? (firstTrackedSnap.data().cars || {}) : {};
 
   const nextStops = {};
-  const changed = [];
+  const nextActive = {};
+  const rosterPatches = {};
+  const currentKeys = new Set();
+
   current.forEach(({ key, stopName }) => {
+    currentKeys.add(key);
     nextStops[key] = stopName;
     if(priorStops[key] !== stopName){
-      changed.push({ key, stopName });
+      rosterPatches[key] = Object.assign({}, rosterPatches[key], { lastSeenAt: now, lastSeenStop: stopName });
+    }
+
+    const prior = priorActive[key];
+    if(prior && prior.trackingDay === today){
+      // Already tracked today and hasn't been gone long enough to reset —
+      // keep the original first-tracked time, just refresh the
+      // still-active clock used to judge the next gap.
+      nextActive[key] = { lastActiveAt: now, trackingDay: today, firstTrackedToday: prior.firstTrackedToday };
+    }else{
+      // Either a new service day, or this car's prior session already
+      // timed out and was reset below — this run counts as a fresh
+      // "pull out."
+      nextActive[key] = { lastActiveAt: now, trackingDay: today, firstTrackedToday: now };
+      rosterPatches[key] = Object.assign({}, rosterPatches[key], { firstTrackedToday: now, trackingDay: today });
     }
   });
 
-  const now = Date.now();
-  if(changed.length) await commitInChunks(changed, now);
+  // Cars that were being tracked but are missing this run: carry them
+  // forward unchanged while still inside the grace period, or reset once
+  // they've been gone longer — so a later reappearance starts a genuinely
+  // new "pull out" instead of resuming the old one.
+  Object.keys(priorActive).forEach(key=>{
+    if(currentKeys.has(key)) return;
+    const prior = priorActive[key];
+    if((now - prior.lastActiveAt) > FIRST_TRACKED_GRACE_MS){
+      rosterPatches[key] = Object.assign({}, rosterPatches[key], { firstTrackedToday: null, trackingDay: null });
+    }else{
+      nextActive[key] = prior;
+    }
+  });
+
+  const patchEntries = Object.entries(rosterPatches);
+  if(patchEntries.length) await commitRosterPatches(patchEntries);
   await stateRef.set({ stops: nextStops, updatedAt: now });
+  await firstTrackedRef.set({ cars: nextActive, updatedAt: now });
+
+  // ---- pair tracking, from the same carriages data ----
+  const pairStateRef = PAIR_STATE_REF();
+  const pairStateSnap = await pairStateRef.get();
+  const priorPairs = pairStateSnap.exists ? (pairStateSnap.data().cars || {}) : {};
+  const nextPairs = {};
+  const pairChanges = [];
+  current.forEach(({ key, partner }) => {
+    nextPairs[key] = partner || null;
+    if((priorPairs[key] || null) !== (partner || null)){
+      pairChanges.push({ key, partner: partner || null });
+    }
+  });
+  if(pairChanges.length) await commitPairChanges(pairChanges, now);
+  await pairStateRef.set({ cars: nextPairs, updatedAt: now });
 });
