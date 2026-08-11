@@ -246,6 +246,15 @@ header{display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap
   .status-cluster{justify-self:center; align-items:center; text-align:center;}
   .weather-line{justify-self:center; text-align:center;}
   .header-back-slot{justify-self:center;}
+  /* .title-block is position:absolute on desktop so it can be centered over
+     just the track map column (see --title-center-x). That only works
+     because nothing else shares its space there. On this single-column
+     mobile layout, header-back-slot and status-cluster stack as normal flow
+     items — if title-block stayed absolutely positioned it would float at
+     50% of their COMBINED height, landing on top of one of them instead of
+     stacking cleanly. Dropping back to normal flow here fixes that for good,
+     on every page, not just car detail. */
+  .title-block{position:static; left:auto; top:auto; transform:none; margin:2px 0;}
 }
 
 /* ---------- Banner ---------- */
@@ -1275,11 +1284,11 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
             <div class="switch" id="notifMasterSwitch"><div class="knob"></div></div>
           </div>
           <div class="menu-row">
-            <span>Double Type 8s</span>
+            <span>Double Type 8s<span class="menu-note">(in-app + push)</span></span>
             <div class="switch" id="notifDoubleType8Switch"><div class="knob"></div></div>
           </div>
           <div class="menu-row">
-            <span>Pride train</span>
+            <span>Pride train<span class="menu-note">(in-app + push)</span></span>
             <div class="switch" id="notifPrideSwitch"><div class="knob"></div></div>
           </div>
           <div class="menu-row">
@@ -1291,9 +1300,21 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
             <div class="switch" id="notifCarBackInServiceSwitch"><div class="knob"></div></div>
           </div>
           <div class="menu-row" style="flex-direction:column; align-items:flex-start; gap:8px;">
-            <span>Push notifications for moderator alerts<span class="menu-note">(arrives even when the app is closed)</span></span>
+            <span>Push notifications<span class="menu-note">(needed for anything marked "push" above or below to arrive when the app is closed)</span></span>
             <button class="account-btn" id="pushEnableBtn" style="margin-top:0; width:100%;">Enable push notifications</button>
             <span class="signin-note" id="pushStatusNote"></span>
+          </div>
+          <div class="menu-row">
+            <span>Destination changes<span class="menu-note">(push only)</span></span>
+            <div class="switch" id="notifPushDestChangeSwitch"><div class="knob"></div></div>
+          </div>
+          <div class="menu-row">
+            <span>Line changes<span class="menu-note">(push only)</span></span>
+            <div class="switch" id="notifPushLineChangeSwitch"><div class="knob"></div></div>
+          </div>
+          <div class="menu-row">
+            <span>Cars marked out of service<span class="menu-note">(push only)</span></span>
+            <div class="switch" id="notifPushOOSSwitch"><div class="knob"></div></div>
           </div>
         </div>
       </div>
@@ -2580,7 +2601,12 @@ async function clearExpressReport(vehicleId, isManualCancel){
 async function saveDestinationOverride(v, destination){
   const payload = {
     destination, editedBy: state.userName, editedByUid: state.uid || null, ts: Date.now(),
-    originalHeadsign: v.headsign || null, originalDirection: v.direction, originalTripId: v.tripId || null
+    originalHeadsign: v.headsign || null, originalDirection: v.direction, originalTripId: v.tripId || null,
+    // carLabel + line aren't used client-side (v itself is right there) — they're
+    // for the "destination changes" push notification (see functions/index.js's
+    // sendPushOnDestinationOverride), which only has the Firestore doc to work
+    // from, not a live vehicle object.
+    carLabel: v.label, line: state.activeLine
   };
   if(firebaseReady){
     try{ await fbDb.collection('destination_overrides').doc(v.id).set(payload); }catch(e){ console.error(e); }
@@ -2835,6 +2861,9 @@ async function savePrefs(){
       notifPride: state.notifPride,
       notifType9: state.notifType9,
       notifCarBackInService: state.notifCarBackInService,
+      notifPushDestinationChange: state.notifPushDestinationChange,
+      notifPushLineChange: state.notifPushLineChange,
+      notifPushOutOfService: state.notifPushOutOfService,
       otherBranchesVisible: state.otherBranchesVisible,
       statusChipShowDate: state.statusChipShowDate,
       statusChipShowWeather: state.statusChipShowWeather,
@@ -4743,7 +4772,7 @@ async function showCarModal(v){
         return;
       }
       if(!window.confirm(`Reassign this train to the ${correctBranch} \u2014 ${GREEN_BRANCH_NAMES[correctBranch]} branch?`)) return;
-      await reassignVehicleBranch(v.id, 'green', correctBranch);
+      await reassignVehicleBranch(v, 'green', correctBranch);
       showCarModal(v);
     });
   }
@@ -4752,7 +4781,7 @@ async function showCarModal(v){
     redBranchReassignBtn.addEventListener('click', async ()=>{
       const correctBranch = redBranchReassignBtn.dataset.branchTarget;
       if(!window.confirm(`Reassign this train to the ${RED_BRANCH_NAMES[correctBranch]} branch?`)) return;
-      await reassignVehicleBranch(v.id, 'red', correctBranch);
+      await reassignVehicleBranch(v, 'red', correctBranch);
       showCarModal(v);
     });
   }
@@ -5958,14 +5987,42 @@ async function subscribeToPushNotifications(){
         userName: state.userName || null,
         createdAt: Date.now()
       });
+      // Seed the per-category push preference fields immediately, from
+      // whatever's already toggled on in Settings — otherwise they'd sit
+      // unset (falsy) on this brand-new doc until the person happens to
+      // flip one of those toggles again.
+      await syncPushPreferences();
     }
     btn.textContent = 'Push notifications enabled';
     btn.disabled = true;
-    statusNote.textContent = "You'll now get moderator alerts even when the app is closed.";
+    statusNote.textContent = "You'll now get moderator alerts, plus whichever train-spotting categories you've turned on above, even when the app is closed.";
   }catch(e){
     console.error(e);
     statusNote.textContent = 'Something went wrong enabling push notifications.';
   }
+}
+
+// Mirrors this device's 5 push-relevant preference toggles (Double Type 8s,
+// Pride train, and the 3 push-only categories) onto its push_subscriptions
+// doc, so the Cloud Functions that filter by these fields (see
+// functions/index.js's sendToFilteredSubscribers) stay in sync with
+// whatever's actually been opted into. Safe to call even if push was never
+// enabled on this device — it just no-ops when there's no subscription.
+async function syncPushPreferences(){
+  if(!firebaseReady || !('serviceWorker' in navigator) || !('PushManager' in window)) return;
+  try{
+    const registration = await navigator.serviceWorker.ready;
+    const subscription = await registration.pushManager.getSubscription();
+    if(!subscription) return;
+    const endpoint = subscription.toJSON().endpoint;
+    await fbDb.collection('push_subscriptions').doc(encodeURIComponent(endpoint)).set({
+      notifyDoubleType8: !!state.notifDoubleType8,
+      notifyPride: !!state.notifPride,
+      notifyDestinationChange: !!state.notifPushDestinationChange,
+      notifyLineChange: !!state.notifPushLineChange,
+      notifyOutOfService: !!state.notifPushOutOfService
+    }, { merge: true });
+  }catch(e){ console.error(e); }
 }
 
 async function checkPushSubscriptionStatus(){
@@ -6213,12 +6270,16 @@ async function refreshBranchReassignmentCache(){
     branchReassignmentCache = map;
   }catch(e){ console.error(e); }
 }
-async function reassignVehicleBranch(vehicleId, line, correctBranch){
+// Takes the full vehicle object (not just its id) so the record can carry
+// carLabel — needed by the "line changes" push notification (see
+// functions/index.js's sendPushOnLineChange) to say which car it's about
+// without an extra MBTA lookup server-side.
+async function reassignVehicleBranch(v, line, correctBranch){
   if(!firebaseReady) return;
-  const payload = { line, correctBranch, reassignedBy: state.userName, reassignedByUid: state.uid || null, ts: Date.now() };
+  const payload = { line, correctBranch, carLabel: v.label, reassignedBy: state.userName, reassignedByUid: state.uid || null, ts: Date.now() };
   try{
-    await fbDb.collection('branch_reassignments').doc(vehicleId).set(payload);
-    branchReassignmentCache[vehicleId] = payload;
+    await fbDb.collection('branch_reassignments').doc(v.id).set(payload);
+    branchReassignmentCache[v.id] = payload;
     const branchLabel = line === 'green' ? correctBranch : (correctBranch === 'ashmont' ? 'Ashmont' : 'Braintree');
     logEdit(state.userName, state.uid, `Reassigned a train to the ${branchLabel} branch on the ${lineDisplayName(line)} Line`);
   }catch(e){ console.error(e); }
@@ -8798,6 +8859,12 @@ document.querySelectorAll('.section-toggle').forEach(toggle=>{
     if(section) section.classList.toggle('collapsed');
   });
 });
+// The 5 categories that also have a push side (server-side Cloud Functions
+// filter push_subscriptions docs by these same fields — see
+// functions/index.js's sendToFilteredSubscribers). Whenever one of these
+// specific toggles changes, this device's push_subscriptions doc (if it has
+// one) needs to be kept in sync, on top of the usual local savePrefs().
+const PUSH_SYNCED_NOTIF_KEYS = ['notifDoubleType8', 'notifPride', 'notifPushDestinationChange', 'notifPushLineChange', 'notifPushOutOfService'];
 function wireNotifToggle(id, stateKey){
   document.getElementById(id).addEventListener('click', ()=>{
     state[stateKey] = !state[stateKey];
@@ -8806,6 +8873,7 @@ function wireNotifToggle(id, stateKey){
       Notification.requestPermission();
     }
     savePrefs();
+    if(PUSH_SYNCED_NOTIF_KEYS.includes(stateKey)) syncPushPreferences();
   });
 }
 wireNotifToggle('notifMasterSwitch', 'notifMaster');
@@ -8813,6 +8881,9 @@ wireNotifToggle('notifDoubleType8Switch', 'notifDoubleType8');
 wireNotifToggle('notifPrideSwitch', 'notifPride');
 wireNotifToggle('notifType9Switch', 'notifType9');
 wireNotifToggle('notifCarBackInServiceSwitch', 'notifCarBackInService');
+wireNotifToggle('notifPushDestChangeSwitch', 'notifPushDestinationChange');
+wireNotifToggle('notifPushLineChangeSwitch', 'notifPushLineChange');
+wireNotifToggle('notifPushOOSSwitch', 'notifPushOutOfService');
 
 /* ---------------- Filters ---------------- */
 
@@ -9342,11 +9413,20 @@ async function init(){
   state.notifPride = !!prefs.notifPride;
   state.notifType9 = !!prefs.notifType9;
   state.notifCarBackInService = !!prefs.notifCarBackInService;
+  // Push-only categories (no in-app equivalent) — same opt-in-by-default
+  // convention as the alerts above. Actually taking effect also requires
+  // push notifications to be enabled (see syncPushPreferences).
+  state.notifPushDestinationChange = !!prefs.notifPushDestinationChange;
+  state.notifPushLineChange = !!prefs.notifPushLineChange;
+  state.notifPushOutOfService = !!prefs.notifPushOutOfService;
   document.getElementById('notifMasterSwitch').classList.toggle('on', state.notifMaster);
   document.getElementById('notifDoubleType8Switch').classList.toggle('on', state.notifDoubleType8);
   document.getElementById('notifPrideSwitch').classList.toggle('on', state.notifPride);
   document.getElementById('notifType9Switch').classList.toggle('on', state.notifType9);
   document.getElementById('notifCarBackInServiceSwitch').classList.toggle('on', state.notifCarBackInService);
+  document.getElementById('notifPushDestChangeSwitch').classList.toggle('on', state.notifPushDestinationChange);
+  document.getElementById('notifPushLineChangeSwitch').classList.toggle('on', state.notifPushLineChange);
+  document.getElementById('notifPushOOSSwitch').classList.toggle('on', state.notifPushOutOfService);
 
   state.otherBranchesVisible = Object.assign({ B:false, C:false, D:false, E:false, ashmont:false, braintree:false }, prefs.otherBranchesVisible || {});
 

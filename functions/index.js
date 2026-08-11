@@ -1,11 +1,16 @@
 // Firebase Cloud Functions for "In the Loop" push notifications.
 //
 // What this does:
-// Watches Firestore for new documents in `mod_alerts` and `mod_notifications`
-// (the same collections the app already writes to when a moderator posts
-// something), and the instant one appears, sends a real Web Push
-// notification to every device that's subscribed — even if nobody has the
-// website open in a browser tab.
+// Watches Firestore for new/changed documents in several collections the
+// app already writes to — mod_alerts, mod_notifications, destination_overrides,
+// branch_reassignments, car_out_of_service — and the instant one appears,
+// sends a real Web Push notification to every subscribed device that's
+// opted into that category, even if nobody has the website open in a
+// browser tab. Moderator alerts/notifications go to everyone subscribed
+// (no per-category opt-out); the community-reported categories are each
+// gated by their own boolean field on the subscriber's push_subscriptions
+// doc (see sendToFilteredSubscribers), synced from that person's own
+// Settings toggles by index.html's syncPushPreferences().
 //
 // Also runs `syncLastSeenCars`, a scheduled function (every 1 minute) that
 // polls MBTA's vehicle feeds for all 4 lines server-side and writes each
@@ -13,8 +18,8 @@
 // write every visitor's browser made independently (redundant duplicate
 // writes any time more than one person had the site open) with a single
 // centralized writer, regardless of how many people are viewing the site.
-// The same run also maintains two more pieces of roster data from that
-// same MBTA data, at no extra API cost:
+// The same run also maintains three more things from that same MBTA data,
+// at no extra API cost:
 //   - firstTrackedToday / trackingDay on each roster doc: when a car was
 //     first seen active today, holding steady through brief tracker gaps
 //     and only resetting once it's been missing longer than a grace
@@ -23,13 +28,9 @@
 //     physically coupled with over time (from the same "carriages" data
 //     already fetched for last-seen tracking), with a from/to timestamp
 //     per stretch — including "unpaired" stretches.
-//
-// What this does NOT do (yet):
-// Automatic detections made client-side (double Type 8s, Type 9 cars, Pride
-// car, etc.) still only fire while someone has a browser tab open and
-// polling MBTA's API. Making those trigger real push too would need a
-// separate scheduled function that does its own MBTA polling server-side —
-// a follow-up piece, not part of this file.
+//   - Green Line train-spotting push alerts (double Type 8s, the Pride car)
+//     — the server-side equivalent of index.html's own checkTrainNotifications,
+//     which only fires while a tab is open. See the bottom of syncLastSeenCars.
 //
 // ---- One-time setup (see the deployment instructions provided alongside
 // this file for the full walkthrough) ----
@@ -44,7 +45,7 @@
 //    (paste the private key when prompted)
 // 4. Deploy with: firebase deploy --only functions
 
-const { onDocumentCreated } = require('firebase-functions/v2/firestore');
+const { onDocumentCreated, onDocumentWritten } = require('firebase-functions/v2/firestore');
 const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { defineSecret } = require('firebase-functions/params');
 const admin = require('firebase-admin');
@@ -59,19 +60,20 @@ const VAPID_PRIVATE_KEY = defineSecret('VAPID_PRIVATE_KEY');
 // half of the same key pair, safe to hardcode here since it's not a secret.
 const VAPID_PUBLIC_KEY = 'BHEIq4o6pknFsV-fssjBnXccc-5tX1w8V9ojTS4ilQ2YEuNYJR2cW2BNlObuckum_6mbTireruMCe8kjUx3dYaA';
 
-// Sends one push payload to every currently-subscribed device, cleaning up
-// any subscription the push service reports as dead (expired, unsubscribed,
-// or the device revoked permission) so push_subscriptions doesn't
-// accumulate stale entries forever.
-async function sendToAllSubscribers(payload){
+// Sends one push payload to every doc in a given push_subscriptions
+// snapshot, cleaning up any subscription the push service reports as dead
+// (expired, unsubscribed, or the device revoked permission) so
+// push_subscriptions doesn't accumulate stale entries forever. Shared by
+// both sendToAllSubscribers (moderator alerts — no filtering) and
+// sendToFilteredSubscribers (the community-reported categories, gated by a
+// per-subscriber preference field) below.
+async function deliverToSubscriptionSnapshot(snap, payload){
+  if(snap.empty) return;
   webpush.setVapidDetails(
     'mailto:noreply@thembtaloop.com',
     VAPID_PUBLIC_KEY,
     VAPID_PRIVATE_KEY.value()
   );
-
-  const snap = await db.collection('push_subscriptions').get();
-  if(snap.empty) return;
 
   const payloadStr = JSON.stringify(payload);
   const deletions = [];
@@ -92,6 +94,27 @@ async function sendToAllSubscribers(payload){
   }));
 
   if(deletions.length) await Promise.all(deletions);
+}
+
+// Moderator alerts/notifications go to every subscribed device unconditionally
+// — there's no per-category opt-out for those, matching how they've always
+// worked (a moderator posting something is assumed important enough for
+// everyone who's opted into push at all).
+async function sendToAllSubscribers(payload){
+  const snap = await db.collection('push_subscriptions').get();
+  await deliverToSubscriptionSnapshot(snap, payload);
+}
+
+// The community-reported categories (destination changes, line/branch
+// reassignments, cars marked out of service, double Type 8s, the Pride car)
+// are opt-in per subscriber — prefField is one of the boolean fields
+// index.html's syncPushPreferences() keeps in sync with that person's
+// Settings toggles (notifyDestinationChange, notifyLineChange,
+// notifyOutOfService, notifyDoubleType8, notifyPride). A single-field
+// equality filter like this doesn't need a composite Firestore index.
+async function sendToFilteredSubscribers(prefField, payload){
+  const snap = await db.collection('push_subscriptions').where(prefField, '==', true).get();
+  await deliverToSubscriptionSnapshot(snap, payload);
 }
 
 exports.sendPushOnModAlert = onDocumentCreated(
@@ -115,6 +138,68 @@ exports.sendPushOnModNotification = onDocumentCreated(
     await sendToAllSubscribers({
       title: data.subject.slice(0, 100),
       body: (data.body || '').slice(0, 180),
+      url: './'
+    });
+  }
+);
+
+// Fires on both a fresh destination-change report and a later correction to
+// an existing one (onDocumentWritten covers create + update), but not on
+// deletion (event.data.after.exists is false) — that just means the
+// override auto-cleared because MBTA's own headsign caught up, which isn't
+// push-worthy.
+exports.sendPushOnDestinationOverride = onDocumentWritten(
+  { document: 'destination_overrides/{vehicleId}', secrets: [VAPID_PRIVATE_KEY] },
+  async (event) => {
+    if(!event.data.after.exists) return;
+    const data = event.data.after.data();
+    if(!data || !data.destination) return;
+    const car = data.carLabel ? `Car ${data.carLabel}` : 'A train';
+    const was = data.originalHeadsign ? ` (was ${data.originalHeadsign})` : '';
+    await sendToFilteredSubscribers('notifyDestinationChange', {
+      title: 'Destination change reported',
+      body: `${car} now signed for ${data.destination}${was}`,
+      url: './'
+    });
+  }
+);
+
+// Same create-or-update reasoning as the destination override trigger above
+// — a correction to an existing reassignment is still worth pushing about.
+exports.sendPushOnLineChange = onDocumentWritten(
+  { document: 'branch_reassignments/{vehicleId}', secrets: [VAPID_PRIVATE_KEY] },
+  async (event) => {
+    if(!event.data.after.exists) return;
+    const data = event.data.after.data();
+    if(!data || !data.correctBranch) return;
+    const branchLabel = data.line === 'green'
+      ? data.correctBranch
+      : (data.correctBranch === 'ashmont' ? 'Ashmont' : 'Braintree');
+    const car = data.carLabel ? `Car ${data.carLabel}` : 'A train';
+    await sendToFilteredSubscribers('notifyLineChange', {
+      title: 'Train reassigned to a different branch',
+      body: `${car} corrected to the ${branchLabel} branch`,
+      url: './'
+    });
+  }
+);
+
+// car_out_of_service docs are keyed by car number and deleted the moment a
+// car is cleared back to service (see index.html's clearCarOutOfService) —
+// so onDocumentCreated alone already captures every real "just got marked
+// OOS" moment; no update case to worry about the way the two triggers above
+// need it (this doc's own document ID is stable, but it doesn't get
+// re-written while already OOS the way an override can be corrected).
+exports.sendPushOnCarOutOfService = onDocumentCreated(
+  { document: 'car_out_of_service/{carNum}', secrets: [VAPID_PRIVATE_KEY] },
+  async (event) => {
+    const data = event.data.data();
+    if(!data || !data.outOfService) return;
+    const carNum = event.params.carNum;
+    const reason = data.reason ? `: ${data.reason.slice(0, 100)}` : '';
+    await sendToFilteredSubscribers('notifyOutOfService', {
+      title: 'Car marked out of service',
+      body: `Car ${carNum} marked out of service${reason}`,
       url: './'
     });
   }
@@ -174,6 +259,15 @@ function getCarNumbersForVehicle(line, label, carriages){
   return nums;
 }
 
+// Returns both the flattened per-car entries (carEntries — one row per
+// physical car, used for last-seen/pair tracking) and a per-vehicle list
+// (vehicles — one row per actual train/consist, with its raw car numbers
+// still grouped together) from the same single MBTA fetch. The per-vehicle
+// shape is only used by the Green Line train-spotting alerts below (double
+// Type 8s, the Pride car both need to know which cars belong to the SAME
+// train, which the flattened carEntries rows don't preserve on their own
+// beyond the adjacent-pair `partner` field) — returning it from here avoids
+// a second API call just for that.
 async function fetchLineVehicles(line, url){
   const fullUrl = url + (url.includes('?') ? '&' : '?') + 'api_key=' + MBTA_API_KEY;
   const res = await fetch(fullUrl, { headers: MBTA_HEADERS });
@@ -183,7 +277,8 @@ async function fetchLineVehicles(line, url){
   const included = {};
   (json.included || []).forEach(item => { included[item.type + ':' + item.id] = item.attributes; });
 
-  const results = [];
+  const carEntries = [];
+  const vehicles = [];
   (json.data || []).forEach(v => {
     const stopRel = v.relationships && v.relationships.stop && v.relationships.stop.data;
     const stopName = stopRel ? (included['stop:' + stopRel.id] || {}).name : null;
@@ -200,10 +295,11 @@ async function fetchLineVehicles(line, url){
       const pairStart = i - (i % 2);
       const partnerIdx = (i % 2 === 0) ? pairStart + 1 : pairStart;
       const partner = keys[partnerIdx] || null;
-      results.push({ key, stopName, partner });
+      carEntries.push({ key, stopName, partner });
     });
+    vehicles.push({ id: v.id, label: v.attributes.label, carNums });
   });
-  return results;
+  return { carEntries, vehicles };
 }
 
 // Firestore batched writes cap at 500 operations each, so writes get
@@ -256,6 +352,20 @@ function todayDateString(){
 const LAST_SEEN_STATE_REF = () => db.collection('bot_state').doc('roster_last_seen');
 const FIRST_TRACKED_STATE_REF = () => db.collection('bot_state').doc('first_tracked_today');
 const PAIR_STATE_REF = () => db.collection('bot_state').doc('pair_tracking');
+// Which vehicle ids were already pushed about as of the last run, for the
+// Green Line train-spotting alerts below — same "remember across runs so we
+// don't re-notify every single minute" need as the three refs above.
+const TRAIN_SPOTTING_STATE_REF = () => db.collection('bot_state').doc('train_spotting_alerts');
+
+// Same numeric range as index.html's getCarType() uses for 'Type 8' — kept
+// minimal here (just the one range this needs) rather than porting the
+// whole car-type lookup table server-side. If Type 8 numbering ever
+// changes, update both places.
+function isType8CarNumber(num){
+  const n = parseInt(String(num).replace(/[^0-9]/g, ''), 10);
+  return !isNaN(n) && n >= 3800 && n <= 3899;
+}
+const PRIDE_CAR_NUMBER = '3706';
 
 async function commitPairChanges(changes, ts){
   await Promise.all(changes.map(async ({ key, partner }) => {
@@ -276,15 +386,21 @@ async function commitPairChanges(changes, ts){
   }));
 }
 
-exports.syncLastSeenCars = onSchedule('every 1 minutes', async () => {
+// secrets: [VAPID_PRIVATE_KEY] is needed here now too — the train-spotting
+// alerts block at the end of this function calls sendToFilteredSubscribers,
+// which needs that secret's value to send a push, same as the Firestore
+// triggers above.
+exports.syncLastSeenCars = onSchedule({ schedule: 'every 1 minutes', secrets: [VAPID_PRIVATE_KEY] }, async () => {
   const settled = await Promise.allSettled(
     LAST_SEEN_LINE_FEEDS.map(({ line, url }) => fetchLineVehicles(line, url))
   );
 
   const current = [];
+  let greenVehicles = [];
   settled.forEach((result, i) => {
     if(result.status === 'fulfilled'){
-      current.push(...result.value);
+      current.push(...result.value.carEntries);
+      if(LAST_SEEN_LINE_FEEDS[i].line === 'green') greenVehicles = result.value.vehicles;
     }else{
       console.error(`Failed to sync ${LAST_SEEN_LINE_FEEDS[i].line} last-seen data:`, result.reason);
     }
@@ -362,4 +478,53 @@ exports.syncLastSeenCars = onSchedule('every 1 minutes', async () => {
   });
   if(pairChanges.length) await commitPairChanges(pairChanges, now);
   await pairStateRef.set({ cars: nextPairs, updatedAt: now });
+
+  // ---- Green Line train-spotting push alerts (double Type 8s, Pride car) ----
+  // Server-side equivalent of index.html's checkTrainNotifications, which
+  // only fires while someone has a tab open — this is what makes the same
+  // two conditions trigger a real push even when nobody does. Green Line
+  // only: Type 8s and the Pride car (3706) don't run on any other line.
+  // Tracks which vehicle ids were already alerted-on between runs (same
+  // "remember across invocations" need as last-seen/pair-tracking above) so
+  // a train doesn't get pushed about again every single minute it's still
+  // running the same consist — only when it newly starts (or resumes)
+  // matching.
+  if(greenVehicles.length){
+    const alertStateRef = TRAIN_SPOTTING_STATE_REF();
+    const alertStateSnap = await alertStateRef.get();
+    const priorAlerts = alertStateSnap.exists ? alertStateSnap.data() : {};
+    const priorDoubleType8 = new Set(priorAlerts.doubleType8 || []);
+    const priorPride = new Set(priorAlerts.pride || []);
+
+    const nextDoubleType8 = [];
+    const nextPride = [];
+    const pushes = [];
+
+    greenVehicles.forEach(v => {
+      const cars = v.carNums || [];
+      if(cars.length >= 2 && isType8CarNumber(cars[0]) && isType8CarNumber(cars[1])){
+        nextDoubleType8.push(v.id);
+        if(!priorDoubleType8.has(v.id)){
+          pushes.push(sendToFilteredSubscribers('notifyDoubleType8', {
+            title: 'Double Type 8s spotted',
+            body: `Cars ${v.label} are both Type 8s`,
+            url: './'
+          }));
+        }
+      }
+      if(cars.includes(PRIDE_CAR_NUMBER)){
+        nextPride.push(v.id);
+        if(!priorPride.has(v.id)){
+          pushes.push(sendToFilteredSubscribers('notifyPride', {
+            title: 'Pride train spotted',
+            body: `Car ${v.label} is running today`,
+            url: './'
+          }));
+        }
+      }
+    });
+
+    if(pushes.length) await Promise.all(pushes);
+    await alertStateRef.set({ doubleType8: nextDoubleType8, pride: nextPride, updatedAt: now });
+  }
 });
