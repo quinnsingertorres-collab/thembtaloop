@@ -1078,8 +1078,9 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
 
   <div class="panel full-bleed" id="rosterPanel" style="display:none;">
    <div class="full-bleed-inner">
+    <!-- No h2 title here on purpose — the outer header above already shows
+         "Fleet Roster"; this note just adds the line + count it doesn't. -->
     <div class="panel-head">
-      <h2 id="rosterTitle">Fleet Roster</h2>
       <span class="note" id="rosterMeta">&mdash;</span>
     </div>
     <div class="back-link" id="rosterBackBtn">&lsaquo; Back</div>
@@ -1224,10 +1225,12 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
 
   <div class="panel full-bleed" id="carDetailPanel" style="display:none;">
    <div class="full-bleed-inner">
-    <div class="panel-head">
-      <h2 id="carDetailTitle">Car</h2>
-      <span class="note" id="carDetailMeta">&mdash;</span>
-    </div>
+    <!-- No panel-head here on purpose: the outer header above already shows
+         "Car <number>" (see switchPage's isCarDetail branch), and
+         buildCarDetailPanel's own roster-row-head/roster-card-summary at
+         the top of carDetailBody repeats car number + type again right
+         below it — a third title line here would just be more of the same
+         duplicate text stacked at the top of the page. -->
     <div class="back-link" id="carDetailBackBtn">&lsaquo; Back to Fleet Roster</div>
     <div id="carDetailBody"></div>
    </div>
@@ -3144,9 +3147,15 @@ function switchPage(key){
   document.body.classList.toggle('roster-page-open', !!(page.isRoster || page.isCarDetail));
   // The desktop-docked car-info panel only makes sense over the track map —
   // close it on any other page so it doesn't linger on top of Settings,
-  // Fleet Roster, etc.
+  // Fleet Roster, etc. Incrementing modalRefreshToken here matters just as
+  // much as removing the class: showCarModal()'s own 15s self-refresh timer
+  // only stops rescheduling itself once it sees the token change (see
+  // scheduleModalRefresh) — without this, a modal open when you navigate
+  // away would silently reopen itself up to 15s later, on top of whatever
+  // page you'd since moved to.
   if(page.isRoster || page.isMembers || page.isModNotifs || page.isEditLogs || page.isPoints || page.isBugs || page.isInspectors || page.isSettings || page.isCarDetail){
     document.getElementById('carModalOverlay').classList.remove('show');
+    modalRefreshToken++;
   }
 
   if(page.isRoster){
@@ -7052,12 +7061,11 @@ async function buildRosterPanel(){
     return true;
   });
 
-  document.getElementById('rosterMeta').textContent = filtered.length + ' of ' + ROSTER_CARS.length + ' cars';
-  const rosterTitleEl = document.getElementById('rosterTitle');
-  if(rosterTitleEl){
-    const lineLabel = { green:'Green Line', red:'Red Line', orange:'Orange Line', blue:'Blue Line' }[state.activeLine] || '';
-    rosterTitleEl.textContent = lineLabel ? `Fleet Roster — ${lineLabel}` : 'Fleet Roster';
-  }
+  // No separate "Fleet Roster" title here — the outer header already shows
+  // that — just the line + how many cars match the current filter.
+  const lineLabel = { green:'Green Line', red:'Red Line', orange:'Orange Line', blue:'Blue Line' }[state.activeLine] || '';
+  const countLabel = filtered.length + ' of ' + ROSTER_CARS.length + ' cars';
+  document.getElementById('rosterMeta').textContent = lineLabel ? `${lineLabel} · ${countLabel}` : countLabel;
 
   const list = document.getElementById('rosterList');
   if(filtered.length === 0){
@@ -7476,9 +7484,6 @@ async function buildCarDetailPanel(){
   const showGltps = state.activeLine === 'green';
   const gltps = showGltps ? gltpsMap[entry.car] : null;
   const info = rosterCarInfoFor(state.activeLine, entry.type);
-
-  document.getElementById('carDetailTitle').textContent = `Car ${entry.car}`;
-  document.getElementById('carDetailMeta').textContent = entry.type;
 
   const STATUS_COLORS = { 'In Service':'#0F8A4B', 'Out of Service':'#D64545', 'Scrapped':'#6B7280', 'Not yet delivered':'#B45309', 'Out for Rebuild':'#7C3AED', 'Testing':'#0891B2', 'Retired':'#6B7280', 'Work Car':'#EA580C' };
   const effectiveStatus = data.status || (entry.notYetDelivered ? 'Not yet delivered' : '') || (entry.retired ? entry.retiredNote : '');
