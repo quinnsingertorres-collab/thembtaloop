@@ -232,6 +232,8 @@ header{display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap
 .title-block p{margin:0; color:var(--text-dim); font-size:13px; max-width:440px;}
 
 .status-cluster{display:flex; flex-direction:column; align-items:flex-end; gap:5px; font-family:'IBM Plex Mono', monospace; font-size:12px; color:var(--text-dim); text-align:right; grid-column:3; justify-self:end;}
+.header-back-slot{display:flex; align-items:center; grid-column:1; justify-self:start;}
+.header-back-slot .back-link{margin-bottom:0;}
 .live-pill{display:flex; align-items:center; gap:6px; padding:5px 11px; border-radius:20px; border:1px solid var(--border); background:var(--panel);}
 .dot{width:7px; height:7px; border-radius:50%; background:var(--text-faint);}
 .dot.live{background:#2FBE72; box-shadow:0 0 0 3px rgba(47,190,114,0.25); animation:pulse 1.8s ease-in-out infinite;}
@@ -243,6 +245,7 @@ header{display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap
   header{grid-template-columns:1fr; justify-items:center; text-align:center;}
   .status-cluster{justify-self:center; align-items:center; text-align:center;}
   .weather-line{justify-self:center; text-align:center;}
+  .header-back-slot{justify-self:center;}
 }
 
 /* ---------- Banner ---------- */
@@ -1010,6 +1013,11 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
 <div class="wrap">
 
   <header>
+    <!-- Mirrors .status-cluster's spot on the right (grid-column:3) — empty
+         on every page except car detail, where switchPage() fills it with
+         a back link so it shares the same row as the big page title
+         instead of sitting on its own line below. -->
+    <div class="header-back-slot" id="headerBackSlot"></div>
     <div class="title-block">
       <h1><span id="pageTitle">Boston College</span></h1>
     </div>
@@ -1227,15 +1235,12 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
   <div class="panel full-bleed" id="carDetailPanel" style="display:none;">
    <div class="full-bleed-inner">
     <!-- No panel-head here on purpose: the outer header above already shows
-         "Car <number>" (see switchPage's isCarDetail branch), and
+         "Car <number>" (see switchPage's isCarDetail branch) plus a back
+         link on that same row (see .header-back-slot), and
          buildCarDetailPanel's own roster-row-head/roster-card-summary at
          the top of carDetailBody repeats car number + type again right
          below it — a third title line here would just be more of the same
-         duplicate text stacked at the top of the page. The back link itself
-         now renders inside carDetailBody, on the same row as the car
-         number (see buildCarDetailPanel) — it's re-wired there each build
-         since the element is recreated every time, unlike a normal static
-         listener. -->
+         duplicate text stacked at the top of the page. -->
     <div id="carDetailBody"></div>
    </div>
   </div>
@@ -3106,6 +3111,17 @@ function switchPage(key){
   // header shows "Car <number>" built from whichever car is currently
   // being viewed (see state.viewingCarNumber, set just before this runs).
   document.getElementById('pageTitle').textContent = page.isCarDetail ? `Car ${state.viewingCarNumber || ''}` : page.label;
+  // Car detail is the only page with a back link up in the header itself
+  // (see .header-back-slot, mirroring .status-cluster on the other side) —
+  // every other page's back link lives inside its own panel body instead.
+  // Rebuilt fresh on every switchPage() call (not just re-wired) since it's
+  // plain innerHTML, cheaper than tracking whether it's already there.
+  const headerBackSlot = document.getElementById('headerBackSlot');
+  if(headerBackSlot){
+    headerBackSlot.innerHTML = page.isCarDetail ? '<span class="back-link" id="headerBackLink">&lsaquo; Back to Fleet Roster</span>' : '';
+    const headerBackLink = document.getElementById('headerBackLink');
+    if(headerBackLink) headerBackLink.addEventListener('click', ()=> switchPage('ROSTER'));
+  }
   if(typeof updateTitleCenterVar === 'function') updateTitleCenterVar();
   buildNav();
   renderOtherBranchesToggles();
@@ -7601,12 +7617,9 @@ async function buildCarDetailPanel(){
   const liveInfo = getCarDetailLiveInfo(entry, activeSet);
 
   body.innerHTML = `
-    <div class="roster-row-head" style="margin-bottom:4px; justify-content:space-between;">
-      <span class="back-link" id="carDetailBackBtn" style="margin-bottom:0;">&lsaquo; Back to Fleet Roster</span>
-      <span style="display:inline-flex; align-items:center; gap:8px;">
-        <span class="roster-car-chip">Car ${entry.car}</span>
-        ${statusBadge}
-      </span>
+    <div class="roster-row-head" style="margin-bottom:4px;">
+      <span class="roster-car-chip">Car ${entry.car}</span>
+      ${statusBadge}
     </div>
     <div class="roster-card-summary">${entry.type} · ${info.builder}</div>
     <div class="roster-section-divider"></div>
@@ -7641,12 +7654,6 @@ async function buildCarDetailPanel(){
   wireCarDetailEvents(entry, body);
   wireCarDetailMapButton(entry);
   refreshCarDetailMap(liveInfo);
-
-  // The back link is part of this same innerHTML rebuild (so it can share
-  // the title row with the car number), so — unlike the other pages' back
-  // buttons, wired once at load — it needs re-wiring on every call here.
-  const backBtn = document.getElementById('carDetailBackBtn');
-  if(backBtn) backBtn.addEventListener('click', ()=> switchPage('ROSTER'));
 }
 
 document.getElementById('rosterSearch').addEventListener('input', (e)=>{
@@ -8685,10 +8692,9 @@ document.getElementById('siteTitleText').addEventListener('click', showLineSelec
 document.getElementById('signedInBar').addEventListener('click', ()=> switchPage('SETTINGS'));
 document.getElementById('settingsBackBtn').addEventListener('click', ()=> switchPage(state.lastMainPage || 'B'));
 document.getElementById('rosterBackBtn').addEventListener('click', ()=> switchPage(state.lastMainPage || 'B'));
-// carDetailBackBtn isn't wired here — it lives inside carDetailBody's own
-// template now (same row as the car number) and is re-wired at the bottom
-// of buildCarDetailPanel() every time that runs, since its innerHTML
-// rebuild recreates the element each time.
+// Car detail's back link isn't a static element wired here like the others
+// — it lives in the header's #headerBackSlot instead, rebuilt and rewired
+// by switchPage() itself on every navigation (see there).
 document.getElementById('membersBackBtn').addEventListener('click', ()=> switchPage(state.lastMainPage || 'B'));
 document.getElementById('modNotifsBackBtn').addEventListener('click', ()=> switchPage(state.lastMainPage || 'B'));
 document.getElementById('editLogsBackBtn').addEventListener('click', ()=> switchPage(state.lastMainPage || 'B'));
