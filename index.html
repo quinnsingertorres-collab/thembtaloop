@@ -7200,35 +7200,46 @@ function wireCarDetailMapButton(entry){
   if(mapBtn) mapBtn.addEventListener('click', ()=> switchPage(carDetailMapPageKey(entry)));
 }
 
-// Renders the "is this car in service right now" block: an in-service
-// badge, and — only when it's actually active — its leader/follower and
-// current stop. This lives in its own DOM region (#carDetailLiveStatus) so
-// updateCarDetailLiveState() below can refresh just this part every 10s
-// poll without touching (and losing in-progress edits in) the roster
-// fields the rest of the page shows.
-function renderCarDetailLiveStatus(entry, activeSet){
+// Computes the "is this car in service right now" state once per render/poll
+// — isActive, the live vehicle (if any), its leader/follower, and whether it
+// has real coordinates to plot. Shared by the badge/detail renderers below
+// and by the map refresh, so all three agree on the same snapshot.
+function getCarDetailLiveInfo(entry, activeSet){
   const isActive = activeSet.has(entry.car);
-  if(!isActive){
-    return `<span class="roster-status-badge" style="background:#6B7280; display:inline-block; margin-bottom:12px;">Not currently in service</span>`;
-  }
+  if(!isActive) return { isActive: false };
   const v = findActiveVehicleForCar(entry.car);
-  if(!v){
-    // Shouldn't normally happen (activeSet and state.vehicles come from the
-    // same poll) — guards against a one-poll race between the two reads.
-    return `<span class="roster-status-badge" style="background:#0F8A4B; display:inline-block; margin-bottom:12px;">In service now</span>`;
-  }
+  if(!v) return { isActive: true, v: null }; // one-poll race between activeSet and state.vehicles
   const { leader, follower } = getLeaderAndFollower(v);
   const dirLabel = v.direction === 0 ? dirLabels().west : dirLabels().east;
-  const describeVehicle = (other) => {
-    const otherLabel = state.activeLine === 'green' ? other.label : formatCarNumberForDisplay(String(other.label).split('-')[0]);
-    return `Car ${otherLabel} · near ${displayName(other.stopName || '—')}`;
-  };
-
   const hasCoords = typeof v.lat === 'number' && typeof v.lon === 'number';
+  return { isActive: true, v, leader, follower, dirLabel, hasCoords };
+}
 
+function otherCarDetailLabel(other){
+  return state.activeLine === 'green' ? other.label : formatCarNumberForDisplay(String(other.label).split('-')[0]);
+}
+
+// Just the in-service badge — lives in its own DOM region (#carDetailStatusBadge)
+// so the 10s poll can refresh it without touching the map container next to it.
+function renderCarDetailStatusBadge(info){
+  if(!info.isActive){
+    return `<span class="roster-status-badge" style="background:#6B7280; display:inline-block; margin-bottom:12px;">Not currently in service</span>`;
+  }
+  if(!info.v){
+    return `<span class="roster-status-badge" style="background:#0F8A4B; display:inline-block; margin-bottom:12px;">In service now</span>`;
+  }
+  return `<span class="roster-status-badge" style="background:#0F8A4B; display:inline-block; margin-bottom:10px;">In service now · ${info.dirLabel}</span>`;
+}
+
+// Leader/follower box + "view on live map" button — also its own DOM region
+// (#carDetailStatusDetail), refreshed on the same 10s poll as the badge but
+// separately from #carDetailMapContainer, which is never touched by an
+// innerHTML swap (see the map lifecycle notes below).
+function renderCarDetailStatusDetail(info){
+  if(!info.isActive || !info.v) return '';
+  const { v, leader, follower } = info;
+  const describeVehicle = (other) => `Car ${otherCarDetailLabel(other)} · near ${displayName(other.stopName || '—')}`;
   return `
-    <span class="roster-status-badge" style="background:#0F8A4B; display:inline-block; margin-bottom:10px;">In service now · ${dirLabel}</span>
-    ${hasCoords ? '<div id="carDetailMapContainer"></div>' : ''}
     <div style="border:1px solid var(--border); border-radius:10px; padding:4px 12px; margin-bottom:12px;">
       <div style="padding:8px 0; ${!leader ? 'opacity:.5;' : ''}">
         <div style="font-size:10px; text-transform:uppercase; letter-spacing:.04em; opacity:.7;">Leader (ahead)</div>
@@ -7249,81 +7260,134 @@ function renderCarDetailLiveStatus(entry, activeSet){
   `;
 }
 
-// ---- Leaflet mini-map (real geographic position, not the schematic
-// ladder) — CARTO's free dark tile set, no API key needed, matches the
-// app's own dark theme. Rebuilt fresh on every render/poll rather than
-// having its marker updated in place: renderCarDetailLiveStatus's HTML
-// (including a brand-new #carDetailMapContainer) replaces the DOM every
-// time it runs, which would orphan any previous Leaflet instance anyway —
-// destroying the old one first and creating a new one on the fresh
-// container is simpler and safer than trying to keep one alive across
-// innerHTML swaps. Map tiles are cached by the browser, so this is cheap.
+// ---- Leaflet mini-map (real geographic position, not the schematic ladder)
+// — CARTO's free dark tile set, no API key needed, matches the app's own
+// dark theme. #carDetailMapContainer is a permanent DOM node created once in
+// buildCarDetailPanel's initial HTML and never replaced by the 10s poll
+// (unlike the badge/detail regions above it) — so the map + tile layer are
+// created once and just have their markers moved on every poll, instead of
+// being torn down and rebuilt (which used to cause a visible flash/reload
+// every 10 seconds).
 let carDetailMapInstance = null;
+let carDetailMapMarkers = { self: null, leader: null, follower: null };
 function destroyCarDetailMap(){
   if(carDetailMapInstance){
     try{ carDetailMapInstance.remove(); }catch(e){ /* ignore */ }
     carDetailMapInstance = null;
+    carDetailMapMarkers = { self: null, leader: null, follower: null };
   }
 }
-function initCarDetailMap(v, leader, follower){
-  const container = document.getElementById('carDetailMapContainer');
-  if(!container || typeof L === 'undefined') return; // Leaflet failed to load — degrade to just the button/text above
-  destroyCarDetailMap();
-  const map = L.map(container, { attributionControl: true, zoomControl: true }).setView([v.lat, v.lon], 15);
-  carDetailMapInstance = map;
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-    attribution: '&copy; OpenStreetMap &copy; CARTO',
-    maxZoom: 19
-  }).addTo(map);
-
-  const makeIcon = (bg, size) => L.divIcon({
+function makeCarDetailMarkerIcon(bg, size){
+  return L.divIcon({
     className: '',
     html: `<div style="width:${size}px; height:${size}px; border-radius:50%; background:${bg}; border:2px solid #fff; box-shadow:0 1px 4px rgba(0,0,0,0.5);"></div>`,
     iconSize: [size, size],
     iconAnchor: [size/2, size/2]
   });
+}
 
-  L.marker([v.lat, v.lon], { icon: makeIcon('#0F8A4B', 20) }).addTo(map)
-    .bindPopup(`This car${state.viewingCarNumber ? ` — Car ${state.viewingCarNumber}` : ''}`);
-
-  [leader, follower].forEach(other=>{
-    if(other && typeof other.lat === 'number' && typeof other.lon === 'number'){
-      const otherLabel = state.activeLine === 'green' ? other.label : formatCarNumberForDisplay(String(other.label).split('-')[0]);
-      L.marker([other.lat, other.lon], { icon: makeIcon('#374151', 14) }).addTo(map)
-        .bindPopup(`Car ${otherLabel}`);
+// Green Line track centerlines (incl. yard/branch-junction linework),
+// sourced from MassGIS's official MBTA Rapid Transit Lines dataset and
+// bundled as a static file — fetched once and cached, drawn under the
+// vehicle markers. Public GIS data doesn't break out individual switches as
+// points, but branch junctions (where the shared trunk splits into B/C/D/E)
+// are included in the linework itself. Green Line only, since that's what
+// was asked for and it's the only line with real yard/branch complexity.
+let greenLineTracksGeoJSON = null;
+let greenLineTracksFetchPromise = null;
+function drawGreenLineTracksOnMap(map){
+  if(state.activeLine !== 'green') return;
+  if(greenLineTracksGeoJSON){
+    L.geoJSON(greenLineTracksGeoJSON, { style: { color:'#9CA3AF', weight:2, opacity:0.65 } }).addTo(map);
+    return;
+  }
+  if(!greenLineTracksFetchPromise){
+    greenLineTracksFetchPromise = fetch('/green-line-tracks.geojson').then(r => r.ok ? r.json() : null).catch(()=>null);
+  }
+  greenLineTracksFetchPromise.then(data=>{
+    if(!data) return;
+    greenLineTracksGeoJSON = data;
+    // The map may have been destroyed (user navigated away) by the time this
+    // fetch resolves — only draw onto it if it's still the live instance.
+    if(carDetailMapInstance === map){
+      L.geoJSON(data, { style: { color:'#9CA3AF', weight:2, opacity:0.65 } }).addTo(map);
     }
   });
 }
-// Called right after renderCarDetailLiveStatus's HTML lands in the DOM
-// (both on a full build and on the 10s poll refresh) — creates a fresh map
-// if the car is active with real coordinates, or just cleans up any
-// previous instance if it isn't (nothing to show, and #carDetailMapContainer
-// won't exist in the new HTML either way).
-function refreshCarDetailMap(entry, activeSet){
-  const isActive = activeSet.has(entry.car);
-  const v = isActive ? findActiveVehicleForCar(entry.car) : null;
-  if(v && typeof v.lat === 'number' && typeof v.lon === 'number'){
-    const { leader, follower } = getLeaderAndFollower(v);
-    initCarDetailMap(v, leader, follower);
+
+// Creates the map once, or — if it's already showing — just glides the
+// existing markers to their fresh coordinates rather than rebuilding
+// anything, so the tiles and track overlay never flash on a routine poll.
+function initOrUpdateCarDetailMap(v, leader, follower){
+  const container = document.getElementById('carDetailMapContainer');
+  if(!container || typeof L === 'undefined') return; // Leaflet failed to load — degrade to just the button/text above
+  container.style.display = 'block';
+
+  if(!carDetailMapInstance){
+    const map = L.map(container, { attributionControl: true, zoomControl: true }).setView([v.lat, v.lon], 15);
+    carDetailMapInstance = map;
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      attribution: '&copy; OpenStreetMap &copy; CARTO &middot; Tracks: MassGIS',
+      maxZoom: 19
+    }).addTo(map);
+    drawGreenLineTracksOnMap(map);
+    carDetailMapMarkers.self = L.marker([v.lat, v.lon], { icon: makeCarDetailMarkerIcon('#0F8A4B', 20) }).addTo(map)
+      .bindPopup(`This car${state.viewingCarNumber ? ` — Car ${state.viewingCarNumber}` : ''}`);
+  }else{
+    carDetailMapMarkers.self.setLatLng([v.lat, v.lon]);
+    carDetailMapInstance.panTo([v.lat, v.lon], { animate: true, duration: 0.5 });
+    // Leaflet mis-measures its container if it was ever hidden (display:none)
+    // between renders — this nudges it back into shape without a full reload.
+    carDetailMapInstance.invalidateSize();
+  }
+
+  [['leader', leader], ['follower', follower]].forEach(([key, other])=>{
+    const hasOther = other && typeof other.lat === 'number' && typeof other.lon === 'number';
+    if(hasOther){
+      const pos = [other.lat, other.lon];
+      const popupText = `Car ${otherCarDetailLabel(other)}`;
+      if(carDetailMapMarkers[key]){
+        carDetailMapMarkers[key].setLatLng(pos).setPopupContent(popupText);
+      }else{
+        carDetailMapMarkers[key] = L.marker(pos, { icon: makeCarDetailMarkerIcon('#374151', 14) }).addTo(carDetailMapInstance)
+          .bindPopup(popupText);
+      }
+    }else if(carDetailMapMarkers[key]){
+      carDetailMapInstance.removeLayer(carDetailMapMarkers[key]);
+      carDetailMapMarkers[key] = null;
+    }
+  });
+}
+// Called after every badge/detail refresh (both on a full build and on the
+// 10s poll) — updates the persistent map in place if the car is active with
+// real coordinates, or tears it down and hides the container if it isn't.
+function refreshCarDetailMap(info){
+  const container = document.getElementById('carDetailMapContainer');
+  if(info.isActive && info.v && info.hasCoords){
+    initOrUpdateCarDetailMap(info.v, info.leader, info.follower);
   }else{
     destroyCarDetailMap();
+    if(container) container.style.display = 'none';
   }
 }
 
 // Lightweight per-poll refresh (called from refreshVehicles, same pattern
-// as updateRosterLiveState) — only touches the live-status region above,
+// as updateRosterLiveState) — only touches the live-status regions above,
 // never the roster edit fields below it, so a signed-in user mid-edit on
 // this page never has their in-progress changes clobbered every 10s.
 function updateCarDetailLiveState(){
   if(state.currentPage !== 'CARDETAIL' || !state.viewingCarKey) return;
   const entry = ROSTER_CARS.find(e => e.key === state.viewingCarKey);
   if(!entry) return;
-  const el = document.getElementById('carDetailLiveStatus');
-  if(!el) return;
+  const badgeEl = document.getElementById('carDetailStatusBadge');
+  const detailEl = document.getElementById('carDetailStatusDetail');
+  if(!badgeEl || !detailEl) return;
   const activeSet = getActiveCarSet();
-  el.innerHTML = renderCarDetailLiveStatus(entry, activeSet);
+  const liveInfo = getCarDetailLiveInfo(entry, activeSet);
+  badgeEl.innerHTML = renderCarDetailStatusBadge(liveInfo);
+  detailEl.innerHTML = renderCarDetailStatusDetail(liveInfo);
   wireCarDetailMapButton(entry);
-  refreshCarDetailMap(entry, activeSet);
+  refreshCarDetailMap(liveInfo);
 }
 
 // Submit/GLTPS/reset button wiring, scoped to whatever container is passed
@@ -7497,16 +7561,18 @@ async function buildCarDetailPanel(){
   const firstTrackedLine = `<div class="roster-edited-by">${renderFirstTrackedText(data)}</div>`;
 
   const seats = showGltps ? getSeatCount(entry.type, gltps ? gltps.status : null) : (info.seats !== undefined ? info.seats : null);
-  const seatsSuffix = (seats !== null && seats !== undefined) ? ` · ${seats} seats` : '';
+  const buildYear = rosterBuildYearFor(state.activeLine, entry.type, entry.car);
 
-  const specParts = [
-    info.width ? `Width ${info.width}` : null,
-    info.length ? `Length ${info.length}` : null,
-    info.electrical ? `Electrical: ${info.electrical}` : null
+  const specLines = [
+    buildYear ? `<div>Year: ${buildYear}</div>` : null,
+    (seats !== null && seats !== undefined) ? `<div>Seats: ${seats}</div>` : null,
+    info.width ? `<div>Width: ${info.width}</div>` : null,
+    info.length ? `<div>Length: ${info.length}</div>` : null,
+    info.electrical ? `<div>Electrical: ${info.electrical}</div>` : null
   ].filter(Boolean);
-  const specsField = specParts.length ? `
-      <div class="roster-field-label">Car specs</div>
-      <div class="roster-readonly">${specParts.join(' · ')}</div>
+  const specsField = specLines.length ? `
+      <div class="roster-field-label">Specs</div>
+      <div class="roster-readonly" style="line-height:1.7;">${specLines.join('')}</div>
     ` : '';
 
   const submitBtn = state.signedIn
@@ -7514,13 +7580,17 @@ async function buildCarDetailPanel(){
        <span class="roster-submit-note" data-submit-note="${entry.key}"></span>`
     : '';
 
+  const liveInfo = getCarDetailLiveInfo(entry, activeSet);
+
   body.innerHTML = `
-    <div id="carDetailLiveStatus">${renderCarDetailLiveStatus(entry, activeSet)}</div>
     <div class="roster-row-head" style="margin-bottom:4px;">
       <span class="roster-car-chip">Car ${entry.car}</span>
       ${statusBadge}
     </div>
-    <div class="roster-card-summary">${entry.type} · ${info.builder} · ${rosterBuildYearFor(state.activeLine, entry.type, entry.car)}${seatsSuffix}</div>
+    <div class="roster-card-summary">${entry.type} · ${info.builder}</div>
+    <div id="carDetailStatusBadge">${renderCarDetailStatusBadge(liveInfo)}</div>
+    <div id="carDetailMapContainer" style="display:none;"></div>
+    <div id="carDetailStatusDetail">${renderCarDetailStatusDetail(liveInfo)}</div>
     ${lastSeenLine}
     ${firstTrackedLine}
     <div class="roster-details" style="display:block; margin-top:10px;">
@@ -7546,7 +7616,7 @@ async function buildCarDetailPanel(){
   loadAndRenderPairHistory(entry.key, state.activeLine);
   wireCarDetailEvents(entry, body);
   wireCarDetailMapButton(entry);
-  refreshCarDetailMap(entry, activeSet);
+  refreshCarDetailMap(liveInfo);
 }
 
 document.getElementById('rosterSearch').addEventListener('input', (e)=>{
