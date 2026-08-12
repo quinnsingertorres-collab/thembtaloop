@@ -2377,6 +2377,44 @@ let stopArrivalTracker = {};
          allow read: if request.auth != null;
          allow write: if false; // add moderators manually in the Firebase console
        }
+       // Written only by syncLastSeenCars (Cloud Function, Admin SDK — bypasses
+       // rules entirely). Client only ever reads it, on-demand, when a roster
+       // row is expanded (loadPairHistory) — never writes it.
+       match /pair_history/{carId} {
+         allow read: if true;
+         allow write: if false;
+       }
+       // Client creates its own subscription doc on opt-in and updates its own
+       // notify* preference fields afterward (syncPushPreferences) — both
+       // unauthenticated, matching how this app tracks "signed in" as a local
+       // display-name concept rather than real Firebase Auth. Cloud Functions
+       // (Admin SDK) read every doc to fan out a push and delete stale/expired
+       // subscriptions; client never needs read access to any of these.
+       match /push_subscriptions/{subId} {
+         allow read: if false;
+         allow write: if true;
+       }
+       // Community reports that Cloud Functions (onDocumentWritten triggers)
+       // turn into a push notification. Client writes its own report; only the
+       // functions (Admin SDK) ever read them back.
+       match /destination_overrides/{vehicleId} {
+         allow read: if false;
+         allow write: if true;
+       }
+       match /branch_reassignments/{vehicleId} {
+         allow read: if false;
+         allow write: if true;
+       }
+       match /car_out_of_service/{carId} {
+         allow read: if false;
+         allow write: if true;
+       }
+       // Scheduled-function-only bookkeeping (last-seen stops, pair state,
+       // train-spotting alert state) — never touched by any client code.
+       match /bot_state/{docId} {
+         allow read: if false;
+         allow write: if false;
+       }
      }
    } */
 async function loadGltps(){
