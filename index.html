@@ -663,7 +663,15 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
      plus a bit extra inside the card itself so its own text/buttons don't
      crowd its rounded corners either. */
   .modal-overlay{padding:22px 18px;}
-  .modal-card{padding:22px;}
+  /* .modal-slide-wrap has no width of its own outside the desktop-docked
+     rules below — on mobile it was just an unstyled wrapper, leaving
+     .modal-card's "max-width:100%" resolving against an ambiguous
+     shrink-to-fit box instead of a well-defined one. Pinning it to 100%
+     here ties that 100% directly to .modal-overlay's own padded content
+     box, so the card is guaranteed to stay inside the buffer above instead
+     of being able to hug the actual screen edge under any circumstance. */
+  .modal-slide-wrap{width:100%;}
+  .modal-card{padding:22px; width:100%;}
 }
 @media (min-width:900px){
   /* On desktop this docks as a left-side panel that's actually part of the
