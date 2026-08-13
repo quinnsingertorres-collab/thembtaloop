@@ -976,11 +976,22 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
 .account-btn.signout{background:#D64545;}
 .signin-note{font-size:12px; color:var(--text-faint); padding:6px 0;}
 .menu-divider{border-top:1px solid var(--border); margin:10px 0;}
-.menu-section-label{font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-faint); font-family:'Space Grotesk', sans-serif; margin-bottom:2px;}
-.section-toggle{display:flex; align-items:center; justify-content:space-between; cursor:pointer; padding:4px 2px; margin-bottom:4px;}
+/* Each Settings group is its own bordered tile — background:var(--bg)
+   against #settingsPanel's own var(--panel) card, same nesting convention
+   as .modal-section inside .modal-card elsewhere in the app — rather than
+   flat menu-dividers between same-color sections with no real edges. Ties
+   Settings into the same visual language as the train info panel instead
+   of looking like a separate, older part of the app. */
+.settings-section{background:var(--bg); border:1px solid var(--border); border-radius:12px; padding:12px 14px; margin-top:12px;}
+.settings-section:first-child{margin-top:0;}
+.menu-section-label{font-size:11px; text-transform:uppercase; letter-spacing:0.06em; color:var(--text-faint); font-family:'Space Grotesk', sans-serif; margin-bottom:2px; font-weight:700;}
+.section-toggle{display:flex; align-items:center; justify-content:space-between; cursor:pointer; padding:2px; margin-bottom:2px; transition:opacity 0.15s ease;}
+.section-toggle:hover{opacity:0.7;}
 .section-chevron{flex:0 0 auto; color:var(--text-faint); transition:transform 0.15s ease;}
 .settings-section.collapsed .section-chevron{transform:rotate(-90deg);}
 .settings-section.collapsed .section-body{display:none;}
+.settings-section .menu-row{padding:8px 2px;}
+.settings-section .menu-divider{margin:8px 0;}
 
 .filter-bar{display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap;}
 .filter-bar select, .filter-bar input{
@@ -1510,12 +1521,70 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
         <span class="note">&mdash;</span>
       </div>
       <div class="back-link" id="settingsBackBtn">&lsaquo; Back</div>
-      <div class="menu-row">
-        <span>Stop abbreviations</span>
-        <div class="switch" id="abbrevSwitch"><div class="knob"></div></div>
+
+      <!-- Order: Account (who you are) → Display (how the app looks) →
+           Notifications (what it alerts you about) — reads top to bottom
+           roughly most-personal-and-quick to most-involved, and puts
+           Account first to match the convention most phone/app settings
+           screens already use (identity before preferences). Every group
+           is now the same bordered-tile shape (see .settings-section),
+           instead of Stop abbreviations sitting alone as an un-sectioned
+           row above three differently-styled blocks separated by plain
+           divider lines. -->
+      <div id="menuAccountSection" style="display:none;">
+        <div class="settings-section" data-section="account">
+          <div class="menu-section-label section-toggle">
+            <span>Account</span>
+            <svg class="section-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div class="section-body">
+            <div class="menu-note" style="margin-bottom:6px;">Shown next to any reports, edits, or roster changes you submit.</div>
+            <input type="text" id="accountNameInput" class="account-input" placeholder="Display name">
+            <button id="saveNameBtn" class="account-btn">Save name</button>
+            <div class="menu-divider"></div>
+            <button id="signOutBtn" class="account-btn signout">Sign out</button>
+          </div>
+        </div>
       </div>
 
-      <div class="menu-divider"></div>
+      <div class="settings-section" data-section="display">
+        <div class="menu-section-label section-toggle">
+          <span>Display</span>
+          <svg class="section-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+        <div class="section-body">
+          <div class="menu-row">
+            <span>Stop abbreviations</span>
+            <div class="switch" id="abbrevSwitch"><div class="knob"></div></div>
+          </div>
+          <div class="menu-divider"></div>
+          <div class="menu-row" style="flex-direction:column; align-items:flex-start; gap:8px;">
+            <span>Time/weather chip position</span>
+            <select class="roster-input" id="statusChipPositionSelect" style="width:100%;">
+              <option value="below">Below route selector</option>
+              <option value="above">Above route selector</option>
+              <option value="hidden">Not visible</option>
+            </select>
+          </div>
+          <div class="menu-row" id="statusChipDateRow">
+            <span>Date</span>
+            <div class="switch" id="statusChipDateSwitch"><div class="knob"></div></div>
+          </div>
+          <div class="menu-row" id="statusChipWeatherRow">
+            <span>Weather</span>
+            <div class="switch" id="statusChipWeatherSwitch"><div class="knob"></div></div>
+          </div>
+          <div class="menu-row" id="clockSecondsRow">
+            <span>Show seconds</span>
+            <div class="switch" id="clockSecondsSwitch"><div class="knob"></div></div>
+          </div>
+          <div class="menu-row" id="clock24HourRow">
+            <span>24-hour time</span>
+            <div class="switch" id="clock24HourSwitch"><div class="knob"></div></div>
+          </div>
+        </div>
+      </div>
+
       <div class="settings-section" data-section="notifications">
         <div class="menu-section-label section-toggle">
           <span>Notifications</span>
@@ -1563,57 +1632,6 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
           <div class="menu-row">
             <span>Cars marked out of service<span class="menu-note">(push only)</span></span>
             <div class="switch" id="notifPushOOSSwitch"><div class="knob"></div></div>
-          </div>
-        </div>
-      </div>
-
-      <div class="menu-divider"></div>
-      <div class="settings-section" data-section="time-weather">
-        <div class="menu-section-label section-toggle">
-          <span>Time &amp; weather</span>
-          <svg class="section-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </div>
-        <div class="section-body">
-          <div class="menu-row" style="flex-direction:column; align-items:flex-start; gap:8px;">
-            <span>Position</span>
-            <select class="roster-input" id="statusChipPositionSelect" style="width:100%;">
-              <option value="below">Below route selector</option>
-              <option value="above">Above route selector</option>
-              <option value="hidden">Not visible</option>
-            </select>
-          </div>
-          <div class="menu-row" id="statusChipDateRow">
-            <span>Date</span>
-            <div class="switch" id="statusChipDateSwitch"><div class="knob"></div></div>
-          </div>
-          <div class="menu-row" id="statusChipWeatherRow">
-            <span>Weather</span>
-            <div class="switch" id="statusChipWeatherSwitch"><div class="knob"></div></div>
-          </div>
-          <div class="menu-row" id="clockSecondsRow">
-            <span>Show seconds</span>
-            <div class="switch" id="clockSecondsSwitch"><div class="knob"></div></div>
-          </div>
-          <div class="menu-row" id="clock24HourRow">
-            <span>24-hour time</span>
-            <div class="switch" id="clock24HourSwitch"><div class="knob"></div></div>
-          </div>
-        </div>
-      </div>
-
-      <div id="menuAccountSection" style="display:none;">
-        <div class="menu-divider"></div>
-        <div class="settings-section" data-section="account">
-          <div class="menu-section-label section-toggle">
-            <span>Account</span>
-            <svg class="section-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </div>
-          <div class="section-body">
-            <div class="menu-note" style="margin-bottom:6px;">Shown next to any reports, edits, or roster changes you submit.</div>
-            <input type="text" id="accountNameInput" class="account-input" placeholder="Display name">
-            <button id="saveNameBtn" class="account-btn">Save name</button>
-            <div class="menu-divider"></div>
-            <button id="signOutBtn" class="account-btn signout">Sign out</button>
           </div>
         </div>
       </div>
@@ -1804,6 +1822,7 @@ const ALL_STATIONS = (()=>{
 })();
 
 const ABBREVIATIONS = {
+  "Community College":"Comm Col",
   "Central Avenue":"Central Ave",
   "Medford/Tufts":"Medford",
   "Science Park/West End":"Science Park",
