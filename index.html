@@ -9870,6 +9870,75 @@ if(mobileTrainsBackdrop) mobileTrainsBackdrop.addEventListener('click', ()=>{
     }
   }
 
+  // The app icon used next to the watermark URL — loaded once and cached
+  // (module-level promise) rather than re-fetched on every click. Same-
+  // origin, so it never taints the canvas the way a cross-origin image
+  // would. Resolves to null on failure so the watermark just degrades to
+  // text-only instead of the whole snapshot silently breaking.
+  let watermarkLogoPromise = null;
+  function loadWatermarkLogo(){
+    if(!watermarkLogoPromise){
+      watermarkLogoPromise = new Promise((resolve)=>{
+        const img = new Image();
+        img.onload = ()=> resolve(img);
+        img.onerror = ()=> resolve(null);
+        img.src = '/icon-192.png';
+      });
+    }
+    return watermarkLogoPromise;
+  }
+
+  // Pads the raw html2canvas capture with breathing room on all sides and
+  // appends a short footer strip carrying the site watermark (logo + URL),
+  // rather than drawing either directly on top of the map content (which
+  // could overlap a train bubble or stop label sitting right at an edge).
+  // scale matches whatever pixel density html2canvas rendered the source
+  // canvas at, so the margin/watermark stay a consistent physical size
+  // instead of shrinking relative to the map on high-DPI screens.
+  async function composeSnapshot(sourceCanvas, scale, bgColor){
+    const MARGIN = 28;          // CSS px at 1x
+    const WATERMARK_BAND = 34;  // extra footer strip height (CSS px at 1x), separate from MARGIN so the watermark never crowds the map above it
+    const m = Math.round(MARGIN * scale);
+    const band = Math.round(WATERMARK_BAND * scale);
+    const out = document.createElement('canvas');
+    out.width = sourceCanvas.width + m * 2;
+    out.height = sourceCanvas.height + m * 2 + band;
+    const ctx = out.getContext('2d');
+    ctx.fillStyle = bgColor;
+    ctx.fillRect(0, 0, out.width, out.height);
+    ctx.drawImage(sourceCanvas, m, m);
+
+    const text = 'thembtaloop.com';
+    const fontSize = Math.round(12.5 * scale);
+    ctx.font = `700 ${fontSize}px 'Space Grotesk', sans-serif`;
+    ctx.textBaseline = 'middle';
+    const textWidth = ctx.measureText(text).width;
+
+    const logo = await loadWatermarkLogo();
+    const iconSize = Math.round(band * 0.55);
+    const gap = Math.round(8 * scale);
+    const totalWidth = (logo ? iconSize + gap : 0) + textWidth;
+    const centerY = m + sourceCanvas.height + m + band / 2;
+    let x = out.width / 2 - totalWidth / 2;
+
+    // Both drawn at reduced opacity together so the icon and text read as
+    // one consistent watermark mark rather than a crisp logo next to faded
+    // text.
+    ctx.save();
+    ctx.globalAlpha = 0.75;
+    if(logo){
+      ctx.drawImage(logo, x, centerY - iconSize / 2, iconSize, iconSize);
+      x += iconSize + gap;
+    }
+    // Same brand green as the site title/logo elsewhere in the app.
+    ctx.fillStyle = '#008150';
+    ctx.textAlign = 'left';
+    ctx.fillText(text, x, centerY);
+    ctx.restore();
+
+    return out;
+  }
+
   btn.addEventListener('click', async ()=>{
     if(typeof html2canvas !== 'function'){
       setLabel('Unavailable', 1800);
@@ -9889,16 +9958,23 @@ if(mobileTrainsBackdrop) mobileTrainsBackdrop.addEventListener('click', ()=>{
       // showing through. html2canvas needs an explicit color or it
       // defaults to opaque white, so it's read straight off body here.
       const bg = getComputedStyle(document.body).backgroundColor;
-      const canvas = await html2canvas(target, {
+      const scale = Math.min(window.devicePixelRatio || 1, 2);
+      const rawCanvas = await html2canvas(target, {
         backgroundColor: bg,
         useCORS: true,
-        scale: Math.min(window.devicePixelRatio || 1, 2),
+        scale,
         // Exclude the button itself — it's a child of the element being
         // captured (so it's "at the bottom" of the map and shares that
         // panel's page-visibility), but shouldn't appear inside its own
         // screenshot.
         ignoreElements: (el) => el.id === 'snapshotMapBtn'
       });
+      // Make sure the webfont used for the watermark is actually loaded
+      // before drawing text with it — canvas text doesn't wait for
+      // @font-face on its own, and would silently fall back to a generic
+      // sans-serif for just this one draw call if it raced the font load.
+      if(document.fonts && document.fonts.ready){ await document.fonts.ready; }
+      const canvas = await composeSnapshot(rawCanvas, scale, bg);
       canvas.toBlob(async (blob)=>{
         if(!blob){ setLabel('Failed', 1800); return; }
         try{
