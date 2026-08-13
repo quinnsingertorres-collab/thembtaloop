@@ -6539,11 +6539,48 @@ async function checkCarBackInServiceNotifications(){
 
 /* ---------------- Train-spotting notifications (double Type 8, Pride car, Type 9) ----------------
    These fire while the app is open, based on the live vehicle feed the app is
-   already polling. They track "currently notified" IDs per session so the
-   same train doesn't re-trigger a notification every 15s while it's still
-   running the same consist. */
-const notifiedDoubleType8 = new Set();
-const notifiedPride = new Set();
+   already polling, and track "currently notified" vehicle IDs so the same
+   train doesn't re-trigger a notification every 15s while it's still running
+   the same consist. That "currently notified" state used to live only in
+   these three Sets, which are plain in-memory JS variables \u2014 reopening the
+   app (a fresh page load, not just a re-poll) reset them to empty every
+   time, so a Double Type 8 / Pride / Type 9 consist that was already
+   notified about in an earlier session would immediately re-notify the
+   moment the app was reopened while that same train was still running.
+   Persisting them to localStorage (same pattern NOTIF_CARBACK_SEEN_KEY
+   already uses below for "cars back in service") fixes that: the "already
+   notified" state now survives a reload. This is purely the in-app/
+   foreground path \u2014 the separate server-side push notifications (Cloud
+   Functions + service worker, delivered while the app is closed) already
+   dedupe against their own Firestore-persisted state and are completely
+   untouched by this change, so background delivery keeps working exactly
+   as before. */
+const TRAIN_NOTIF_SEEN_KEY = 'train_notif_seen_v1';
+function loadTrainNotifSeenSets(){
+  try{
+    const raw = localStorage.getItem(TRAIN_NOTIF_SEEN_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return {
+      doubleType8: new Set(parsed.doubleType8 || []),
+      pride: new Set(parsed.pride || []),
+      type9: new Set(parsed.type9 || [])
+    };
+  }catch(e){
+    return { doubleType8: new Set(), pride: new Set(), type9: new Set() };
+  }
+}
+function saveTrainNotifSeenSets(){
+  try{
+    localStorage.setItem(TRAIN_NOTIF_SEEN_KEY, JSON.stringify({
+      doubleType8: Array.from(notifiedDoubleType8),
+      pride: Array.from(notifiedPride),
+      type9: Array.from(notifiedType9)
+    }));
+  }catch(e){ /* ignore */ }
+}
+const _trainNotifSeen = loadTrainNotifSeenSets();
+const notifiedDoubleType8 = _trainNotifSeen.doubleType8;
+const notifiedPride = _trainNotifSeen.pride;
 
 function formatTrainNotifBody(v){
   const now = new Date();
@@ -6555,7 +6592,7 @@ function formatTrainNotifBody(v){
   return `${dateStr}, ${timeStr} \u2014 ${line} line to ${dest}. ${carWord}: ${v.label}`;
 }
 
-const notifiedType9 = new Set();
+const notifiedType9 = _trainNotifSeen.type9;
 
 function checkTrainNotifications(vehicles){
   if(!state.notifMaster) return;
@@ -6606,6 +6643,8 @@ function checkTrainNotifications(vehicles){
     });
     Array.from(notifiedType9).forEach(id => { if(!type9Ids.has(id)) notifiedType9.delete(id); });
   }
+
+  saveTrainNotifSeenSets();
 }
 
 /* ---------------- Data fetch ---------------- */
