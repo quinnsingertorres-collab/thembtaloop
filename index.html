@@ -9517,43 +9517,54 @@ if(trainsPanelToggle){
 // people who don't think to swipe at all.
 (function(){
   const SWIPE_MIN_DX = 60;   // must travel at least this far horizontally
-  const SWIPE_MAX_DY = 60;   // ...without wandering this far vertically (keeps it from firing on a diagonal scroll)
-  const SWIPE_MAX_MS = 700;  // ...within this long (a slow drag isn't a "swipe")
-  let touchStartX = null, touchStartY = null, touchStartTime = 0, skipGesture = false;
+  const SWIPE_MAX_DY = 60;   // ...without wandering this far vertically first (keeps it from firing on a diagonal/vertical scroll)
+  let touchStartX = null, touchStartY = null, skipGesture = false, triggered = false;
+
+  function reset(){ touchStartX = null; touchStartY = null; triggered = false; }
 
   document.addEventListener('touchstart', (e)=>{
-    if(e.touches.length !== 1){ touchStartX = null; return; }
+    if(e.touches.length !== 1){ reset(); return; }
     // Ignore gestures starting somewhere that already scrolls or reacts to
     // its own horizontal drag — the branch-selector pill row (which
     // scrolls horizontally on narrow phones) and the train info modal/
     // panel (a swipe there means something else entirely, not "open/close
-    // the trains drawer").
+    // the trains drawer"). Everything else is fair game, INCLUDING the
+    // drawer itself once it's open — that's what lets a swipe right on the
+    // open panel close it again, not just a swipe on the map behind it.
     skipGesture = !!e.target.closest('.bottom-nav, #carModalOverlay');
     touchStartX = e.touches[0].clientX;
     touchStartY = e.touches[0].clientY;
-    touchStartTime = Date.now();
+    triggered = false;
   }, { passive:true });
 
-  document.addEventListener('touchend', (e)=>{
-    if(touchStartX === null || skipGesture){ touchStartX = null; return; }
-    const touch = e.changedTouches[0];
-    const dx = touch.clientX - touchStartX;
-    const dy = touch.clientY - touchStartY;
-    const dt = Date.now() - touchStartTime;
-    touchStartX = null;
-    if(dt > SWIPE_MAX_MS || Math.abs(dy) > SWIPE_MAX_DY) return;
-    // Only relevant on mobile widths and while an actual track map (with a
-    // trains panel to reveal) is on screen — .main-grid is display:none on
-    // every other page (Roster, Settings, car detail, etc.), so there'd be
-    // nothing to swipe open there anyway.
-    const onTrackMapPage = document.body.classList.contains('track-map-page');
-    const isMobileWidth = window.matchMedia('(max-width:899px)').matches;
-    if(dx <= -SWIPE_MIN_DX && onTrackMapPage && isMobileWidth){
-      document.body.classList.add('mobile-trains-open');
+  // Reacts on touchmove, the instant the threshold is crossed, rather than
+  // waiting for touchend — a real device can cancel an in-progress touch
+  // (touchcancel, e.g. once a nested scroll view decides to take over) part
+  // way through a fast swipe, which would silently drop a touchend-only
+  // version of this entirely. Watching the live delta as it happens doesn't
+  // depend on that final event ever arriving.
+  document.addEventListener('touchmove', (e)=>{
+    if(touchStartX === null || skipGesture || triggered || e.touches.length !== 1) return;
+    const dx = e.touches[0].clientX - touchStartX;
+    const dy = e.touches[0].clientY - touchStartY;
+    if(Math.abs(dy) > SWIPE_MAX_DY){ reset(); return; } // wandered vertically first — this is a scroll, not a swipe; stop watching this gesture
+    if(dx <= -SWIPE_MIN_DX){
+      triggered = true;
+      // Only relevant on mobile widths and while an actual track map (with
+      // a trains panel to reveal) is on screen — .main-grid is display:none
+      // on every other page (Roster, Settings, car detail, etc.), so
+      // there'd be nothing to swipe open there anyway.
+      if(document.body.classList.contains('track-map-page') && window.matchMedia('(max-width:899px)').matches){
+        document.body.classList.add('mobile-trains-open');
+      }
     }else if(dx >= SWIPE_MIN_DX){
+      triggered = true;
       document.body.classList.remove('mobile-trains-open');
     }
   }, { passive:true });
+
+  document.addEventListener('touchend', reset, { passive:true });
+  document.addEventListener('touchcancel', reset, { passive:true });
 })();
 
 const mobileTrainsBackdrop = document.getElementById('mobileTrainsBackdrop');
