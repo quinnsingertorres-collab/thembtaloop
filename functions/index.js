@@ -102,7 +102,7 @@ const VAPID_PUBLIC_KEY = 'BHEIq4o6pknFsV-fssjBnXccc-5tX1w8V9ojTS4ilQ2YEuNYJR2cW2
 //    project root.
 const GOOGLE_SHEETS_CREDENTIALS = defineSecret('GOOGLE_SHEETS_CREDENTIALS');
 // Replace with your own Sheet ID (step 6 above) before deploying.
-const PAIR_HISTORY_SHEET_ID = 'REPLACE_WITH_YOUR_GOOGLE_SHEET_ID';
+const PAIR_HISTORY_SHEET_ID = '1E0G2gaQQY1RAhpN0dR0BZfADU9giO40GyCaPs27zO68';
 const PAIR_HISTORY_SHEET_TAB = 'PairHistory';
 
 let _sheetsClientPromise = null;
@@ -355,17 +355,28 @@ async function fetchLineVehicles(line, url){
     if(!stopName) return;
     const carNums = getCarNumbersForVehicle(line, v.attributes.label, v.attributes.carriages);
     const keys = carNums.map(n => rosterStorageKey(line, n));
-    // Married pairs are fixed 2-car units — a 4-car train (two pairs
-    // coupled together) isn't one big "partner group," it's two separate
-    // pairs, so partners are matched up by adjacent position in the
-    // consist (0-1, 2-3, ...) rather than treating everyone in the train
-    // as everyone else's partner. A car with no adjacent partner (running
-    // alone, or an odd one out) has partner: null ("unpaired").
+    // Green Line married pairs are fixed 2-car units — a 4-car train (two
+    // pairs coupled together) isn't one big "partner group," it's two
+    // separate pairs, so partners are matched up by adjacent position in
+    // the consist (0-1, 2-3, ...) rather than treating everyone in the
+    // train as everyone else's partner. A car with no adjacent partner
+    // (running alone, or an odd one out) has partners: [] ("unpaired").
+    //
+    // Red/Orange/Blue don't run as separate married-pair sub-units the
+    // same way — their whole consist is one assembled "set" of cars, so
+    // for those lines partners is every OTHER car in the same vehicle,
+    // not just an adjacent one. This is what index.html's "Set history"
+    // (non-Green) vs. "Pairing history" (Green) distinction is built on.
     keys.forEach((key, i) => {
-      const pairStart = i - (i % 2);
-      const partnerIdx = (i % 2 === 0) ? pairStart + 1 : pairStart;
-      const partner = keys[partnerIdx] || null;
-      carEntries.push({ key, stopName, partner });
+      let partners;
+      if(line === 'green'){
+        const pairStart = i - (i % 2);
+        const partnerIdx = (i % 2 === 0) ? pairStart + 1 : pairStart;
+        partners = keys[partnerIdx] ? [keys[partnerIdx]] : [];
+      }else{
+        partners = keys.filter((k, idx) => idx !== i);
+      }
+      carEntries.push({ key, stopName, partners });
     });
     vehicles.push({ id: v.id, label: v.attributes.label, carNums });
   });
@@ -460,6 +471,19 @@ const PRIDE_CAR_NUMBER = '3706';
 // last row for that car is the one still "ongoing" (see getPairHistory
 // below, which does exactly that). One API call, no per-car lookups,
 // genuinely append-only.
+// Green Line only ever has at most one partner, but Red/Orange/Blue's
+// "whole consist is one set" model can have several — column B stores
+// however many apply as a single comma-joined cell (sorted so the same
+// set of cars always serializes to the same string regardless of the
+// order the API happened to return them in, which matters for the
+// change-detection comparison in syncLastSeenCars below).
+function serializePartners(partners){
+  return (partners || []).slice().sort().join(',');
+}
+function parsePartnersCell(cell){
+  return String(cell || '').split(',').map(s => s.trim()).filter(Boolean);
+}
+
 async function commitPairChanges(changes, ts){
   if(!changes.length) return;
   try{
@@ -471,7 +495,7 @@ async function commitPairChanges(changes, ts){
       valueInputOption: 'RAW',
       insertDataOption: 'INSERT_ROWS',
       requestBody: {
-        values: changes.map(({ key, partner }) => [key, partner || '', fromIso])
+        values: changes.map(({ key, partners }) => [key, serializePartners(partners), fromIso])
       }
     });
   }catch(e){
@@ -505,7 +529,7 @@ exports.getPairHistory = onRequest({ secrets: [GOOGLE_SHEETS_CREDENTIALS] }, asy
     // against any out-of-order writes).
     const carRows = rows.slice(1)
       .filter(r => r[0] === key)
-      .map(r => ({ partner: r[1] || null, from: new Date(r[2]).getTime() }))
+      .map(r => ({ partners: parsePartnersCell(r[1]), from: new Date(r[2]).getTime() }))
       .filter(r => !isNaN(r.from))
       .sort((a, b) => a.from - b.from);
 
@@ -514,7 +538,7 @@ exports.getPairHistory = onRequest({ secrets: [GOOGLE_SHEETS_CREDENTIALS] }, asy
     // meaning "to: null" always had in the old Firestore entries.
     const now = Date.now();
     const entries = carRows.map((entry, i) => ({
-      partner: entry.partner,
+      partners: entry.partners,
       from: entry.from,
       to: (i < carRows.length - 1) ? carRows[i + 1].from : null
     }));
@@ -634,10 +658,11 @@ exports.syncLastSeenCars = onSchedule({ schedule: 'every 1 minutes', secrets: [V
 
   const nextPairs = {};
   const pairChanges = [];
-  current.forEach(({ key, partner }) => {
-    nextPairs[key] = partner || null;
-    if((priorPairs[key] || null) !== (partner || null)){
-      pairChanges.push({ key, partner: partner || null });
+  current.forEach(({ key, partners }) => {
+    const serialized = serializePartners(partners);
+    nextPairs[key] = serialized;
+    if((priorPairs[key] || '') !== serialized){
+      pairChanges.push({ key, partners: partners || [] });
     }
   });
   // Carry forward any car that isn't in this particular run's data (a train

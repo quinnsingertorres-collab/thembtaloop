@@ -4770,6 +4770,18 @@ async function showCarModal(v){
        <button class="account-btn" id="consistSaveBtn" style="margin-top:6px;">Save consist correction</button>`
     : `<div class="signin-note">Sign in to correct this train's car numbers.</div>`;
 
+  // Reverses car ORDER without changing which cars are in the train — for
+  // when MBTA's feed has the right set of cars but reports them front-to-
+  // back backwards from how the train is actually running. Distinct from
+  // the add/remove/direct-edit controls above, which change which cars are
+  // in the set; this only ever changes their order. Bottom of the whole
+  // Consist section (after consistEditedLine below), not just the edit
+  // form, so it reads as its own separate action rather than one more
+  // field in the correction form. A single car has no "order" to flip.
+  const flipConsistBtn = (state.signedIn && carParts.length > 1)
+    ? `<button class="roster-reset-btn" id="consistFlipBtn" style="margin-top:10px;">Flip consist</button>`
+    : '';
+
   const effectiveDestination = destinationOverride ? destinationOverride.destination : (v.headsign || 'Unknown');
   const destinationOptionsHtml = DESTINATION_OPTIONS.map(opt =>
     `<option value="${opt}" ${destinationOverride && destinationOverride.destination === opt ? 'selected' : ''}>${opt}</option>`
@@ -4974,6 +4986,7 @@ async function showCarModal(v){
       ${consistOverride ? '<div class="signin-note">The MBTA feed reported this train\'s consist differently; the numbers above reflect a community correction.</div>' : ''}
       ${consistEditForm}
       ${consistEditedLine}
+      ${flipConsistBtn}
     </div>
     ${isGreenLine ? `
     <div class="modal-section">
@@ -5173,6 +5186,19 @@ async function showCarModal(v){
       showCarModal(v);
     });
   });
+
+  const consistFlipBtn = document.getElementById('consistFlipBtn');
+  if(consistFlipBtn){
+    consistFlipBtn.addEventListener('click', async ()=>{
+      if(!window.confirm(`Flip this train's consist? ${formatCarNumberForDisplay(carParts[carParts.length - 1])} becomes the lead car and ${formatCarNumberForDisplay(carParts[0])} becomes the last car.`)) return;
+      const flipped = carParts.slice().reverse();
+      await saveConsistOverride(v, flipped.join('-'));
+      awardPoints(5);
+      refreshConsistOverrideCache();
+      alert(CONSIST_EDIT_NOTICE);
+      showCarModal(v);
+    });
+  }
 
   const soloType7InServiceBtn = document.getElementById('soloType7InServiceBtn');
   if(soloType7InServiceBtn){
@@ -7543,9 +7569,9 @@ function displayPartnerLabel(key, line){
 // tracker mixup than a real swap.
 const PAIR_HISTORY_GLITCH_MAX_MIN = 10;
 
-function pairHistoryDotColor(partner, isGlitch){
+function pairHistoryDotColor(partners, isGlitch){
   if(isGlitch) return '#F59E0B';
-  return partner ? 'var(--accent)' : 'var(--text-faint)';
+  return (partners && partners.length) ? 'var(--accent)' : 'var(--text-faint)';
 }
 function formatPairDateTime(fromMs, toMs){
   const dateOpts = { month:'short', day:'numeric', timeZone:'America/New_York' };
@@ -7583,19 +7609,36 @@ async function loadAndRenderPairHistory(key, line){
   // before touching it.
   if(!document.body.contains(el)) return;
 
+  // Green Line cars run in fixed 2-car married pairs, so "partners" there
+  // is always at most one car — phrased as "Paired with X". Red/Orange/Blue
+  // consists are tracked as a whole assembled "set," which can be any
+  // number of other cars — phrased as "In a set with X, Y, Z" (this is
+  // what index.html's Set history section title (vs. Pairing history for
+  // Green) is built around; see buildCarDetailPanel).
+  const isGreen = line === 'green';
+
   if(!entries.length){
-    el.innerHTML = '<span style="opacity:.5;">No pairing history recorded yet.</span>';
+    el.innerHTML = `<span style="opacity:.5;">No ${isGreen ? 'pairing' : 'set'} history recorded yet.</span>`;
     return;
   }
 
   el.innerHTML = entries.slice().reverse().map(entry=>{
+    const partners = entry.partners || [];
     const isOngoing = entry.to === null || entry.to === undefined;
     const durationMin = isOngoing ? null : Math.round(((entry.to || Date.now()) - entry.from) / 60000);
     const isGlitch = !isOngoing && durationMin < PAIR_HISTORY_GLITCH_MAX_MIN;
-    const color = pairHistoryDotColor(entry.partner, isGlitch);
-    const main = entry.partner
-      ? `Paired with <strong>${displayPartnerLabel(entry.partner, line)}</strong>`
-      : `<strong>${isOngoing ? 'Running' : 'Ran'} alone</strong>`;
+    const color = pairHistoryDotColor(partners, isGlitch);
+    const labels = partners.map(p => displayPartnerLabel(p, line));
+    let main;
+    if(!labels.length){
+      main = `<strong>${isOngoing ? 'Running' : 'Ran'} alone</strong>`;
+    }else if(isGreen){
+      main = `Paired with <strong>${labels[0]}</strong>`;
+    }else if(labels.length === 1){
+      main = `Running with <strong>${labels[0]}</strong>`;
+    }else{
+      main = `In a set with <strong>${labels.join(', ')}</strong>`;
+    }
     const currentTag = isOngoing ? ' <span style="color:var(--accent);">(current)</span>' : '';
     const glitchNote = isGlitch ? ' <span style="color:#F59E0B;">(likely tracker glitch)</span>' : '';
     const meta = isOngoing
@@ -8236,7 +8279,7 @@ async function buildCarDetailPanel(){
       ${liveryField}
       <div class="roster-field-label">Notes</div>
       ${notesField}
-      <div class="roster-field-label">Pairing history</div>
+      <div class="roster-field-label">${state.activeLine === 'green' ? 'Pairing history' : 'Set history'}</div>
       <div id="pairHistory-${entry.key}" style="font-size:12px; opacity:.5;">Loading…</div>
       ${submitBtn}
       ${editedLine}
