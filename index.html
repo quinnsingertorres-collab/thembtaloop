@@ -7058,15 +7058,18 @@ function renderVehicleList(){
   const page = PAGES[key];
   const list = document.getElementById('vehicleList');
 
+  // Deliberately the STRICT own-branch filter (same convention countForPage
+  // already uses for the bottom-nav branch counts, not the more permissive
+  // isRelevantForBranchPage/getRelevantVehiclesForPage the track map itself
+  // uses) — "Show: [other branch]" is meant to overlay another branch's
+  // trains onto the ladder/map visualization only. This list is titled
+  // after (and meant to represent) just the one branch actually selected,
+  // so it shouldn't grow to include cross-branch trains just because
+  // they're temporarily also visible on the map above it.
+  const pageBranchId = RED_PAGE_TO_BRANCH_ID[key] || key;
   let relevant = page.isMulti
     ? state.vehicles.filter(v => findStopIndex(key, v.stopName) !== null)
-    : state.vehicles.filter(v => isRelevantForBranchPage(key, v) && findStopIndex(key, v.stopName) !== null);
-
-  if(key === 'REDASHMONT'){
-    relevant = relevant.filter(v => getRedLineBranch(v) === 'ashmont' || (state.otherBranchesVisible.braintree && getRedLineBranch(v) === 'braintree'));
-  }else if(key === 'REDBRAINTREE'){
-    relevant = relevant.filter(v => getRedLineBranch(v) === 'braintree' || (state.otherBranchesVisible.ashmont && getRedLineBranch(v) === 'ashmont'));
-  }
+    : state.vehicles.filter(v => getEffectiveBranchForToggle(v) === pageBranchId && findStopIndex(key, v.stopName) !== null);
 
   if(state.filterDirection !== 'ALL'){
     relevant = relevant.filter(v => String(v.direction) === state.filterDirection);
