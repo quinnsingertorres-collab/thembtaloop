@@ -6539,7 +6539,8 @@ function formatTrainNotifBody(v){
   const timeStr = now.toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' });
   const line = getDisplayBranch(v.branch);
   const dest = v.headsign || 'Unknown destination';
-  return `${dateStr}, ${timeStr} \u2014 ${line} line to ${dest}. Cars: ${v.label}`;
+  const carWord = String(v.label).split('-').length > 1 ? 'Cars' : 'Car';
+  return `${dateStr}, ${timeStr} \u2014 ${line} line to ${dest}. ${carWord}: ${v.label}`;
 }
 
 const notifiedType9 = new Set();
@@ -9888,37 +9889,81 @@ if(mobileTrainsBackdrop) mobileTrainsBackdrop.addEventListener('click', ()=>{
     return watermarkLogoPromise;
   }
 
-  // Pads the raw html2canvas capture with breathing room on all sides and
-  // appends a short footer strip carrying the site watermark (logo + URL),
-  // rather than drawing either directly on top of the map content (which
-  // could overlap a train bubble or stop label sitting right at an edge).
-  // scale matches whatever pixel density html2canvas rendered the source
-  // canvas at, so the margin/watermark stay a consistent physical size
-  // instead of shrinking relative to the map on high-DPI screens.
+  // Same "Green Line — Boston College" style label used for the browser
+  // tab title (see updateDocumentTitle/LINE_TITLE_LABEL), reused here
+  // instead of re-deriving it from document.title so it stays in sync if
+  // that logic ever changes. Falls back to just the branch's own label
+  // (dropping the redundant line prefix) for Orange/Blue/Mattapan, whose
+  // PAGES label already says "Orange Line"/"Blue Line"/"...Line" on its own.
+  function getSnapshotHeaderLabel(){
+    const page = PAGES[state.currentPage];
+    if(!page) return '';
+    const lineName = LINE_TITLE_LABEL[state.activeLine];
+    const lineLabel = lineName ? `${lineName} Line` : '';
+    if(!lineLabel || page.label.indexOf(lineLabel) !== -1) return page.label;
+    return `${lineLabel} — ${page.label}`;
+  }
+
+  // Pads the raw html2canvas capture with breathing room on all sides, adds
+  // a header band naming the branch/line being viewed, and appends a footer
+  // strip with the capture's date/time plus the site watermark (logo +
+  // URL) — all as separate bands above/below the map rather than drawn
+  // directly on top of it, where any of them could land on top of a train
+  // bubble or stop label sitting right at an edge. scale matches whatever
+  // pixel density html2canvas rendered the source canvas at, so these bands
+  // stay a consistent physical size instead of shrinking relative to the
+  // map on high-DPI screens.
   async function composeSnapshot(sourceCanvas, scale, bgColor){
-    const MARGIN = 28;          // CSS px at 1x
-    const WATERMARK_BAND = 34;  // extra footer strip height (CSS px at 1x), separate from MARGIN so the watermark never crowds the map above it
+    const MARGIN = 28;      // CSS px at 1x — gap around the map itself
+    const HEADER_ROW = 32;  // CSS px at 1x — branch/line name
+    const DATE_ROW = 20;    // CSS px at 1x — capture date/time
+    const URL_ROW = 30;     // CSS px at 1x — logo + URL watermark
+
     const m = Math.round(MARGIN * scale);
-    const band = Math.round(WATERMARK_BAND * scale);
+    const headerH = Math.round(HEADER_ROW * scale);
+    const dateH = Math.round(DATE_ROW * scale);
+    const urlH = Math.round(URL_ROW * scale);
+
     const out = document.createElement('canvas');
     out.width = sourceCanvas.width + m * 2;
-    out.height = sourceCanvas.height + m * 2 + band;
+    out.height = headerH + m + sourceCanvas.height + m + dateH + urlH;
     const ctx = out.getContext('2d');
     ctx.fillStyle = bgColor;
     ctx.fillRect(0, 0, out.width, out.height);
-    ctx.drawImage(sourceCanvas, m, m);
 
-    const text = 'thembtaloop.com';
-    const fontSize = Math.round(12.5 * scale);
-    ctx.font = `700 ${fontSize}px 'Space Grotesk', sans-serif`;
+    // Header: which branch/line this map is.
+    const headerText = getSnapshotHeaderLabel();
+    if(headerText){
+      ctx.fillStyle = '#F0F4F2'; // var(--text)
+      ctx.font = `700 ${Math.round(15 * scale)}px 'Space Grotesk', sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(headerText, out.width / 2, headerH / 2);
+    }
+
+    // The map itself.
+    ctx.drawImage(sourceCanvas, m, headerH + m);
+
+    // Footer row 1: when this was captured.
+    const now = new Date();
+    const dateStr = now.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+    const timeStr = now.toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' });
+    const dateRowY = headerH + m + sourceCanvas.height + m + dateH / 2;
+    ctx.fillStyle = 'rgba(240,244,242,0.55)'; // var(--text), faded — same role as var(--text-faint) without keeping a second literal color in sync with it
+    ctx.font = `600 ${Math.round(11.5 * scale)}px 'IBM Plex Mono', monospace`;
+    ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    const textWidth = ctx.measureText(text).width;
+    ctx.fillText(`${dateStr}, ${timeStr}`, out.width / 2, dateRowY);
 
+    // Footer row 2: logo + URL watermark.
+    const text = 'thembtaloop.com';
+    ctx.font = `700 ${Math.round(12.5 * scale)}px 'Space Grotesk', sans-serif`;
+    const textWidth = ctx.measureText(text).width;
     const logo = await loadWatermarkLogo();
-    const iconSize = Math.round(band * 0.55);
+    const iconSize = Math.round(urlH * 0.6);
     const gap = Math.round(8 * scale);
     const totalWidth = (logo ? iconSize + gap : 0) + textWidth;
-    const centerY = m + sourceCanvas.height + m + band / 2;
+    const urlRowY = dateRowY + dateH / 2 + urlH / 2;
     let x = out.width / 2 - totalWidth / 2;
 
     // Both drawn at reduced opacity together so the icon and text read as
@@ -9927,13 +9972,13 @@ if(mobileTrainsBackdrop) mobileTrainsBackdrop.addEventListener('click', ()=>{
     ctx.save();
     ctx.globalAlpha = 0.75;
     if(logo){
-      ctx.drawImage(logo, x, centerY - iconSize / 2, iconSize, iconSize);
+      ctx.drawImage(logo, x, urlRowY - iconSize / 2, iconSize, iconSize);
       x += iconSize + gap;
     }
     // Same brand green as the site title/logo elsewhere in the app.
     ctx.fillStyle = '#008150';
     ctx.textAlign = 'left';
-    ctx.fillText(text, x, centerY);
+    ctx.fillText(text, x, urlRowY);
     ctx.restore();
 
     return out;

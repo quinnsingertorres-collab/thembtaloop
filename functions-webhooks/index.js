@@ -135,7 +135,8 @@ export const trainSpottingPoll = onSchedule(
       const cars = String(v.label).split('-');
       const line = v.route.replace('Green-', '');
       const dest = v.headsign || 'Unknown destination';
-      const description = `${line} line to ${dest}. Cars: ${v.label}`;
+      const carWord = cars.length > 1 ? 'Cars' : 'Car';
+      const description = `${line} line to ${dest}. ${carWord}: ${v.label}`;
 
       if (cars.length >= 2 && cars.every(c => getCarType(c) === 'Type 8')) {
         seenDouble.add(v.id);
