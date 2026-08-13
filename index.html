@@ -506,6 +506,22 @@ body.dark .discord-banner{background:#5865F2; border-color:#5865F2; color:#fff;}
 /* ---------- Ladder diagram (absolute-positioned) ---------- */
 .ladder{position:relative; width:100%;}
 
+/* Last thing in the Track Map panel — sits right below the ladder itself,
+   so it's "at the bottom" of the map rather than floating fixed on top of
+   it. Lives inside .panel--plain, which is already display:none on every
+   non-map page, so it never needs its own page-visibility check. */
+.snapshot-map-btn{
+  display:flex; align-items:center; justify-content:center; gap:8px;
+  margin:18px auto 4px; padding:10px 22px; border-radius:24px; border:1px solid var(--border);
+  background:var(--panel); color:var(--text); font-weight:700; font-size:12.5px;
+  font-family:'Space Grotesk', sans-serif; cursor:pointer;
+  transition:border-color 0.15s ease, color 0.15s ease, transform 0.1s ease;
+}
+.snapshot-map-btn:hover{border-color:var(--accent); color:var(--accent);}
+.snapshot-map-btn:active{transform:scale(0.97);}
+.snapshot-map-btn:disabled{opacity:0.6; cursor:default; transform:none;}
+.snapshot-map-btn svg{flex:0 0 auto;}
+
 .track-line-v{position:absolute; width:7px; background:var(--line-black); border-radius:3px; top:2px;}
 
 .stop-dot{
@@ -1108,6 +1124,9 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
 </style>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<!-- Renders the Track Map panel to a canvas for the "Snapshot Map" button
+     (see snapshotMapBtn below) — client-side only, no server round trip. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
@@ -1271,6 +1290,10 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
       </div>
       <div class="track-col-labels"><span id="westColLabel">Westbound</span><span id="eastColLabel">Eastbound</span></div>
       <div class="ladder" id="ladder"></div>
+      <button class="snapshot-map-btn" id="snapshotMapBtn" title="Copy a screenshot of the track map to your clipboard">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="13" r="4" stroke="currentColor" stroke-width="2"/></svg>
+        <span>Snapshot Map</span>
+      </button>
     </div>
 
     <div class="panel">
@@ -7787,7 +7810,12 @@ function initOrUpdateCarDetailMap(v, leader, follower){
       maxZoom: 19
     }).addTo(map);
     drawGreenLineTracksOnMap(map);
-    carDetailMapMarkers.self = L.marker([v.lat, v.lon], { icon: makeCarDetailMarkerIcon('#0F8A4B', 20) }).addTo(map)
+    // Was hardcoded to Green's own hex regardless of which line's car
+    // detail page this map was actually opened from — every Orange/Red/
+    // Blue car showed up as a green dot no matter what. LINE_BRAND_HEX is
+    // the same per-line color already used for the track overlay on this
+    // same map (see carDetailTrackLineStyle) and the roster car chips.
+    carDetailMapMarkers.self = L.marker([v.lat, v.lon], { icon: makeCarDetailMarkerIcon(LINE_BRAND_HEX[state.activeLine] || '#0F8A4B', 20) }).addTo(map)
       .bindPopup(`This car${state.viewingCarNumber ? ` — Car ${state.viewingCarNumber}` : ''}`);
   }else{
     carDetailMapMarkers.self.setLatLng([v.lat, v.lon]);
@@ -9799,6 +9827,83 @@ if(mobileTrainsBackdrop) mobileTrainsBackdrop.addEventListener('click', ()=>{
     if(now - lastTouchEnd <= 300) e.preventDefault();
     lastTouchEnd = now;
   }, { passive:false });
+})();
+
+// "Snapshot Map" button (bottom of the Track Map panel): renders that
+// panel — header, W/E column labels, and the ladder diagram itself — to a
+// canvas with html2canvas, then writes the PNG straight to the clipboard
+// so it's paste-ready with no download/share-sheet step. Falls back to
+// triggering a file download if the browser can't write images to the
+// clipboard at all (older Firefox, some in-app webviews).
+(function(){
+  const btn = document.getElementById('snapshotMapBtn');
+  if(!btn) return;
+  const labelEl = btn.querySelector('span');
+  const defaultText = labelEl ? labelEl.textContent : 'Snapshot Map';
+
+  function setLabel(text, revertAfterMs){
+    if(labelEl) labelEl.textContent = text;
+    if(revertAfterMs){
+      setTimeout(()=>{
+        if(labelEl) labelEl.textContent = defaultText;
+        btn.disabled = false;
+      }, revertAfterMs);
+    }
+  }
+
+  btn.addEventListener('click', async ()=>{
+    if(typeof html2canvas !== 'function'){
+      setLabel('Unavailable', 1800);
+      return;
+    }
+    // .panel--plain is the whole Track Map panel (title + W/E labels +
+    // ladder) — same element referenced elsewhere as trackMapPanel. It's
+    // display:none on every page except the track map itself, and this
+    // button only exists inside it, so there's nothing else to guard here.
+    const target = document.querySelector('.main-grid > .panel--plain');
+    if(!target) return;
+    btn.disabled = true;
+    setLabel('Capturing…');
+    try{
+      // .panel--plain itself has no background (background:none) — its
+      // visible backdrop is really just the page's own <body> background
+      // showing through. html2canvas needs an explicit color or it
+      // defaults to opaque white, so it's read straight off body here.
+      const bg = getComputedStyle(document.body).backgroundColor;
+      const canvas = await html2canvas(target, {
+        backgroundColor: bg,
+        useCORS: true,
+        scale: Math.min(window.devicePixelRatio || 1, 2),
+        // Exclude the button itself — it's a child of the element being
+        // captured (so it's "at the bottom" of the map and shares that
+        // panel's page-visibility), but shouldn't appear inside its own
+        // screenshot.
+        ignoreElements: (el) => el.id === 'snapshotMapBtn'
+      });
+      canvas.toBlob(async (blob)=>{
+        if(!blob){ setLabel('Failed', 1800); return; }
+        try{
+          if(navigator.clipboard && window.ClipboardItem){
+            await navigator.clipboard.write([ new ClipboardItem({ 'image/png': blob }) ]);
+            setLabel('Copied!', 1800);
+          }else{
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = 'track-map.png';
+            document.body.appendChild(a); a.click(); a.remove();
+            URL.revokeObjectURL(url);
+            setLabel('Downloaded', 1800);
+          }
+        }catch(err){
+          console.error('Map snapshot: clipboard write failed', err);
+          setLabel('Copy failed', 1800);
+        }
+      }, 'image/png');
+    }catch(err){
+      console.error('Map snapshot failed', err);
+      setLabel('Failed', 1800);
+    }
+  });
 })();
 const mobileTrainsCloseBtn = document.getElementById('mobileTrainsClose');
 if(mobileTrainsCloseBtn) mobileTrainsCloseBtn.addEventListener('click', ()=>{
