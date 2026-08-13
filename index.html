@@ -1516,10 +1516,10 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
   <div class="panel full-bleed" id="settingsPanel" style="display:none;">
 
     <div class="settings-inner">
-      <div class="panel-head">
-        <h2>Settings</h2>
-        <span class="note">&mdash;</span>
-      </div>
+      <!-- No panel-head here on purpose (same reasoning as carDetailPanel
+           above): the outer header's own title-block already renders
+           "Settings" as page.label for this page, so a second "Settings"
+           h2 right below it was just the same word stacked twice. -->
       <div class="back-link" id="settingsBackBtn">&lsaquo; Back</div>
 
       <!-- Order: Account (who you are) → Display (how the app looks) →
@@ -1541,6 +1541,11 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
             <div class="menu-note" style="margin-bottom:6px;">Shown next to any reports, edits, or roster changes you submit.</div>
             <input type="text" id="accountNameInput" class="account-input" placeholder="Display name">
             <button id="saveNameBtn" class="account-btn">Save name</button>
+            <div class="menu-divider"></div>
+            <div class="menu-row">
+              <span>Remove snapshot watermark<span class="menu-note">(signed-in perk — affects Snapshot Map on the track map)</span></span>
+              <div class="switch" id="hideSnapshotWatermarkSwitch"><div class="knob"></div></div>
+            </div>
             <div class="menu-divider"></div>
             <button id="signOutBtn" class="account-btn signout">Sign out</button>
           </div>
@@ -1591,6 +1596,17 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
           <svg class="section-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </div>
         <div class="section-body">
+          <!-- Push enable sits first — it's the one prerequisite that gates
+               every "push only" toggle further down this list (and the
+               push side of the "in-app + push" ones), so it reads as the
+               first thing to set up rather than being buried after the
+               in-app-only toggles it has nothing to do with. -->
+          <div class="menu-row" style="flex-direction:column; align-items:flex-start; gap:8px;">
+            <span>Push notifications<span class="menu-note">(needed for anything marked "push" below to arrive when the app is closed)</span></span>
+            <button class="account-btn" id="pushEnableBtn" style="margin-top:0; width:100%;">Enable push notifications</button>
+            <span class="signin-note" id="pushStatusNote"></span>
+          </div>
+          <div class="menu-divider"></div>
           <div class="menu-row" style="flex-direction:column; align-items:flex-start; gap:8px;">
             <span>Browser notification permission<span class="menu-note">(needed for the toggles below to work)</span></span>
             <button class="account-btn" id="notifPermissionBtn" style="margin-top:0; width:100%;">Allow notification permission</button>
@@ -1615,11 +1631,6 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
           <div class="menu-row">
             <span>Cars back in service</span>
             <div class="switch" id="notifCarBackInServiceSwitch"><div class="knob"></div></div>
-          </div>
-          <div class="menu-row" style="flex-direction:column; align-items:flex-start; gap:8px;">
-            <span>Push notifications<span class="menu-note">(needed for anything marked "push" above or below to arrive when the app is closed)</span></span>
-            <button class="account-btn" id="pushEnableBtn" style="margin-top:0; width:100%;">Enable push notifications</button>
-            <span class="signin-note" id="pushStatusNote"></span>
           </div>
           <div class="menu-row">
             <span>Destination changes<span class="menu-note">(push only)</span></span>
@@ -3174,7 +3185,8 @@ async function savePrefs(){
       statusChipShowWeather: state.statusChipShowWeather,
       clockShowSeconds: state.clockShowSeconds,
       clock24Hour: state.clock24Hour,
-      statusChipPosition: state.statusChipPosition
+      statusChipPosition: state.statusChipPosition,
+      hideSnapshotWatermark: state.hideSnapshotWatermark
     }));
   }catch(e){ console.error(e); }
 }
@@ -9301,6 +9313,11 @@ document.getElementById('statusChipPositionSelect').addEventListener('change', (
   updateStatusChipSubRowsDisabled();
   savePrefs();
 });
+document.getElementById('hideSnapshotWatermarkSwitch').addEventListener('click', ()=>{
+  state.hideSnapshotWatermark = !state.hideSnapshotWatermark;
+  document.getElementById('hideSnapshotWatermarkSwitch').classList.toggle('on', state.hideSnapshotWatermark);
+  savePrefs();
+});
 document.querySelectorAll('.section-toggle').forEach(toggle=>{
   toggle.addEventListener('click', ()=>{
     const section = toggle.closest('.settings-section');
@@ -9913,20 +9930,28 @@ if(mobileTrainsBackdrop) mobileTrainsBackdrop.addEventListener('click', ()=>{
   // pixel density html2canvas rendered the source canvas at, so these bands
   // stay a consistent physical size instead of shrinking relative to the
   // map on high-DPI screens.
-  async function composeSnapshot(sourceCanvas, scale, bgColor){
+  // hideWatermark drops just the logo+URL row (the "Remove snapshot
+  // watermark" Account setting, signed-in only) — the branch/line header
+  // and capture date/time are separate, unrelated additions and stay
+  // either way. A small flat bottom pad replaces the row's own height so
+  // the date/time line still gets a bit of breathing room below it instead
+  // of ending abruptly at the canvas edge.
+  async function composeSnapshot(sourceCanvas, scale, bgColor, hideWatermark){
     const MARGIN = 28;      // CSS px at 1x — gap around the map itself
     const HEADER_ROW = 32;  // CSS px at 1x — branch/line name
     const DATE_ROW = 20;    // CSS px at 1x — capture date/time
     const URL_ROW = 30;     // CSS px at 1x — logo + URL watermark
+    const BOTTOM_PAD = 14;  // CSS px at 1x — used instead of URL_ROW when the watermark is hidden
 
     const m = Math.round(MARGIN * scale);
     const headerH = Math.round(HEADER_ROW * scale);
     const dateH = Math.round(DATE_ROW * scale);
     const urlH = Math.round(URL_ROW * scale);
+    const footerExtra = hideWatermark ? Math.round(BOTTOM_PAD * scale) : urlH;
 
     const out = document.createElement('canvas');
     out.width = sourceCanvas.width + m * 2;
-    out.height = headerH + m + sourceCanvas.height + m + dateH + urlH;
+    out.height = headerH + m + sourceCanvas.height + m + dateH + footerExtra;
     const ctx = out.getContext('2d');
     ctx.fillStyle = bgColor;
     ctx.fillRect(0, 0, out.width, out.height);
@@ -9955,31 +9980,34 @@ if(mobileTrainsBackdrop) mobileTrainsBackdrop.addEventListener('click', ()=>{
     ctx.textBaseline = 'middle';
     ctx.fillText(`${dateStr}, ${timeStr}`, out.width / 2, dateRowY);
 
-    // Footer row 2: logo + URL watermark.
-    const text = 'thembtaloop.com';
-    ctx.font = `700 ${Math.round(12.5 * scale)}px 'Space Grotesk', sans-serif`;
-    const textWidth = ctx.measureText(text).width;
-    const logo = await loadWatermarkLogo();
-    const iconSize = Math.round(urlH * 0.6);
-    const gap = Math.round(8 * scale);
-    const totalWidth = (logo ? iconSize + gap : 0) + textWidth;
-    const urlRowY = dateRowY + dateH / 2 + urlH / 2;
-    let x = out.width / 2 - totalWidth / 2;
+    // Footer row 2: logo + URL watermark — skipped entirely when the
+    // signed-in "Remove snapshot watermark" setting is on.
+    if(!hideWatermark){
+      const text = 'thembtaloop.com';
+      ctx.font = `700 ${Math.round(12.5 * scale)}px 'Space Grotesk', sans-serif`;
+      const textWidth = ctx.measureText(text).width;
+      const logo = await loadWatermarkLogo();
+      const iconSize = Math.round(urlH * 0.6);
+      const gap = Math.round(8 * scale);
+      const totalWidth = (logo ? iconSize + gap : 0) + textWidth;
+      const urlRowY = dateRowY + dateH / 2 + urlH / 2;
+      let x = out.width / 2 - totalWidth / 2;
 
-    // Both drawn at reduced opacity together so the icon and text read as
-    // one consistent watermark mark rather than a crisp logo next to faded
-    // text.
-    ctx.save();
-    ctx.globalAlpha = 0.75;
-    if(logo){
-      ctx.drawImage(logo, x, urlRowY - iconSize / 2, iconSize, iconSize);
-      x += iconSize + gap;
+      // Both drawn at reduced opacity together so the icon and text read as
+      // one consistent watermark mark rather than a crisp logo next to
+      // faded text.
+      ctx.save();
+      ctx.globalAlpha = 0.75;
+      if(logo){
+        ctx.drawImage(logo, x, urlRowY - iconSize / 2, iconSize, iconSize);
+        x += iconSize + gap;
+      }
+      // Same brand green as the site title/logo elsewhere in the app.
+      ctx.fillStyle = '#008150';
+      ctx.textAlign = 'left';
+      ctx.fillText(text, x, urlRowY);
+      ctx.restore();
     }
-    // Same brand green as the site title/logo elsewhere in the app.
-    ctx.fillStyle = '#008150';
-    ctx.textAlign = 'left';
-    ctx.fillText(text, x, urlRowY);
-    ctx.restore();
 
     return out;
   }
@@ -10019,7 +10047,11 @@ if(mobileTrainsBackdrop) mobileTrainsBackdrop.addEventListener('click', ()=>{
       // @font-face on its own, and would silently fall back to a generic
       // sans-serif for just this one draw call if it raced the font load.
       if(document.fonts && document.fonts.ready){ await document.fonts.ready; }
-      const canvas = await composeSnapshot(rawCanvas, scale, bg);
+      // Re-checked against state.signedIn here (not just the switch's saved
+      // value) so the perk actually goes away the moment someone signs out,
+      // rather than a stale local pref silently keeping it on.
+      const hideWatermark = !!(state.signedIn && state.hideSnapshotWatermark);
+      const canvas = await composeSnapshot(rawCanvas, scale, bg, hideWatermark);
       canvas.toBlob(async (blob)=>{
         if(!blob){ setLabel('Failed', 1800); return; }
         try{
@@ -10187,6 +10219,13 @@ async function init(){
   document.getElementById('clock24HourSwitch').classList.toggle('on', state.clock24Hour);
   document.getElementById('statusChipPositionSelect').value = state.statusChipPosition;
   applyStatusChipPrefs();
+
+  // Signed-in-only perk (see menuAccountSection) — restored regardless of
+  // current sign-in state, same as every other saved pref, since actually
+  // acting on it is separately re-gated by state.signedIn at snapshot time
+  // (see the Snapshot Map click handler), not by whether it's readable here.
+  state.hideSnapshotWatermark = !!prefs.hideSnapshotWatermark;
+  document.getElementById('hideSnapshotWatermarkSwitch').classList.toggle('on', state.hideSnapshotWatermark);
   updateStatusChipSubRowsDisabled();
 
   buildNav();
