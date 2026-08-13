@@ -231,7 +231,6 @@ header{display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap
 .title-block h1{font-family:'Space Grotesk', sans-serif; font-size:23px; font-weight:700; margin:0 0 3px; letter-spacing:-0.01em; display:flex; align-items:center; justify-content:center; gap:9px;}
 .title-block p{margin:0; color:var(--text-dim); font-size:13px; max-width:440px;}
 
-.status-cluster{display:flex; flex-direction:column; align-items:flex-end; gap:5px; font-family:'IBM Plex Mono', monospace; font-size:12px; color:var(--text-dim); text-align:right; grid-column:3; justify-self:end;}
 .header-back-slot{display:flex; align-items:center; gap:6px; grid-column:1; justify-self:start;}
 .header-back-slot .back-link{margin-bottom:0; white-space:nowrap;}
 .header-back-sep{color:var(--text-faint); font-size:12.5px;}
@@ -241,26 +240,20 @@ header{display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap
      wrapping awkwardly under the title. */
   #headerBackLink{font-size:11.5px;}
 }
-.live-pill{display:flex; align-items:center; gap:6px; padding:5px 11px; border-radius:20px; border:1px solid var(--border); background:var(--panel);}
-.dot{width:7px; height:7px; border-radius:50%; background:var(--text-faint);}
-.dot.live{background:#2FBE72; box-shadow:0 0 0 3px rgba(47,190,114,0.25); animation:pulse 1.8s ease-in-out infinite;}
-.dot.demo{background:#8A93A6; box-shadow:0 0 0 3px rgba(138,147,166,0.25);}
-@keyframes pulse{0%,100%{opacity:1;} 50%{opacity:0.4;}}
 .weather-line{font-size:11px; color:var(--text-faint); justify-self:end; text-align:right;}
 
 @media (max-width:560px){
   header{grid-template-columns:1fr; justify-items:center; text-align:center;}
-  .status-cluster{justify-self:center; align-items:center; text-align:center;}
   .weather-line{justify-self:center; text-align:center;}
   .header-back-slot{justify-self:center;}
   /* .title-block is position:absolute on desktop so it can be centered over
      just the track map column (see --title-center-x). That only works
      because nothing else shares its space there. On this single-column
-     mobile layout, header-back-slot and status-cluster stack as normal flow
-     items — if title-block stayed absolutely positioned it would float at
-     50% of their COMBINED height, landing on top of one of them instead of
-     stacking cleanly. Dropping back to normal flow here fixes that for good,
-     on every page, not just car detail. */
+     mobile layout, header-back-slot stacks as a normal flow item above/
+     below it — if title-block stayed absolutely positioned it would float
+     at 50% of their COMBINED height instead of stacking cleanly. Dropping
+     back to normal flow here fixes that for good, on every page, not just
+     car detail. */
   .title-block{position:static; left:auto; top:auto; transform:none; margin:2px 0;}
 }
 
@@ -889,7 +882,14 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
 .alert-posted{font-size:10.5px; color:var(--text-faint); font-family:'IBM Plex Mono', monospace; margin-top:2px;}
 .alert-desc{font-size:12px; color:var(--text-dim); line-height:1.5; margin-top:6px; white-space:pre-wrap;}
 .alert-station{color:var(--accent); text-decoration:underline; cursor:pointer; font-weight:600;}
-.modal-section h4{margin:0 0 6px; font-size:11.5px; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; color:var(--text); font-family:'Space Grotesk', sans-serif;}
+/* text-align only affects how a heading's own text sits within its box —
+   the .car-detail-toggle headers (per-car "Position — Car Number" rows)
+   stay laid out left/right exactly as before, since that split comes from
+   their own display:flex + justify-content:space-between, which text-align
+   has no effect on. This only visibly centers the plain, single-line
+   section headings (Trip notes, Consist, Out of service, ...), matching
+   every other heading in the app (panel h2s, the modal's own h3 title). */
+.modal-section h4{margin:0 0 6px; font-size:11.5px; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; color:var(--text); font-family:'Space Grotesk', sans-serif; text-align:center;}
 /* Visual feedback for the per-car header rows (.car-detail-toggle) — these
    are clickable to expand/collapse a car's details but previously gave no
    hover affordance at all beyond the cursor. */
@@ -1160,16 +1160,18 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
 <div class="wrap">
 
   <header>
-    <!-- Mirrors .status-cluster's spot on the right (grid-column:3) — empty
-         on every page except car detail, where switchPage() fills it with
-         a back link so it shares the same row as the big page title
-         instead of sitting on its own line below. -->
+    <!-- Sits at grid-column:1 (see .header-back-slot) — empty on every page
+         except car detail, where switchPage() fills it with a back link so
+         it shares the same row as the big page title instead of sitting on
+         its own line below. grid-column:3 (the title's other side) is now
+         intentionally empty — it used to hold the Live/Offline status pill,
+         removed per request; kept as an empty grid track rather than
+         collapsing the grid to two columns, since that's what keeps
+         title-block centered over the header's actual midpoint on desktop
+         instead of skewing toward the back-link side. -->
     <div class="header-back-slot" id="headerBackSlot"></div>
     <div class="title-block">
       <h1><span id="pageTitle">Boston College</span></h1>
-    </div>
-    <div class="status-cluster">
-      <div class="live-pill"><span class="dot" id="statusDot"></span><span id="statusLabel">Connecting&hellip;</span></div>
     </div>
   </header>
 
@@ -3327,8 +3329,8 @@ function switchPage(key){
   // being viewed (see state.viewingCarNumber, set just before this runs).
   document.getElementById('pageTitle').textContent = page.isCarDetail ? `Car ${state.viewingCarNumber || ''}` : page.label;
   // Car detail is the only page with a back link up in the header itself
-  // (see .header-back-slot, mirroring .status-cluster on the other side) —
-  // every other page's back link lives inside its own panel body instead.
+  // (see .header-back-slot) — every other page's back link lives inside its
+  // own panel body instead.
   // Rebuilt fresh on every switchPage() call (not just re-wired) since it's
   // plain innerHTML, cheaper than tracking whether it's already there.
   const headerBackSlot = document.getElementById('headerBackSlot');
@@ -7033,17 +7035,18 @@ async function refreshVehicles(){
   }
 }
 
+// The header's Live/Offline pill itself was removed per request — this
+// still tracks state.live and still drives the "check your connection"
+// banner below it (a real, still-needed signal that the feed is down, not
+// just cosmetic status text), just without a dedicated dot/label to update
+// anymore.
 function setLiveStatus(isLive){
   if(state.live === isLive) return;
   state.live = isLive;
-  const dot = document.getElementById('statusDot');
-  const label = document.getElementById('statusLabel');
   const banner = document.getElementById('demoBanner');
   if(isLive){
-    dot.className = 'dot live'; label.textContent = 'Live';
     banner.classList.remove('show');
   }else{
-    dot.className = 'dot demo'; label.textContent = 'Offline';
     banner.classList.add('show');
   }
 }
