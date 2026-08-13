@@ -9201,6 +9201,7 @@ async function completeSignIn(name, email, uid, photoURL){
   document.getElementById('editLogsMenuLink').style.display = state.isModerator ? 'flex' : 'none';
   buildNav();
   if(state.currentPage === 'ROSTER') buildRosterPanel();
+  if(state.currentPage === 'CARDETAIL') buildCarDetailPanel();
   updateDiscordBanner();
   if(freshSignInInProgress){
     freshSignInInProgress = false;
@@ -9227,6 +9228,7 @@ function resetSignedOutUI(){
   document.getElementById('menuDropdown').classList.remove('show');
   buildNav();
   if(state.currentPage === 'ROSTER') buildRosterPanel();
+  if(state.currentPage === 'CARDETAIL') buildCarDetailPanel();
   if(state.currentPage === 'MEMBERS' || state.currentPage === 'MODNOTIFS' || state.currentPage === 'EDITLOGS') switchPage('B');
   updateDiscordBanner();
 }
