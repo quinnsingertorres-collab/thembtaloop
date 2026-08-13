@@ -24,10 +24,13 @@
 //     first seen active today, holding steady through brief tracker gaps
 //     and only resetting once it's been missing longer than a grace
 //     period (see FIRST_TRACKED_GRACE_MS below).
-//   - a pair_history/{key} doc per car logging which other car it's been
-//     physically coupled with over time (from the same "carriages" data
-//     already fetched for last-seen tracking), with a from/to timestamp
-//     per stretch — including "unpaired" stretches.
+//   - pairing history logging which other car each one's been physically
+//     coupled with over time (from the same "carriages" data already
+//     fetched for last-seen tracking) — lives in a Google Sheet, not
+//     Firestore, to keep this collection off the Firestore bill entirely.
+//     See the GOOGLE_SHEETS_CREDENTIALS comment below for the one-time
+//     setup this specifically needs, and commitPairChanges/getPairHistory
+//     further down for how it's read and written.
 //   - Green Line train-spotting push alerts (double Type 8s, the Pride car)
 //     — the server-side equivalent of index.html's own checkTrainNotifications,
 //     which only fires while a tab is open. See the bottom of syncLastSeenCars.
@@ -43,13 +46,17 @@
 //    the repo):
 //      firebase functions:secrets:set VAPID_PRIVATE_KEY
 //    (paste the private key when prompted)
-// 4. Deploy with: firebase deploy --only functions
+// 4. Set up pairing history's Google Sheet + service account — see the
+//    GOOGLE_SHEETS_CREDENTIALS comment below for the full 8-step walkthrough.
+// 5. Deploy with: firebase deploy --only functions
 
 const { onDocumentCreated, onDocumentWritten } = require('firebase-functions/v2/firestore');
 const { onSchedule } = require('firebase-functions/v2/scheduler');
+const { onRequest } = require('firebase-functions/v2/https');
 const { defineSecret } = require('firebase-functions/params');
 const admin = require('firebase-admin');
 const webpush = require('web-push');
+const { google } = require('googleapis');
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -59,6 +66,69 @@ const VAPID_PRIVATE_KEY = defineSecret('VAPID_PRIVATE_KEY');
 // Must match VAPID_PUBLIC_KEY in index.html exactly — this is the public
 // half of the same key pair, safe to hardcode here since it's not a secret.
 const VAPID_PUBLIC_KEY = 'BHEIq4o6pknFsV-fssjBnXccc-5tX1w8V9ojTS4ilQ2YEuNYJR2cW2BNlObuckum_6mbTireruMCe8kjUx3dYaA';
+
+// ---- Pair history now lives in a Google Sheet instead of Firestore ----
+// See the big comment above commitPairChanges below for the full design —
+// short version: this whole sheet is an append-only event log (one row per
+// pairing CHANGE, not per car), which trades a Firestore doc-per-car
+// read+write on every change for a single cheap Sheets API append, and
+// moves reads (only ever needed for the one car a user actually opens) off
+// Firestore entirely too, onto a Cloud Function that reads the sheet
+// directly.
+//
+// ---- One-time setup for this specific feature ----
+// 1. Create a Google Sheet. Add a tab named exactly "PairHistory" with a
+//    header row: CarKey | Partner | From
+// 2. In Google Cloud Console (same project as this Firebase project, or
+//    any project — it just needs the Sheets API enabled): APIs & Services
+//    -> Library -> enable "Google Sheets API".
+// 3. IAM & Admin -> Service Accounts -> Create service account (any name,
+//    e.g. "pair-history-writer"). No project roles needed — access is
+//    granted by sharing the sheet with it directly, not via IAM.
+// 4. Open that service account -> Keys -> Add key -> JSON. This downloads
+//    a JSON key file — its contents (the whole file, as one string) are
+//    what GOOGLE_SHEETS_CREDENTIALS holds below.
+// 5. Back in the Google Sheet: Share -> add the service account's email
+//    (looks like ...@...iam.gserviceaccount.com, found in the JSON key
+//    file's "client_email" field) as an Editor.
+// 6. Copy the sheet's ID out of its URL:
+//    https://docs.google.com/spreadsheets/d/THIS_PART_HERE/edit
+//    and paste it into PAIR_HISTORY_SHEET_ID below.
+// 7. Store the JSON key file's contents as a secret (paste the ENTIRE file
+//    contents, including the { } braces, when prompted):
+//      firebase functions:secrets:set GOOGLE_SHEETS_CREDENTIALS
+// 8. cd functions && npm install (picks up the googleapis dependency added
+//    to package.json), then firebase deploy --only functions from the
+//    project root.
+const GOOGLE_SHEETS_CREDENTIALS = defineSecret('GOOGLE_SHEETS_CREDENTIALS');
+// Replace with your own Sheet ID (step 6 above) before deploying.
+const PAIR_HISTORY_SHEET_ID = 'REPLACE_WITH_YOUR_GOOGLE_SHEET_ID';
+const PAIR_HISTORY_SHEET_TAB = 'PairHistory';
+
+let _sheetsClientPromise = null;
+function getSheetsClient(){
+  if(!_sheetsClientPromise){
+    _sheetsClientPromise = (async () => {
+      const credentials = JSON.parse(GOOGLE_SHEETS_CREDENTIALS.value());
+      const auth = new google.auth.GoogleAuth({
+        credentials,
+        scopes: ['https://www.googleapis.com/auth/spreadsheets']
+      });
+      const authClient = await auth.getClient();
+      return google.sheets({ version: 'v4', auth: authClient });
+    })();
+  }
+  return _sheetsClientPromise;
+}
+
+// CORS is wide open (matches pair_history's old Firestore rule, which was
+// allow read: if true) — this is public, non-sensitive data (which cars
+// have been coupled together and when), same as before.
+function applyCors(res){
+  res.set('Access-Control-Allow-Origin', '*');
+  res.set('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.set('Access-Control-Allow-Headers', 'Content-Type');
+}
 
 // Sends one push payload to every doc in a given push_subscriptions
 // snapshot, cleaning up any subscription the push service reports as dead
@@ -325,9 +395,13 @@ async function commitRosterPatches(entries){
 // than continuous client-side GPS.
 const FIRST_TRACKED_GRACE_MS = 15 * 60 * 1000; // 15 minutes
 
-// Bounds how far back a car's pair-history entries are kept (Eamon's "last
-// 2 weeks or so," with headroom) and how many stretches a single doc can
-// accumulate, so pair_history docs don't grow unbounded.
+// Bounds how far back pair-history is shown (Eamon's "last 2 weeks or so,"
+// with headroom) and how many stretches getPairHistory returns for one
+// car. The sheet itself isn't trimmed by either of these — it's an
+// append-only log now, so old rows just sit there unread past this
+// window rather than ever being deleted. (10M-cell Sheets limit means this
+// isn't a practical concern for a long while; if it ever needs active
+// pruning, that'd be a separate periodic cleanup function.)
 const PAIR_HISTORY_MAX_AGE_MS = 21 * 24 * 60 * 60 * 1000; // 3 weeks
 const PAIR_HISTORY_MAX_ENTRIES = 40;
 
@@ -367,30 +441,108 @@ function isType8CarNumber(num){
 }
 const PRIDE_CAR_NUMBER = '3706';
 
+// Used to replace what used to be a Firestore read+write PER CAR on every
+// pairing change (a get() to find the previous entry so its "to" could be
+// filled in, then a set() with the whole updated array) with a single
+// Sheets API append covering every changed car in this run at once.
+//
+// The Firestore version stored one doc per car holding an array of
+// {partner, from, to} stretches, with "to" explicitly filled in on the
+// PREVIOUS entry the moment a new one started. Reproducing that exact
+// shape here would mean looking up which row a car's last entry lives on
+// and editing it in place — Sheets doesn't have anything as cheap as
+// Firestore's per-field update for that, and doing it would mean a read
+// per car again, defeating the point.
+//
+// Instead this just appends one new row per change: [key, partner, from].
+// No "to" column at all — a car's history reconstructs itself once rows
+// are sorted by time: entry N's "to" is simply entry N+1's "from", and the
+// last row for that car is the one still "ongoing" (see getPairHistory
+// below, which does exactly that). One API call, no per-car lookups,
+// genuinely append-only.
 async function commitPairChanges(changes, ts){
-  await Promise.all(changes.map(async ({ key, partner }) => {
-    const ref = db.collection('pair_history').doc(key);
-    try{
-      const snap = await ref.get();
-      const entries = snap.exists ? (snap.data().entries || []) : [];
-      if(entries.length){
-        entries[entries.length - 1].to = ts;
+  if(!changes.length) return;
+  try{
+    const sheets = await getSheetsClient();
+    const fromIso = new Date(ts).toISOString();
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: PAIR_HISTORY_SHEET_ID,
+      range: `${PAIR_HISTORY_SHEET_TAB}!A:C`,
+      valueInputOption: 'RAW',
+      insertDataOption: 'INSERT_ROWS',
+      requestBody: {
+        values: changes.map(({ key, partner }) => [key, partner || '', fromIso])
       }
-      entries.push({ partner, from: ts, to: null });
-      const cutoff = ts - PAIR_HISTORY_MAX_AGE_MS;
-      const trimmed = entries.filter(e => (e.to || ts) >= cutoff).slice(-PAIR_HISTORY_MAX_ENTRIES);
-      await ref.set({ entries: trimmed, updatedAt: ts });
-    }catch(e){
-      console.error(`Failed to update pair history for ${key}:`, e);
-    }
-  }));
+    });
+  }catch(e){
+    console.error('Failed to append pair history rows to the sheet:', e);
+  }
 }
+
+// HTTPS endpoint index.html's loadPairHistory() calls instead of reading
+// Firestore directly (see PAIR_HISTORY_ENDPOINT there). Reads the whole
+// sheet in one call, filters to the requested car, and reconstructs the
+// same {partner, from, to} shape the client already expects — from/to
+// chaining explained in the big comment on commitPairChanges above.
+exports.getPairHistory = onRequest({ secrets: [GOOGLE_SHEETS_CREDENTIALS] }, async (req, res) => {
+  applyCors(res);
+  if(req.method === 'OPTIONS'){ res.status(204).send(''); return; }
+
+  const key = String(req.query.key || '').trim();
+  if(!key){ res.status(400).json({ error: 'Missing ?key=' }); return; }
+
+  try{
+    const sheets = await getSheetsClient();
+    const result = await sheets.spreadsheets.values.get({
+      spreadsheetId: PAIR_HISTORY_SHEET_ID,
+      range: `${PAIR_HISTORY_SHEET_TAB}!A:C`
+    });
+    const rows = result.data.values || [];
+
+    // Row 0 is the header (CarKey | Partner | From) — everything from row 1
+    // on is real data. Filter to this car, sort oldest-first (append order
+    // should already be chronological, but sorting is cheap insurance
+    // against any out-of-order writes).
+    const carRows = rows.slice(1)
+      .filter(r => r[0] === key)
+      .map(r => ({ partner: r[1] || null, from: new Date(r[2]).getTime() }))
+      .filter(r => !isNaN(r.from))
+      .sort((a, b) => a.from - b.from);
+
+    // Chain each row's "to" from the NEXT row's "from" — the last row for
+    // this car has no next row, so it stays ongoing (to: null), same
+    // meaning "to: null" always had in the old Firestore entries.
+    const now = Date.now();
+    const entries = carRows.map((entry, i) => ({
+      partner: entry.partner,
+      from: entry.from,
+      to: (i < carRows.length - 1) ? carRows[i + 1].from : null
+    }));
+
+    // Same bounding the old Firestore version applied when writing: drop
+    // anything older than the retention window, but always keep at least
+    // the most recent entry (even if it's old) so "what's true right now"
+    // never disappears just because nothing's changed in 3 weeks. Cap the
+    // total count too, keeping the newest.
+    const cutoff = now - PAIR_HISTORY_MAX_AGE_MS;
+    const recent = entries.filter((e, i) => i === entries.length - 1 || (e.to || now) >= cutoff);
+    const trimmed = recent.slice(-PAIR_HISTORY_MAX_ENTRIES);
+
+    res.set('Cache-Control', 'public, max-age=30');
+    res.status(200).json({ entries: trimmed });
+  }catch(e){
+    console.error(`Failed to read pair history for ${key}:`, e);
+    res.status(500).json({ error: 'Failed to read pair history' });
+  }
+});
 
 // secrets: [VAPID_PRIVATE_KEY] is needed here now too — the train-spotting
 // alerts block at the end of this function calls sendToFilteredSubscribers,
 // which needs that secret's value to send a push, same as the Firestore
-// triggers above.
-exports.syncLastSeenCars = onSchedule({ schedule: 'every 1 minutes', secrets: [VAPID_PRIVATE_KEY] }, async () => {
+// triggers above. GOOGLE_SHEETS_CREDENTIALS is needed for commitPairChanges
+// above, which now authenticates to the Sheets API instead of writing to
+// Firestore.
+exports.syncLastSeenCars = onSchedule({ schedule: 'every 1 minutes', secrets: [VAPID_PRIVATE_KEY, GOOGLE_SHEETS_CREDENTIALS] }, async () => {
   const settled = await Promise.allSettled(
     LAST_SEEN_LINE_FEEDS.map(({ line, url }) => fetchLineVehicles(line, url))
   );

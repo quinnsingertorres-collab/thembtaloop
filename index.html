@@ -963,10 +963,14 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
 .modal-roster-link-btn{font-size:10.5px; font-weight:700; padding:4px 10px; border-radius:20px; border:1px solid var(--accent); background:transparent; color:var(--accent); cursor:pointer; font-family:'Space Grotesk', sans-serif; white-space:nowrap; transition:background 0.15s ease, color 0.15s ease;}
 .modal-roster-link-btn:hover{background:var(--accent); color:#fff;}
 
-.gltps-row{display:flex; gap:6px; margin-top:6px;}
-.gltps-btn{flex:1; padding:7px 4px; border-radius:8px; border:1px solid var(--border); background:var(--bg); color:var(--text); font-size:11px; font-weight:600; cursor:pointer; font-family:'IBM Plex Sans', sans-serif; transition:border-color 0.15s ease;}
-.gltps-btn:hover{border-color:var(--accent);}
-.gltps-btn.active{background:var(--accent); color:#fff; border-color:transparent;}
+/* .panto-row/.panto-btn (pantograph type reporting) share these rules with
+   .gltps-row/.gltps-btn — same three-button report control, just for
+   different hardware, so it should look identical rather than introducing
+   a second slightly-different button style. */
+.gltps-row, .panto-row{display:flex; gap:6px; margin-top:6px;}
+.gltps-btn, .panto-btn{flex:1; padding:7px 4px; border-radius:8px; border:1px solid var(--border); background:var(--bg); color:var(--text); font-size:11px; font-weight:600; cursor:pointer; font-family:'IBM Plex Sans', sans-serif; transition:border-color 0.15s ease;}
+.gltps-btn:hover, .panto-btn:hover{border-color:var(--accent);}
+.gltps-btn.active, .panto-btn.active{background:var(--accent); color:#fff; border-color:transparent;}
 
 .account-input{width:100%; padding:8px; border-radius:8px; border:1px solid var(--border); background:var(--bg); color:var(--text); font-size:13px; margin-top:6px; font-family:'IBM Plex Sans', sans-serif;}
 .account-btn{width:100%; padding:9px; border-radius:9px; border:none; background:var(--accent); color:#fff; font-weight:700; cursor:pointer; margin-top:8px; font-family:'Space Grotesk', sans-serif; font-size:12.5px; transition:filter 0.15s ease, transform 0.1s ease;}
@@ -1087,26 +1091,20 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
 }
 .roster-reset-btn:hover{background:rgba(214,69,69,0.1); border-color:#D64545;}
 .storage-note{font-size:11px; color:var(--text-faint); margin-top:12px; line-height:1.5;}
-/* Pair history: a highlighted "what's true right now" banner (.pair-current)
-   up top, separate from the plain scannable timeline of past pairings below
-   it — replaces the old flat list of dense, identically-weighted one-liners
-   (icon + partner + full date range + duration all crammed onto one line)
-   that made it hard to tell "what's happening now" from "what happened
-   three days ago" at a glance. */
-.pair-current{
-  display:flex; align-items:flex-start; gap:9px; padding:10px 12px; border-radius:10px;
-  background:var(--bg); border:1px solid var(--border); margin-bottom:10px;
-}
-.pair-current-dot{width:8px; height:8px; border-radius:50%; margin-top:5px; flex:0 0 auto;}
-.pair-current-text{font-size:12.5px; color:var(--text); line-height:1.4;}
-.pair-current-text strong{font-weight:700;}
-.pair-current-sub{font-size:11px; color:var(--text-faint); margin-top:2px;}
-.pair-history-label{font-size:10.5px; color:var(--text-faint); text-transform:uppercase; letter-spacing:0.04em; margin:4px 0 4px;}
+/* Pairing history: one condensed list, newest first, current pairing
+   (if any) simply the first row rather than its own separate highlighted
+   banner box — replaces an earlier two-piece layout (a bordered "current
+   status" card above a differently-styled "Past pairings" list below it)
+   that took up noticeably more vertical space to show the same
+   information. The current row is still distinguishable at a glance via
+   the "(current)" tag and its meta line's accent color, just without the
+   extra card chrome around it. */
 .pair-history-row{display:flex; align-items:flex-start; gap:9px; padding:5px 0;}
 .pair-history-dot{width:7px; height:7px; border-radius:50%; margin-top:6px; flex:0 0 auto;}
 .pair-history-main{font-size:12px; color:var(--text); line-height:1.4;}
 .pair-history-main strong{font-weight:700;}
 .pair-history-meta{font-size:10.5px; color:var(--text-faint); margin-top:1px;}
+.pair-history-row.current .pair-history-meta{color:var(--accent);}
 /* Car detail page's real geographic mini-map (Leaflet + CARTO dark tiles).
    Leaflet's own CSS handles the tile grid/marker positioning internally;
    this just gives the container a fixed height and rounds its corners to
@@ -2625,6 +2623,10 @@ let stopArrivalTracker = {};
          allow read: if true;
          allow write: if request.auth != null;
        }
+       match /pantograph/{carId} {
+         allow read: if true;
+         allow write: if request.auth != null;
+       }
        match /users/{uid} {
          allow read: if request.auth != null;
          allow write: if request.auth.uid == uid
@@ -2634,13 +2636,10 @@ let stopArrivalTracker = {};
          allow read: if request.auth != null;
          allow write: if false; // add moderators manually in the Firebase console
        }
-       // Written only by syncLastSeenCars (Cloud Function, Admin SDK — bypasses
-       // rules entirely). Client only ever reads it, on-demand, when a roster
-       // row is expanded (loadPairHistory) — never writes it.
-       match /pair_history/{carId} {
-         allow read: if true;
-         allow write: if false;
-       }
+       // pair_history used to live here — it's been moved to a Google Sheet
+       // (see functions/index.js's commitPairChanges/getPairHistory) to cut
+       // Firestore usage, so this collection is no longer read or written
+       // by anything. No rule needed for it anymore.
        // Client creates its own subscription doc on opt-in and updates its own
        // notify* preference fields afterward (syncPushPreferences) — both
        // unauthenticated, matching how this app tracks "signed in" as a local
@@ -2698,6 +2697,46 @@ async function saveGltpsEntry(carNum, status){
   const data = await loadGltps();
   data[carNum] = payload;
   try{ localStorage.setItem(GLTPS_KEY, JSON.stringify(data)); }catch(e){ console.error(e); }
+  return payload;
+}
+
+// Pantograph type reporting — same shape and storage pattern as GLTPS above
+// (own Firestore collection, doc id = car number, localStorage fallback),
+// just for a different piece of hardware. Green Line only, same as GLTPS.
+const PANTOGRAPH_KEY = 'pantograph_status_v1';
+// Type 7s were built/retrofitted with a single-arm pantograph; Type 8s and
+// 9s both run double-arm. Type 10 (and anything else) has no known default
+// — falls back to "Unreported" until someone actually reports it, same as
+// GLTPS already does for types it has no default for.
+function defaultPantographType(type){
+  if(type === 'Type 7') return 'Single armed';
+  if(type === 'Type 8' || type === 'Type 9') return 'Double armed';
+  return null;
+}
+async function loadPantograph(){
+  if(firebaseReady){
+    try{
+      const snap = await fbDb.collection('pantograph').get();
+      const data = {};
+      snap.forEach(doc => { data[doc.id] = doc.data(); });
+      return data;
+    }catch(e){ console.error(e); return {}; }
+  }
+  try{
+    const raw = localStorage.getItem(PANTOGRAPH_KEY);
+    return raw ? JSON.parse(raw) : {};
+  }catch(e){ return {}; }
+}
+async function savePantographEntry(carNum, status){
+  const payload = { status, ts: Date.now(), reportedBy: state.userName, reportedByUid: state.uid || null };
+  if(firebaseReady){
+    try{ await fbDb.collection('pantograph').doc(carNum).set(payload, { merge:true }); }catch(e){ console.error(e); }
+    logEdit(state.userName, state.uid, `Reported pantograph type for car ${carNum}: ${status}`);
+    return payload;
+  }
+  const data = await loadPantograph();
+  data[carNum] = payload;
+  try{ localStorage.setItem(PANTOGRAPH_KEY, JSON.stringify(data)); }catch(e){ console.error(e); }
   return payload;
 }
 
@@ -4408,7 +4447,7 @@ async function showCarModal(v){
     loadRosterPanelData(), loadConsistOverride(v), loadDestinationOverride(v.id),
     v.tripId ? getTripOriginDepartureTime(v.tripId) : Promise.resolve(null)
   ]);
-  const { rosterData, gltpsMap, tagMap: userInfoMap } = rosterCache;
+  const { rosterData, gltpsMap, tagMap: userInfoMap, pantoMap } = rosterCache;
 
   // A destination override is tied to the specific trip it was reported on —
   // once the train's real headsign or direction changes (it terminated,
@@ -4669,6 +4708,17 @@ async function showCarModal(v){
            <button class="gltps-btn${gltps && gltps.status==='Unknown' ? ' active' : ''}" data-car="${carNum}" data-status="Unknown">Unknown</button>
          </div>`
       : `<div class="signin-note">Sign in to report GLTPS status.</div>`;
+    const panto = pantoMap[carNum];
+    const pantoDefault = defaultPantographType(type);
+    const pantoText = panto ? panto.status : (pantoDefault || 'Unreported');
+    const pantoColor = panto ? '' : (pantoDefault ? 'color:var(--text-dim);' : '');
+    const pantoButtons = state.signedIn
+      ? `<div class="panto-row">
+           <button class="panto-btn${(panto ? panto.status : pantoDefault)==='Double armed' ? ' active' : ''}" data-panto-car="${carNum}" data-panto-status="Double armed">Double armed</button>
+           <button class="panto-btn${(panto ? panto.status : pantoDefault)==='Single armed' ? ' active' : ''}" data-panto-car="${carNum}" data-panto-status="Single armed">Single armed</button>
+           <button class="panto-btn${(panto ? panto.status : pantoDefault)==='Unknown' ? ' active' : ''}" data-panto-car="${carNum}" data-panto-status="Unknown">Unknown</button>
+         </div>`
+      : `<div class="signin-note">Sign in to report pantograph type.</div>`;
     const livery = (rosterData[carNum] && rosterData[carNum].livery) ? rosterData[carNum].livery : 'Not reported';
     const seats = getSeatCount(type, gltps ? gltps.status : null);
     const seatsRow = seats !== null
@@ -4693,6 +4743,8 @@ async function showCarModal(v){
           <div class="modal-row"><span>Livery / wrap</span><strong>${livery}</strong></div>
           <div class="modal-row"><span>GLTPS</span><strong style="${gltpsColor}">${gltpsText}</strong></div>
           ${gltpsButtons}
+          <div class="modal-row"><span>Pantograph</span><strong style="${pantoColor}">${pantoText}</strong></div>
+          ${pantoButtons}
           ${operatorBlock}
           ${carOOSBlock}
         </div>
@@ -5023,6 +5075,19 @@ async function showCarModal(v){
       const changed = !cached.gltpsMap[car] || cached.gltpsMap[car].status !== status;
       const saved = await saveGltpsEntry(car, status);
       cached.gltpsMap[car] = saved;
+      if(changed) awardPoints(3);
+      showCarModal(v);
+    });
+  });
+
+  document.querySelectorAll('.panto-btn').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const car = btn.dataset.pantoCar;
+      const status = btn.dataset.pantoStatus;
+      const cached = await loadRosterPanelData();
+      const changed = !cached.pantoMap[car] || cached.pantoMap[car].status !== status;
+      const saved = await savePantographEntry(car, status);
+      cached.pantoMap[car] = saved;
       if(changed) awardPoints(3);
       showCarModal(v);
     });
@@ -7439,18 +7504,23 @@ let rosterPanelDataCache = null;
 let rosterPanelDataCacheTs = 0;
 const ROSTER_PANEL_CACHE_TTL_MS = 15 * 60 * 1000;
 
-// Pair history (pair_history/{key}, written server-side by syncLastSeenCars
-// in functions/index.js) is only ever needed for the one car a user
-// actually expands, so unlike the roster/GLTPS/tags data above it's fetched
-// on demand rather than preloaded for the whole fleet — cached per car key
-// afterward so re-expanding the same row doesn't refetch.
+// Pair history lives in a Google Sheet now, not Firestore (see the big
+// comment on commitPairChanges/getPairHistory in functions/index.js for
+// why) — written server-side by syncLastSeenCars, read here through the
+// getPairHistory HTTPS function instead of a direct Firestore read. Only
+// ever needed for the one car a user actually expands, so unlike the
+// roster/GLTPS/tags data above it's fetched on demand rather than
+// preloaded for the whole fleet — cached per car key afterward so
+// re-expanding the same row doesn't refetch.
+const PAIR_HISTORY_ENDPOINT = 'https://us-central1-green-o.cloudfunctions.net/getPairHistory';
 let pairHistoryCache = {};
 async function loadPairHistory(key){
   if(pairHistoryCache[key] !== undefined) return pairHistoryCache[key];
-  if(!firebaseReady){ pairHistoryCache[key] = []; return []; }
   try{
-    const snap = await fbDb.collection('pair_history').doc(key).get();
-    const entries = snap.exists ? (snap.data().entries || []) : [];
+    const res = await fetch(`${PAIR_HISTORY_ENDPOINT}?key=${encodeURIComponent(key)}`);
+    if(!res.ok) throw new Error(`getPairHistory returned ${res.status}`);
+    const json = await res.json();
+    const entries = json.entries || [];
     pairHistoryCache[key] = entries;
     return entries;
   }catch(e){ console.error(e); return []; }
@@ -7498,14 +7568,12 @@ function formatPairDuration(fromMs, toMs){
   return hours < 24 ? `${Math.round(hours * 10) / 10} hr` : `${Math.round(hours / 24)} days`;
 }
 
-// Renders two distinct pieces instead of one flat list of identically-
-// weighted lines: a highlighted banner for whatever's true RIGHT NOW (if
-// this car's last-known state is still ongoing — no end time yet), and a
-// plain timeline of everything before that, newest first. Entries arrive
-// from Firestore oldest-first (the server appends each new one to the end
-// of the array) — newest-first reads far more naturally for a history log
-// ("what happened most recently" belongs at the top, not buried at the
-// bottom of a long scroll).
+// One condensed list, newest first — including the current/ongoing pairing
+// (if any) as just the first row rather than a separate highlighted banner
+// piece above it. Entries arrive from Firestore oldest-first (the server
+// appends each new one to the end of the array); reversing puts "what
+// happened most recently" at the top, which is what a history log should
+// read like.
 async function loadAndRenderPairHistory(key, line){
   const el = document.getElementById(`pairHistory-${key}`);
   if(!el) return;
@@ -7516,59 +7584,39 @@ async function loadAndRenderPairHistory(key, line){
   if(!document.body.contains(el)) return;
 
   if(!entries.length){
-    el.innerHTML = '<span style="opacity:.5;">No pair history recorded yet.</span>';
+    el.innerHTML = '<span style="opacity:.5;">No pairing history recorded yet.</span>';
     return;
   }
 
-  const last = entries[entries.length - 1];
-  const isOngoing = last.to === null || last.to === undefined;
-  const current = isOngoing ? last : null;
-  const past = (isOngoing ? entries.slice(0, -1) : entries).slice().reverse();
-
-  const currentHtml = !current ? '' : (()=>{
-    const color = pairHistoryDotColor(current.partner, false);
-    const text = current.partner
-      ? `Currently paired with <strong>${displayPartnerLabel(current.partner, line)}</strong>`
-      : `Currently running <strong>alone</strong>`;
+  el.innerHTML = entries.slice().reverse().map(entry=>{
+    const isOngoing = entry.to === null || entry.to === undefined;
+    const durationMin = isOngoing ? null : Math.round(((entry.to || Date.now()) - entry.from) / 60000);
+    const isGlitch = !isOngoing && durationMin < PAIR_HISTORY_GLITCH_MAX_MIN;
+    const color = pairHistoryDotColor(entry.partner, isGlitch);
+    const main = entry.partner
+      ? `Paired with <strong>${displayPartnerLabel(entry.partner, line)}</strong>`
+      : `<strong>${isOngoing ? 'Running' : 'Ran'} alone</strong>`;
+    const currentTag = isOngoing ? ' <span style="color:var(--accent);">(current)</span>' : '';
+    const glitchNote = isGlitch ? ' <span style="color:#F59E0B;">(likely tracker glitch)</span>' : '';
+    const meta = isOngoing
+      ? `Since ${formatPairDateTime(entry.from, null).replace(' – present', '')} · ${formatPairDuration(entry.from, null)} so far`
+      : `${formatPairDateTime(entry.from, entry.to)} · ${formatPairDuration(entry.from, entry.to)}`;
     return `
-      <div class="pair-current">
-        <span class="pair-current-dot" style="background:${color};"></span>
+      <div class="pair-history-row${isOngoing ? ' current' : ''}">
+        <span class="pair-history-dot" style="background:${color};"></span>
         <div>
-          <div class="pair-current-text">${text}</div>
-          <div class="pair-current-sub">Since ${formatPairDateTime(current.from, null).replace(' – present', '')} · ${formatPairDuration(current.from, null)} so far</div>
+          <div class="pair-history-main">${main}${currentTag}${glitchNote}</div>
+          <div class="pair-history-meta">${meta}</div>
         </div>
       </div>`;
-  })();
-
-  const pastHtml = !past.length ? '' : `
-    <div class="pair-history-label">Past pairings</div>
-    ${past.map(entry=>{
-      const durationMin = Math.round(((entry.to || Date.now()) - entry.from) / 60000);
-      const isGlitch = !!entry.to && durationMin < PAIR_HISTORY_GLITCH_MAX_MIN;
-      const color = pairHistoryDotColor(entry.partner, isGlitch);
-      const main = entry.partner
-        ? `Paired with <strong>${displayPartnerLabel(entry.partner, line)}</strong>`
-        : `<strong>Ran alone</strong>`;
-      const glitchNote = isGlitch ? ' <span style="color:#F59E0B;">(likely tracker glitch)</span>' : '';
-      return `
-        <div class="pair-history-row">
-          <span class="pair-history-dot" style="background:${color};"></span>
-          <div>
-            <div class="pair-history-main">${main}${glitchNote}</div>
-            <div class="pair-history-meta">${formatPairDateTime(entry.from, entry.to)} · ${formatPairDuration(entry.from, entry.to)}</div>
-          </div>
-        </div>`;
-    }).join('')}
-  `;
-
-  el.innerHTML = currentHtml + pastHtml || '<span style="opacity:.5;">No pair history recorded yet.</span>';
+  }).join('');
 }
 
 async function loadRosterPanelData(forceRefresh){
   const isStale = !rosterPanelDataCache || (Date.now() - rosterPanelDataCacheTs) >= ROSTER_PANEL_CACHE_TTL_MS;
   if(forceRefresh || isStale){
-    const [rosterData, gltpsMap, tagMap] = await Promise.all([loadRoster(), loadGltps(), getUserTagMap()]);
-    rosterPanelDataCache = { rosterData, gltpsMap, tagMap };
+    const [rosterData, gltpsMap, tagMap, pantoMap] = await Promise.all([loadRoster(), loadGltps(), getUserTagMap(), loadPantograph()]);
+    rosterPanelDataCache = { rosterData, gltpsMap, tagMap, pantoMap };
     rosterPanelDataCacheTs = Date.now();
   }
   return rosterPanelDataCache;
@@ -8005,6 +8053,19 @@ function wireCarDetailEvents(entry, container){
     });
   });
 
+  container.querySelectorAll('[data-panto-car]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const car = btn.dataset.pantoCar;
+      const status = btn.dataset.pantoStatus;
+      const cached = await loadRosterPanelData();
+      const changed = !cached.pantoMap[car] || cached.pantoMap[car].status !== status;
+      const saved = await savePantographEntry(car, status);
+      cached.pantoMap[car] = saved;
+      if(changed) awardPoints(3);
+      buildCarDetailPanel();
+    });
+  });
+
   const resetBtn = container.querySelector('[data-reset]');
   if(resetBtn){
     resetBtn.addEventListener('click', async ()=>{
@@ -8025,11 +8086,12 @@ async function buildCarDetailPanel(){
     return;
   }
 
-  const { rosterData, gltpsMap, tagMap } = await loadRosterPanelData();
+  const { rosterData, gltpsMap, tagMap, pantoMap } = await loadRosterPanelData();
   const activeSet = getActiveCarSet();
   const data = rosterData[entry.key] || {};
   const showGltps = state.activeLine === 'green';
   const gltps = showGltps ? gltpsMap[entry.car] : null;
+  const panto = showGltps ? pantoMap[entry.car] : null;
   const info = rosterCarInfoFor(state.activeLine, entry.type);
 
   const STATUS_COLORS = { 'In Service':'#0F8A4B', 'Out of Service':'#D64545', 'Scrapped':'#6B7280', 'Not yet delivered':'#B45309', 'Out for Rebuild':'#7C3AED', 'Testing':'#0891B2', 'Retired':'#6B7280', 'Work Car':'#EA580C' };
@@ -8040,6 +8102,8 @@ async function buildCarDetailPanel(){
   const gltpsColor = gltps
     ? (gltps.status === 'Installed' ? '#0F8A4B' : (gltps.status === 'Not installed' ? '#D64545' : 'var(--text-faint)'))
     : (entry.type === 'Type 10' ? '#0F8A4B' : '');
+  const pantoDefault = defaultPantographType(entry.type);
+  const pantoText = panto ? panto.status : (pantoDefault || 'Unreported');
 
   const editedLine = data.editedBy
     ? `<div class="roster-edited-by">Last edited by ${renderNameWithTag(data.editedBy, data.editedByUid, tagMap)} (${timeAgo(new Date(data.ts).toISOString())})</div>`
@@ -8109,6 +8173,17 @@ async function buildCarDetailPanel(){
       </div>` : ''}
     ` : '';
 
+  const pantoField = showGltps ? `
+      <div class="roster-field-label">Pantograph</div>
+      <div class="roster-readonly"${panto ? '' : ' style="color:var(--text-dim);"'}>${pantoText}</div>
+      ${(state.signedIn && data.status !== 'Scrapped') ? `
+      <div class="panto-row">
+        <button class="panto-btn${(panto ? panto.status : pantoDefault)==='Double armed' ? ' active' : ''}" data-panto-car="${entry.car}" data-panto-status="Double armed">Double armed</button>
+        <button class="panto-btn${(panto ? panto.status : pantoDefault)==='Single armed' ? ' active' : ''}" data-panto-car="${entry.car}" data-panto-status="Single armed">Single armed</button>
+        <button class="panto-btn${(panto ? panto.status : pantoDefault)==='Unknown' ? ' active' : ''}" data-panto-car="${entry.car}" data-panto-status="Unknown">Unknown</button>
+      </div>` : ''}
+    ` : '';
+
   const lastSeenLine = `<div class="roster-edited-by"${data.lastSeenStop ? '' : ' style="opacity:.6;"'}>${renderLastSeenText(data)}</div>`;
   const firstTrackedLine = `<div class="roster-edited-by">${renderFirstTrackedText(data)}</div>`;
 
@@ -8156,11 +8231,12 @@ async function buildCarDetailPanel(){
       ${workCarTypeField}
       ${rebuildField}
       ${gltpsField}
+      ${pantoField}
       <div class="roster-field-label">Livery / wrap</div>
       ${liveryField}
       <div class="roster-field-label">Notes</div>
       ${notesField}
-      <div class="roster-field-label">Pair history</div>
+      <div class="roster-field-label">Pairing history</div>
       <div id="pairHistory-${entry.key}" style="font-size:12px; opacity:.5;">Loading…</div>
       ${submitBtn}
       ${editedLine}
