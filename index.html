@@ -847,11 +847,13 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
    wrapper (title + close button still grouped together, just no longer
    sticky) so the JS that moves the info rows in here doesn't need to
    change, only how this container itself behaves. */
-/* A hairline under the title separates the fixed chrome (title + close
-   button) from the scrollable card content below it, so the header reads as
-   a distinct bar rather than content just starting to flow right under the
-   title with nothing marking the transition. */
-.modal-sticky-header{background:var(--panel); padding-bottom:12px; margin-bottom:2px; border-bottom:1px solid var(--border);}
+/* No hairline here — the sticky-info block that gets moved into this header
+   (see clearStaleModalStickyInfo/showCarModal) is already its own bordered
+   .modal-section-sticky-info tile, so a border-bottom on the header itself
+   doubled up right under that tile and read as a stray divider between it
+   and the first real .modal-section below, rather than separating the
+   title/close-button chrome the way it was meant to. */
+.modal-sticky-header{background:var(--panel); padding-bottom:12px; margin-bottom:2px;}
 /* Its own row (rather than positioning the close button relative to the
    whole header, which also contains the train-info block now that it's
    moved in here) so the button can center against just the title's own
@@ -3163,6 +3165,11 @@ function getDisplayBranch(branch){
   if(branch === 'RED') return 'RL';
   if(branch === 'ORANGE') return 'OL';
   if(branch === 'BLUE') return 'BL';
+  // Mattapan is a real word, not an abbreviation like the single-letter
+  // Green Line branches (B/C/D/E) or RL/OL/BL — showing it as raw
+  // 'MATTAPAN' read as shouting everywhere this feeds into a title or
+  // sentence (train info modal title, "Found car X on the ___ line", etc).
+  if(branch === 'MATTAPAN') return 'Mattapan';
   return BRANCH_ORDER.includes(branch) ? branch : 'UNK';
 }
 
@@ -7532,7 +7539,7 @@ async function buildRosterPanel(){
     return `
       <div class="roster-row" data-car="${entry.car}" data-roster-toggle="${entry.key}">
         <div class="roster-row-head">
-          <span class="roster-car-chip">Car ${entry.car}</span>
+          <span class="roster-car-chip" style="color:${LINE_BRAND_HEX[state.activeLine] || 'var(--text)'};">Car ${entry.car}</span>
           ${statusBadge}
           ${isActive ? '<span class="roster-active-badge">Active now</span>' : ''}
         </div>
@@ -8012,7 +8019,7 @@ async function buildCarDetailPanel(){
 
   body.innerHTML = `
     <div class="roster-row-head" style="margin-bottom:4px;">
-      <span class="roster-car-chip">Car ${entry.car}</span>
+      <span class="roster-car-chip" style="color:${LINE_BRAND_HEX[state.activeLine] || 'var(--text)'};">Car ${entry.car}</span>
       ${statusBadge}
     </div>
     <div class="roster-card-summary">${entry.type} · ${info.builder}</div>
