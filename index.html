@@ -63,13 +63,15 @@ html::-webkit-scrollbar, body::-webkit-scrollbar{display:none;}
   padding:24px; text-align:center;
 }
 .gate-card{max-width:420px; width:100%;}
-.gate-card h1{font-family:'Space Grotesk', sans-serif; font-size:22px; margin:0 0 12px; color:var(--text);}
+.gate-card h1{font-family:'Space Grotesk', sans-serif; font-size:22px; font-weight:700; letter-spacing:-0.01em; margin:0 0 12px; color:var(--text);}
 .gate-card p{color:var(--text-dim); font-size:14px; margin:0 0 22px; line-height:1.5;}
 .gate-signin-btn{
   display:inline-flex; align-items:center; gap:10px; background:#fff; color:#3c4043;
   border:none; border-radius:24px; padding:12px 24px; font-weight:700; font-size:14px; cursor:pointer;
   font-family:'IBM Plex Sans', sans-serif; box-shadow:0 2px 10px rgba(0,0,0,0.25);
+  transition:transform 0.15s ease, box-shadow 0.15s ease;
 }
+.gate-signin-btn:hover{transform:translateY(-1px); box-shadow:0 6px 16px rgba(0,0,0,0.3);}
 .gate-footer{
   position:absolute; bottom:28px; left:24px; right:24px; text-align:center;
   font-size:12.5px; color:var(--text-faint);
@@ -77,12 +79,15 @@ html::-webkit-scrollbar, body::-webkit-scrollbar{display:none;}
 .gate-footer a{color:var(--accent); font-weight:700; text-decoration:underline;}
 .line-select-grid{display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:22px;}
 .line-select-btn{
-  min-height:80px; padding:12px; border-radius:14px; border:none; cursor:pointer; font-weight:800;
+  min-height:84px; padding:12px; border-radius:18px; border:none; cursor:pointer; font-weight:800;
   font-size:16px; font-family:'Space Grotesk', sans-serif; color:#fff; background:var(--line-color);
-  box-shadow:0 2px 10px rgba(0,0,0,0.25); transition:transform 0.15s;
+  background-image:linear-gradient(135deg, rgba(255,255,255,0.16), rgba(255,255,255,0) 60%);
+  box-shadow:0 6px 18px -4px rgba(0,0,0,0.35);
+  transition:transform 0.15s ease, box-shadow 0.15s ease;
   display:flex; align-items:center; justify-content:center; box-sizing:border-box;
 }
-.line-select-btn:hover{transform:translateY(-2px);}
+.line-select-btn:hover{transform:translateY(-3px); box-shadow:0 10px 24px -4px rgba(0,0,0,0.4);}
+.line-select-btn:active{transform:translateY(-1px) scale(0.98);}
 .line-select-btn-link{flex-direction:column; text-decoration:none;}
 .line-select-subtext{display:block; font-size:11px; font-weight:600; opacity:.85; margin-top:3px;}
 .welcome-text{
@@ -104,20 +109,36 @@ body{padding:16px 16px 96px;}
 .site-title{
   font-family:'Space Grotesk', sans-serif; font-weight:700; font-size:14px;
   letter-spacing:0.12em; text-transform:uppercase; color:#008150;
+  transition:opacity 0.15s ease;
 }
+.site-title:hover{opacity:0.7;}
 .brand-group{display:flex; align-items:center; gap:10px;}
 .site-logo{
   width:32px; height:32px; object-fit:contain; cursor:pointer; flex:0 0 auto;
-  border-radius:8px; transition:transform 0.15s;
+  border-radius:8px; transition:transform 0.15s ease, box-shadow 0.15s ease;
 }
-.site-logo:hover{transform:scale(1.08);}
-.site-logo-wrap{display:inline-flex; cursor:pointer; flex:0 0 auto; transition:transform 0.15s;}
+.site-logo:hover{transform:scale(1.08); box-shadow:0 3px 10px rgba(0,0,0,0.25);}
+.site-logo-wrap{display:inline-flex; cursor:pointer; flex:0 0 auto; transition:transform 0.15s ease;}
 .site-logo-wrap:hover{transform:scale(1.08);}
 .site-logo-badge{
   width:32px; height:32px; border-radius:8px;
   display:flex; align-items:center; justify-content:center;
   font-family:'Space Grotesk', sans-serif; font-weight:800; font-size:15px; color:#fff;
 }
+.logo-switch-wrap{position:relative; flex:0 0 auto;}
+.line-switch-dropdown{
+  display:none; position:absolute; top:44px; left:0; background:var(--panel); border:1px solid var(--border);
+  border-radius:14px; padding:6px; width:172px; box-shadow:0 12px 32px rgba(0,0,0,0.28); z-index:70;
+  flex-direction:column; gap:2px;
+}
+.line-switch-dropdown.show{display:flex;}
+.line-switch-option{
+  display:flex; align-items:center; gap:10px; width:100%; padding:8px; border:none; border-radius:9px;
+  background:transparent; cursor:pointer; text-align:left; font-family:'Space Grotesk', sans-serif;
+  font-size:13px; font-weight:600; color:var(--text); transition:background 0.15s ease;
+}
+.line-switch-option:hover{background:var(--bg);}
+.line-switch-option img{width:26px; height:26px; object-fit:contain; border-radius:7px; flex:0 0 auto;}
 
 /* ---------- Auth corner ---------- */
 .top-bar{
@@ -233,16 +254,19 @@ header{display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap
 
 .header-back-slot{display:flex; align-items:center; gap:6px; grid-column:1; justify-self:start;}
 .header-back-slot .back-link{margin-bottom:0; white-space:nowrap;}
-.header-back-sep{color:var(--text-faint); font-size:12.5px;}
-@media (max-width:400px){
-  /* Two links plus a separator is a lot for the narrowest phones — shorten
-     the first label so the whole row still fits on one line rather than
-     wrapping awkwardly under the title. */
-  #headerBackLink{font-size:11.5px;}
-}
 .weather-line{font-size:11px; color:var(--text-faint); justify-self:end; text-align:right;}
 
-@media (max-width:560px){
+/* 899px, not some narrower phone-only cutoff — matches the breakpoint every
+   other "mobile" layout in this app already switches on (the train info
+   modal, the swipe-in trains drawer, ...). Used to be 560px here, its own
+   one-off threshold: on any width between 560 and 899, the title used the
+   DESKTOP absolute-centering scheme below (which floats it over the track
+   map column, and isn't guaranteed centered on pages like car detail that
+   have no track map column) while everything else was already treating
+   that same width as mobile. This closes that gap, so the title is always
+   centered — on every width the rest of the app already calls mobile, not
+   just the narrowest phones. */
+@media (max-width:899px){
   header{grid-template-columns:1fr; justify-items:center; text-align:center;}
   .weather-line{justify-self:center; text-align:center;}
   .header-back-slot{justify-self:center;}
@@ -1016,6 +1040,26 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
 }
 .roster-reset-btn:hover{background:rgba(214,69,69,0.1); border-color:#D64545;}
 .storage-note{font-size:11px; color:var(--text-faint); margin-top:12px; line-height:1.5;}
+/* Pair history: a highlighted "what's true right now" banner (.pair-current)
+   up top, separate from the plain scannable timeline of past pairings below
+   it — replaces the old flat list of dense, identically-weighted one-liners
+   (icon + partner + full date range + duration all crammed onto one line)
+   that made it hard to tell "what's happening now" from "what happened
+   three days ago" at a glance. */
+.pair-current{
+  display:flex; align-items:flex-start; gap:9px; padding:10px 12px; border-radius:10px;
+  background:var(--bg); border:1px solid var(--border); margin-bottom:10px;
+}
+.pair-current-dot{width:8px; height:8px; border-radius:50%; margin-top:5px; flex:0 0 auto;}
+.pair-current-text{font-size:12.5px; color:var(--text); line-height:1.4;}
+.pair-current-text strong{font-weight:700;}
+.pair-current-sub{font-size:11px; color:var(--text-faint); margin-top:2px;}
+.pair-history-label{font-size:10.5px; color:var(--text-faint); text-transform:uppercase; letter-spacing:0.04em; margin:4px 0 4px;}
+.pair-history-row{display:flex; align-items:flex-start; gap:9px; padding:5px 0;}
+.pair-history-dot{width:7px; height:7px; border-radius:50%; margin-top:6px; flex:0 0 auto;}
+.pair-history-main{font-size:12px; color:var(--text); line-height:1.4;}
+.pair-history-main strong{font-weight:700;}
+.pair-history-meta{font-size:10.5px; color:var(--text-faint); margin-top:1px;}
 /* Car detail page's real geographic mini-map (Leaflet + CARTO dark tiles).
    Leaflet's own CSS handles the tile grid/marker positioning internally;
    this just gives the container a fixed height and rounds its corners to
@@ -1094,8 +1138,19 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
 
 <div class="top-bar">
 <div class="brand-group">
-<span class="site-logo-wrap" id="siteLogoBtn" title="Back to route selection"><img src="/logo-green.png" alt="Logo" class="site-logo" id="siteLogoImg"><img src="/logo-red.png" alt="Red Line" class="site-logo" id="siteLogoRed" style="display:none;"><img src="/logo-blue.png" alt="Blue Line" class="site-logo" id="siteLogoBlue" style="display:none;"><img src="/logo-orange.png" alt="Orange Line" class="site-logo" id="siteLogoOrange" style="display:none;"><div class="site-logo-badge" id="siteLogoBadge" style="display:none;"></div></span>
-<div class="site-title" id="siteTitleText" style="cursor:pointer;">In the Loop</div>
+<div class="logo-switch-wrap">
+<span class="site-logo-wrap" id="siteLogoBtn" title="Switch line"><img src="/logo-green.png" alt="Logo" class="site-logo" id="siteLogoImg"><img src="/logo-red.png" alt="Red Line" class="site-logo" id="siteLogoRed" style="display:none;"><img src="/logo-blue.png" alt="Blue Line" class="site-logo" id="siteLogoBlue" style="display:none;"><img src="/logo-orange.png" alt="Orange Line" class="site-logo" id="siteLogoOrange" style="display:none;"><div class="site-logo-badge" id="siteLogoBadge" style="display:none;"></div></span>
+<!-- Only ever shows the lines OTHER than whichever is currently active —
+     updateLogoForLine() below toggles each option's own display:none to
+     match, same pattern the four logo images above already use. -->
+<div class="line-switch-dropdown" id="lineSwitchDropdown">
+  <button class="line-switch-option" data-line="red" id="lineSwitchRed"><img src="/logo-red.png" alt=""><span>Red Line</span></button>
+  <button class="line-switch-option" data-line="blue" id="lineSwitchBlue"><img src="/logo-blue.png" alt=""><span>Blue Line</span></button>
+  <button class="line-switch-option" data-line="orange" id="lineSwitchOrange"><img src="/logo-orange.png" alt=""><span>Orange Line</span></button>
+  <button class="line-switch-option" data-line="green" id="lineSwitchGreen"><img src="/logo-green.png" alt=""><span>Green Line</span></button>
+</div>
+</div>
+<div class="site-title" id="siteTitleText" style="cursor:pointer;" title="Go to track map">In the Loop</div>
 </div>
 <div class="auth-corner">
   <div class="google-btn-wrap" id="googleBtnWrap">
@@ -3335,18 +3390,15 @@ function switchPage(key){
   // plain innerHTML, cheaper than tracking whether it's already there.
   const headerBackSlot = document.getElementById('headerBackSlot');
   if(headerBackSlot){
-    // Car detail previously only offered a way back up to Fleet Roster —
-    // getting from there to the actual live track map took a second tap on
-    // Roster's own "‹ Back" link. Second, smaller link right alongside it
-    // (same row, same slot the earlier "same line as the title" feedback
-    // was about) jumps straight there in one tap instead.
+    // A separate "Track Map" shortcut used to sit next to this (removed per
+    // request — the site title in the top bar already does this same job
+    // now, see its own click handler further down, so keeping a second
+    // near-identical shortcut here was redundant).
     headerBackSlot.innerHTML = page.isCarDetail
-      ? '<span class="back-link" id="headerBackLink">&lsaquo; Fleet Roster</span><span class="header-back-sep">&middot;</span><span class="back-link" id="headerMapLink">Track Map</span>'
+      ? '<span class="back-link" id="headerBackLink">&lsaquo; Back to Fleet Roster</span>'
       : '';
     const headerBackLink = document.getElementById('headerBackLink');
     if(headerBackLink) headerBackLink.addEventListener('click', ()=> switchPage('ROSTER'));
-    const headerMapLink = document.getElementById('headerMapLink');
-    if(headerMapLink) headerMapLink.addEventListener('click', ()=> switchPage(state.lastMainPage || 'B'));
   }
   if(typeof updateTitleCenterVar === 'function') updateTitleCenterVar();
   buildNav();
@@ -7287,46 +7339,54 @@ async function loadPairHistory(key){
 
 // A key like "red-3803" or "blue-0700" -> just the car number, formatted
 // the same way the rest of the roster displays car numbers (Blue Line
-// zero-padding included).
+// zero-padding included). Only ever called with a real partner key now —
+// the "no partner" case is handled directly in each render function below
+// with actual sentence text ("Ran alone" / "Currently running alone")
+// instead of stuffing a fake "Unpaired" car name into the same slot a real
+// partner label would go, which read like a partner named "Unpaired."
 function displayPartnerLabel(key, line){
-  if(!key) return 'Unpaired';
   const prefix = line + '-';
   const plain = key.indexOf(prefix) === 0 ? key.slice(prefix.length) : key;
   return formatCarNumberForDisplay(plain);
 }
 
-// Mirrors Eamon's Discord example format: an icon, the partner (or
-// "Unpaired"), a date/time range (date omitted from the end time when it's
-// the same day as the start), and a plain-language duration. A short,
-// already-ended pairing gets a distinct warning icon since a stretch that
-// brief is more likely a momentary tracker mixup than a real swap.
+// A stretch this short that's already ended is more likely a momentary
+// tracker mixup than a real swap.
 const PAIR_HISTORY_GLITCH_MAX_MIN = 10;
-function formatPairHistoryEntry(entry, line){
-  const from = new Date(entry.from);
-  const to = entry.to ? new Date(entry.to) : null;
-  const dateOpts = { month:'numeric', day:'numeric', timeZone:'America/New_York' };
+
+function pairHistoryDotColor(partner, isGlitch){
+  if(isGlitch) return '#F59E0B';
+  return partner ? 'var(--accent)' : 'var(--text-faint)';
+}
+function formatPairDateTime(fromMs, toMs){
+  const dateOpts = { month:'short', day:'numeric', timeZone:'America/New_York' };
   const timeOpts = { hour:'numeric', minute:'2-digit', timeZone:'America/New_York' };
+  const from = new Date(fromMs);
   const fromDateStr = from.toLocaleDateString('en-US', dateOpts);
   const fromTimeStr = from.toLocaleTimeString('en-US', timeOpts);
-  let toStr;
-  if(!to){
-    toStr = 'present';
-  }else{
-    const toDateStr = to.toLocaleDateString('en-US', dateOpts);
-    const toTimeStr = to.toLocaleTimeString('en-US', timeOpts);
-    toStr = (toDateStr === fromDateStr) ? toTimeStr : `${toDateStr} ${toTimeStr}`;
-  }
-  const durationMs = (to ? to.getTime() : Date.now()) - from.getTime();
-  const durationMin = Math.round(durationMs / 60000);
-  const durationStr = durationMin < 60 ? `${durationMin} min` : `${Math.round(durationMin / 60)} hours`;
-
-  const isLikelyGlitch = !!to && durationMin < PAIR_HISTORY_GLITCH_MAX_MIN;
-  const icon = !entry.partner ? '❌' : (isLikelyGlitch ? '⚠️' : '🚋');
-  const label = displayPartnerLabel(entry.partner, line);
-
-  return `<div style="font-size:12px; opacity:.85; margin-top:3px;">${icon} <strong>${label}</strong> — ${fromDateStr} ${fromTimeStr} to ${toStr} — ${durationStr}${isLikelyGlitch ? ' <span style="opacity:.7;">(possible tracker glitch)</span>' : ''}</div>`;
+  if(!toMs) return `${fromDateStr}, ${fromTimeStr} – present`;
+  const to = new Date(toMs);
+  const toDateStr = to.toLocaleDateString('en-US', dateOpts);
+  const toTimeStr = to.toLocaleTimeString('en-US', timeOpts);
+  return (toDateStr === fromDateStr)
+    ? `${fromDateStr}, ${fromTimeStr}–${toTimeStr}`
+    : `${fromDateStr} ${fromTimeStr} – ${toDateStr} ${toTimeStr}`;
+}
+function formatPairDuration(fromMs, toMs){
+  const min = Math.max(1, Math.round(((toMs || Date.now()) - fromMs) / 60000));
+  if(min < 60) return `${min} min`;
+  const hours = min / 60;
+  return hours < 24 ? `${Math.round(hours * 10) / 10} hr` : `${Math.round(hours / 24)} days`;
 }
 
+// Renders two distinct pieces instead of one flat list of identically-
+// weighted lines: a highlighted banner for whatever's true RIGHT NOW (if
+// this car's last-known state is still ongoing — no end time yet), and a
+// plain timeline of everything before that, newest first. Entries arrive
+// from Firestore oldest-first (the server appends each new one to the end
+// of the array) — newest-first reads far more naturally for a history log
+// ("what happened most recently" belongs at the top, not buried at the
+// bottom of a long scroll).
 async function loadAndRenderPairHistory(key, line){
   const el = document.getElementById(`pairHistory-${key}`);
   if(!el) return;
@@ -7335,9 +7395,54 @@ async function loadAndRenderPairHistory(key, line){
   // time this resolves — make sure this element is still the one on screen
   // before touching it.
   if(!document.body.contains(el)) return;
-  el.innerHTML = entries.length
-    ? entries.map(entry => formatPairHistoryEntry(entry, line)).join('')
-    : '<span style="opacity:.5;">No pair history recorded yet.</span>';
+
+  if(!entries.length){
+    el.innerHTML = '<span style="opacity:.5;">No pair history recorded yet.</span>';
+    return;
+  }
+
+  const last = entries[entries.length - 1];
+  const isOngoing = last.to === null || last.to === undefined;
+  const current = isOngoing ? last : null;
+  const past = (isOngoing ? entries.slice(0, -1) : entries).slice().reverse();
+
+  const currentHtml = !current ? '' : (()=>{
+    const color = pairHistoryDotColor(current.partner, false);
+    const text = current.partner
+      ? `Currently paired with <strong>${displayPartnerLabel(current.partner, line)}</strong>`
+      : `Currently running <strong>alone</strong>`;
+    return `
+      <div class="pair-current">
+        <span class="pair-current-dot" style="background:${color};"></span>
+        <div>
+          <div class="pair-current-text">${text}</div>
+          <div class="pair-current-sub">Since ${formatPairDateTime(current.from, null).replace(' – present', '')} · ${formatPairDuration(current.from, null)} so far</div>
+        </div>
+      </div>`;
+  })();
+
+  const pastHtml = !past.length ? '' : `
+    <div class="pair-history-label">Past pairings</div>
+    ${past.map(entry=>{
+      const durationMin = Math.round(((entry.to || Date.now()) - entry.from) / 60000);
+      const isGlitch = !!entry.to && durationMin < PAIR_HISTORY_GLITCH_MAX_MIN;
+      const color = pairHistoryDotColor(entry.partner, isGlitch);
+      const main = entry.partner
+        ? `Paired with <strong>${displayPartnerLabel(entry.partner, line)}</strong>`
+        : `<strong>Ran alone</strong>`;
+      const glitchNote = isGlitch ? ' <span style="color:#F59E0B;">(likely tracker glitch)</span>' : '';
+      return `
+        <div class="pair-history-row">
+          <span class="pair-history-dot" style="background:${color};"></span>
+          <div>
+            <div class="pair-history-main">${main}${glitchNote}</div>
+            <div class="pair-history-meta">${formatPairDateTime(entry.from, entry.to)} · ${formatPairDuration(entry.from, entry.to)}</div>
+          </div>
+        </div>`;
+    }).join('')}
+  `;
+
+  el.innerHTML = currentHtml + pastHtml || '<span style="opacity:.5;">No pair history recorded yet.</span>';
 }
 
 async function loadRosterPanelData(forceRefresh){
@@ -8486,6 +8591,14 @@ function updateLogoForLine(line){
     badge.style.background = '#6B7280';
     badge.textContent = '?';
   }
+
+  // The line-switch dropdown only ever offers the OTHER lines — whichever
+  // one is now active gets hidden from its own option list, same idea as
+  // the logo images above.
+  ['red','blue','orange','green'].forEach(l=>{
+    const opt = document.getElementById('lineSwitch' + l.charAt(0).toUpperCase() + l.slice(1));
+    if(opt) opt.style.display = (l === line) ? 'none' : '';
+  });
 }
 function rebuildTypeFilterOptions(){
   const select = document.getElementById('filterType');
@@ -8796,7 +8909,13 @@ document.querySelectorAll('.line-select-btn').forEach(btn=>{
   btn.addEventListener('click', ()=>{
     const line = btn.dataset.line;
     try{ localStorage.setItem(LINE_SELECTION_KEY, line); }catch(e){ /* ignore */ }
-    revealApp(line);
+    // Explicitly picking a line here is a deliberate "start fresh" action —
+    // always land on that line's own track map, never whatever page
+    // (Settings, Fleet Roster, ...) happened to be saved from a previous
+    // session. revealApp's forcedPage param already exists for exactly
+    // this: it takes priority over the saved-page restore it otherwise
+    // does for a normal reload/return visit.
+    revealApp(line, LINE_DEFAULT_PAGE[line]);
   });
 });
 
@@ -8976,8 +9095,36 @@ document.querySelectorAll('.menu-link[data-navto]').forEach(link=>{
   });
 });
 
-document.getElementById('siteLogoBtn').addEventListener('click', showLineSelectScreen);
-document.getElementById('siteTitleText').addEventListener('click', showLineSelectScreen);
+// Icon: opens a quick-switch dropdown to jump straight to another line
+// (see the line-switch-dropdown markup/CSS and updateLogoForLine above),
+// instead of leaving the app for the full gate screen. Text: jumps back to
+// the CURRENT line's own track map from wherever you are (Settings, Fleet
+// Roster, a car detail page, ...) — restores whatever branch/page within
+// this line you were last on (state.lastMainPage), falling back to the
+// line's default page if there isn't one yet.
+document.getElementById('siteLogoBtn').addEventListener('click', (e)=>{
+  e.stopPropagation();
+  document.getElementById('lineSwitchDropdown').classList.toggle('show');
+});
+document.addEventListener('click', (e)=>{
+  const wrap = document.querySelector('.logo-switch-wrap');
+  if(wrap && !wrap.contains(e.target)) document.getElementById('lineSwitchDropdown').classList.remove('show');
+});
+document.querySelectorAll('.line-switch-option').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    const line = btn.dataset.line;
+    document.getElementById('lineSwitchDropdown').classList.remove('show');
+    if(line === state.activeLine) return;
+    try{ localStorage.setItem(LINE_SELECTION_KEY, line); }catch(e){ /* ignore */ }
+    // Switching lines here is the same kind of deliberate, fresh choice as
+    // picking one from the gate screen — always land on that line's own
+    // track map rather than whatever page it last had saved.
+    revealApp(line, LINE_DEFAULT_PAGE[line]);
+  });
+});
+document.getElementById('siteTitleText').addEventListener('click', ()=>{
+  switchPage(state.lastMainPage || LINE_DEFAULT_PAGE[state.activeLine] || 'B');
+});
 document.getElementById('signedInBar').addEventListener('click', ()=> switchPage('SETTINGS'));
 document.getElementById('settingsBackBtn').addEventListener('click', ()=> switchPage(state.lastMainPage || 'B'));
 document.getElementById('rosterBackBtn').addEventListener('click', ()=> switchPage(state.lastMainPage || 'B'));
