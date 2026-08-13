@@ -1020,7 +1020,25 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
    Leaflet's own CSS handles the tile grid/marker positioning internally;
    this just gives the container a fixed height and rounds its corners to
    match the rest of the roster/car-detail cards. */
-#carDetailMapContainer{height:240px; border-radius:10px; overflow:hidden; margin-bottom:14px; background:var(--panel);}
+/* isolation:isolate is the actual fix here, not overflow:hidden (which only
+   clips content that spatially overflows this box's own edges — Leaflet's
+   controls/tiles never do that, they stay within it). The real problem is
+   stacking context: Leaflet's own CSS gives its zoom/attribution controls
+   z-index:1000 and its tile/marker panes 200-700, meant to layer correctly
+   ONLY against each other inside one map. Neither Leaflet's own
+   .leaflet-container nor this element used to establish a stacking context
+   of their own (position:relative alone, with no z-index, doesn't), so
+   those numbers were being compared directly against completely unrelated
+   global UI elsewhere on the page — the header's menu dropdown (z-index:70)
+   and the bottom nav (z-index:60) — and losing, since 1000 and 200-700 both
+   beat 70/60. Whenever a scroll position (or an open dropdown) put this
+   map's rectangle over either of them on screen, the map won and painted
+   over top, hiding them. isolation:isolate seals every z-index inside this
+   box into its own self-contained stacking context — Leaflet can keep using
+   whatever internal values it wants, but from any element OUTSIDE this box,
+   the whole map now behaves as a single normal-priority layer that can
+   never again outrank real page UI it happens to scroll under. */
+#carDetailMapContainer{height:240px; border-radius:10px; overflow:hidden; margin-bottom:14px; background:var(--panel); isolation:isolate;}
 #carDetailMapContainer .leaflet-control-attribution{background:rgba(11,20,32,0.75); color:var(--text-faint); font-size:9px;}
 #carDetailMapContainer .leaflet-control-attribution a{color:var(--text-faint);}
 </style>
