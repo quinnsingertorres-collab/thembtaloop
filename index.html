@@ -2,8 +2,26 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" id="viewportMeta" content="width=device-width, initial-scale=1.0">
 <meta name="google-site-verification" content="BO5Kam5X03yQqkOOjWslNlTgVfZBvGLNBNK8egtigvI" />
+<script>
+  // Disables pinch/double-tap page zoom, but ONLY when running as an
+  // installed home-screen app (standalone display mode) — a normal browser
+  // tab visit keeps full pinch-zoom, since removing that there would be an
+  // accessibility regression for anyone who relies on it. navigator.standalone
+  // is iOS Safari's own flag for "launched from home screen"; the
+  // display-mode:standalone media query is the cross-platform equivalent
+  // (Android/Chrome and desktop PWA installs). Runs synchronously, before
+  // first paint, so there's no flash of the zoomable viewport first.
+  (function(){
+    var isStandalone = window.navigator.standalone === true ||
+      (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+    if(isStandalone){
+      var vp = document.getElementById('viewportMeta');
+      if(vp) vp.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no');
+    }
+  })();
+</script>
 <title>In the Loop</title>
 <meta name="description" content="In the Loop is a transit enthusiast built train tracker for all MBTA Subway lines with many community features to increase accuracy and reliability">
 <script>
@@ -9749,6 +9767,39 @@ const mobileTrainsBackdrop = document.getElementById('mobileTrainsBackdrop');
 if(mobileTrainsBackdrop) mobileTrainsBackdrop.addEventListener('click', ()=>{
   document.body.classList.remove('mobile-trains-open');
 });
+
+// Belt-and-suspenders backup for the standalone-only zoom lock set on the
+// viewport meta tag up in <head> (see viewportMeta) — that meta change
+// covers pinch-zoom on Android/Chrome installs reliably, but iOS Safari
+// standalone apps are known to still let a two-finger pinch through despite
+// maximum-scale/user-scalable, and separately apply their own double-tap-
+// to-zoom gesture that the viewport meta doesn't govern at all. Both are
+// blocked here directly, scoped to the same standalone-only check so a
+// regular browser-tab visit is completely untouched.
+(function(){
+  var isStandalone = window.navigator.standalone === true ||
+    (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+  if(!isStandalone) return;
+
+  // 'gesturestart'/'gesturechange' are WebKit's own pinch events, separate
+  // from touch events — Leaflet's map pinch-zoom doesn't use them (it reads
+  // raw two-finger touchmove deltas instead), so blocking these only stops
+  // the PAGE from zooming and leaves the map's own pinch-to-zoom working.
+  document.addEventListener('gesturestart', (e)=> e.preventDefault());
+  document.addEventListener('gesturechange', (e)=> e.preventDefault());
+
+  // Double-tap-to-zoom fires on a second touchend within ~300ms of the
+  // first. Excludes the Leaflet map specifically — double-tap there is a
+  // real, intentional "zoom the map in" control (Leaflet's own
+  // doubleClickZoom), not an accidental page zoom, and should keep working.
+  let lastTouchEnd = 0;
+  document.addEventListener('touchend', (e)=>{
+    if(e.target.closest('.leaflet-container')) return;
+    const now = Date.now();
+    if(now - lastTouchEnd <= 300) e.preventDefault();
+    lastTouchEnd = now;
+  }, { passive:false });
+})();
 const mobileTrainsCloseBtn = document.getElementById('mobileTrainsClose');
 if(mobileTrainsCloseBtn) mobileTrainsCloseBtn.addEventListener('click', ()=>{
   document.body.classList.remove('mobile-trains-open');
