@@ -10185,7 +10185,19 @@ if(mobileTrainsBackdrop) mobileTrainsBackdrop.addEventListener('click', ()=>{
     if(!target) return;
     btn.disabled = true;
     setLabel('Capturing…');
-    try{
+
+    // Build the PNG as a promise, but don't await it yet — passing a
+    // still-pending promise into ClipboardItem below lets the browser
+    // resolve it once the capture finishes, while the clipboard.write()
+    // call itself still happens immediately after this click. Browsers
+    // (Chrome on Android especially) only allow writing to the clipboard
+    // within a brief "user activation" window after a real tap/click; if
+    // this capture (html2canvas + font loading + compositing, easily a
+    // few hundred ms or more on an older phone) finishes BEFORE calling
+    // clipboard.write(), that window has often already closed by the time
+    // we get there — the write silently fails with no fallback, which is
+    // exactly what made this button appear to do nothing on Android.
+    const blobPromise = (async ()=>{
       // .panel--plain itself has no background (background:none) — its
       // visible backdrop is really just the page's own <body> background
       // showing through. html2canvas needs an explicit color or it
@@ -10212,25 +10224,38 @@ if(mobileTrainsBackdrop) mobileTrainsBackdrop.addEventListener('click', ()=>{
       // rather than a stale local pref silently keeping it on.
       const hideWatermark = !!(state.signedIn && state.hideSnapshotWatermark);
       const canvas = await composeSnapshot(rawCanvas, scale, bg, hideWatermark);
-      canvas.toBlob(async (blob)=>{
-        if(!blob){ setLabel('Failed', 1800); return; }
-        try{
-          if(navigator.clipboard && window.ClipboardItem){
-            await navigator.clipboard.write([ new ClipboardItem({ 'image/png': blob }) ]);
-            setLabel('Copied!', 1800);
-          }else{
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url; a.download = 'track-map.png';
-            document.body.appendChild(a); a.click(); a.remove();
-            URL.revokeObjectURL(url);
-            setLabel('Downloaded', 1800);
-          }
-        }catch(err){
-          console.error('Map snapshot: clipboard write failed', err);
-          setLabel('Copy failed', 1800);
-        }
-      }, 'image/png');
+      return await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+    })();
+
+    const supportsClipboardImages = !!(navigator.clipboard && window.ClipboardItem);
+    if(supportsClipboardImages){
+      try{
+        // If this browser doesn't actually support a Promise value here
+        // (older Chrome/Safari that still have ClipboardItem but not this
+        // newer capability), the constructor throws synchronously and
+        // falls into the catch below — same safe fallback path as an
+        // outright rejected write.
+        await navigator.clipboard.write([ new ClipboardItem({ 'image/png': blobPromise }) ]);
+        setLabel('Copied!', 1800);
+        return;
+      }catch(err){
+        console.error('Map snapshot: clipboard write failed, falling back to download', err);
+        // Falls through to the download fallback below instead of dead-
+        // ending here — a rejected write (permission denied, activation
+        // expired, or just an unsupported combo on this browser/OS)
+        // shouldn't mean the user gets nothing.
+      }
+    }
+
+    try{
+      const blob = await blobPromise;
+      if(!blob){ setLabel('Failed', 1800); return; }
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'track-map.png';
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+      setLabel('Downloaded', 1800);
     }catch(err){
       console.error('Map snapshot failed', err);
       setLabel('Failed', 1800);
