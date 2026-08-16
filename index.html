@@ -1106,6 +1106,17 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
    as separate full-width bars — grouped onto one row, evenly sized. */
 .modal-btn-row{display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;}
 .modal-btn-row .account-btn, .modal-btn-row .roster-reset-btn{width:auto; flex:0 0 auto; margin-top:0;}
+/* Same lightweight outlined-chip footprint as .roster-reset-btn, just in
+   the app's normal accent color instead of red — for buttons that reveal
+   more info rather than delete/reset something (e.g. "View full consist"
+   on a confirmed heavy-rail departure, where only the lead car shows by
+   default — see showTerminusSchedule). */
+.modal-info-btn{
+  margin-top:8px; font-size:10.5px; padding:5px 11px; border-radius:7px; border:1px solid var(--accent);
+  background:var(--panel); color:var(--accent); cursor:pointer; font-family:'IBM Plex Sans', sans-serif;
+  transition:background 0.15s ease;
+}
+.modal-info-btn:hover{background:rgba(20,108,67,0.12);}
 /* Pairing history: one condensed list, newest first, current pairing
    (if any) simply the first row rather than its own separate highlighted
    banner box — replaces an earlier two-piece layout (a bordered "current
@@ -5912,6 +5923,19 @@ async function showTerminusSchedule(branchKey, stopName, directionId){
          </div>`
       : '';
 
+    // Only the lead car shows above for Red/Orange/Blue (see the comment
+    // block above), but for a CONFIRMED train (a real vehicle actually
+    // tracking on this trip) the full physical consist is known — this
+    // just wasn't surfaced anywhere on this page. Reuses the same train
+    // info modal a tap on the map's train bubble opens (full consist,
+    // status, etc.) rather than duplicating that display here. Doesn't
+    // require being signed in — it's just showing more of what's already
+    // known, not editing anything. No point showing it for a single-car
+    // train, where the lead car already IS the whole consist.
+    const fullConsistBtn = (!isGreenLine && liveMatch && String(liveMatch.label).split('-').length > 1)
+      ? `<button class="modal-info-btn" data-view-consist="${trip.tripId}">View full consist (${String(liveMatch.label).split('-').length} cars)</button>`
+      : '';
+
     const operatorsHtml = isGreenLine
       ? operatorFieldHtml(trip.tripId, 'Lead', pred, userInfoMap) + operatorFieldHtml(trip.tripId, 'Trailer', pred, userInfoMap)
       : operatorFieldHtml(trip.tripId, 'Lead', pred, userInfoMap);
@@ -5921,6 +5945,7 @@ async function showTerminusSchedule(branchKey, stopName, directionId){
         <div class="modal-row"><span>${timeStr}</span><strong>to ${trip.headsign || 'Unknown'}</strong></div>
         <div class="modal-row"><span>${isGreenLine ? 'Predicted cars (lead-trailer)' : 'Predicted lead car'}</span><strong>${carNumber || '\u2014'}</strong></div>
         ${predictedTag}
+        ${fullConsistBtn}
         ${editControl}
         ${timeCorrectionNote}
         ${timeEditControl}
@@ -5970,6 +5995,17 @@ async function showTerminusSchedule(branchKey, stopName, directionId){
       newDate.setHours(h, m, 0, 0);
       await saveDepartureTimeOverride(tripId, newDate.toISOString());
       showTerminusSchedule(branchKey, stopName, directionId, true);
+    });
+  });
+
+  // Reuses the same full train info modal a tap on the map's train bubble
+  // opens — liveVehicleByTripId (built above, before `rows`) still holds
+  // the actual vehicle object for this trip, so this just hands it to
+  // showCarModal instead of re-deriving/duplicating a consist display here.
+  document.querySelectorAll('[data-view-consist]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const v = liveVehicleByTripId[btn.dataset.viewConsist];
+      if(v) showCarModal(v);
     });
   });
 
