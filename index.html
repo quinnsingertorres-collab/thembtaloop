@@ -5989,8 +5989,12 @@ async function showTerminusSchedule(branchKey, stopName, directionId){
     // always multi-car in this app's own model — showCarModal pads out to
     // a 6-slot placeholder consist even with no carriages data at all —
     // so there's no meaningful "single car" case to hide this for here.
+    // margin:0 here since this now sits inline next to the car number
+    // itself (see the Predicted lead car row below) rather than on its
+    // own separate row below it — .modal-info-btn's default margin-top
+    // was meant for that old standalone placement.
     const fullConsistBtn = (!isGreenLine && liveMatch)
-      ? `<button class="modal-info-btn" data-view-consist="${trip.tripId}">View full consist</button>`
+      ? `<button class="modal-info-btn" data-view-consist="${trip.tripId}" style="margin:0;">View full consist</button>`
       : '';
 
     const operatorsHtml = isGreenLine
@@ -6000,8 +6004,7 @@ async function showTerminusSchedule(branchKey, stopName, directionId){
     return `
       <div class="modal-section">
         <div class="modal-row"><span>${timeStr}</span><strong>to ${trip.headsign || 'Unknown'}</strong></div>
-        <div class="modal-row"><span>${isGreenLine ? 'Predicted cars (lead-trailer)' : 'Predicted lead car'}</span><strong>${carNumber || '\u2014'}</strong></div>
-        ${fullConsistBtn}
+        <div class="modal-row"><span>${isGreenLine ? 'Predicted cars (lead-trailer)' : 'Predicted lead car'}</span><strong style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:flex-end;">${carNumber || '\u2014'}${fullConsistBtn}</strong></div>
         ${predictedTag}
         ${editControl}
         ${timeCorrectionNote}
