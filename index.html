@@ -5925,15 +5925,23 @@ async function showTerminusSchedule(branchKey, stopName, directionId){
 
     // Only the lead car shows above for Red/Orange/Blue (see the comment
     // block above), but for a CONFIRMED train (a real vehicle actually
-    // tracking on this trip) the full physical consist is known — this
-    // just wasn't surfaced anywhere on this page. Reuses the same train
-    // info modal a tap on the map's train bubble opens (full consist,
-    // status, etc.) rather than duplicating that display here. Doesn't
-    // require being signed in — it's just showing more of what's already
-    // known, not editing anything. No point showing it for a single-car
-    // train, where the lead car already IS the whole consist.
-    const fullConsistBtn = (!isGreenLine && liveMatch && String(liveMatch.label).split('-').length > 1)
-      ? `<button class="modal-info-btn" data-view-consist="${trip.tripId}">View full consist (${String(liveMatch.label).split('-').length} cars)</button>`
+    // tracking on this trip) more is known — this just wasn't surfaced
+    // anywhere on this page. Reuses the same train info modal a tap on the
+    // map's train bubble opens rather than duplicating that display here.
+    // Doesn't require being signed in — it's just showing more of what's
+    // already known, not editing anything.
+    //
+    // liveMatch.label itself is NOT dash-joined for heavy rail the way
+    // Green's is — MBTA's live feed only reports the LEAD car's number
+    // there. The real per-car breakdown (when available) lives in
+    // liveMatch.carriages instead; getCarNumbersForVehicle already knows
+    // to prefer that over label (same helper showCarModal itself uses to
+    // decide what to actually display). Heavy rail trains are effectively
+    // always multi-car in this app's own model — showCarModal pads out to
+    // a 6-slot placeholder consist even with no carriages data at all —
+    // so there's no meaningful "single car" case to hide this for here.
+    const fullConsistBtn = (!isGreenLine && liveMatch)
+      ? `<button class="modal-info-btn" data-view-consist="${trip.tripId}">View full consist</button>`
       : '';
 
     const operatorsHtml = isGreenLine
