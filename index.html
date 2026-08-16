@@ -5985,8 +5985,8 @@ async function showTerminusSchedule(branchKey, stopName, directionId){
       <div class="modal-section">
         <div class="modal-row"><span>${timeStr}</span><strong>to ${trip.headsign || 'Unknown'}</strong></div>
         <div class="modal-row"><span>${isGreenLine ? 'Predicted cars (lead-trailer)' : 'Predicted lead car'}</span><strong>${carNumber || '\u2014'}</strong></div>
-        ${predictedTag}
         ${fullConsistBtn}
+        ${predictedTag}
         ${editControl}
         ${timeCorrectionNote}
         ${timeEditControl}
