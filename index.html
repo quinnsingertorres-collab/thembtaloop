@@ -936,7 +936,7 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
    by just a top border — reads as a cleaner, more distinct grouping of
    content when a single train can have half a dozen of these stacked in a
    row (per-car details, consist editor, trip notes, hide-train...). */
-.modal-section{background:var(--bg); border:1px solid var(--border); border-radius:12px; padding:12px 14px; margin-top:10px;}
+.modal-section{background:var(--bg); border:1px solid var(--border); border-radius:12px; padding:12px 14px; margin-top:10px; box-shadow:0 2px 8px -4px rgba(0,0,0,0.35);}
 .modal-section:first-child{margin-top:0;}
 .alert-header{font-weight:700; font-size:13px; color:var(--text); line-height:1.4;}
 .alert-posted{font-size:10.5px; color:var(--text-faint); font-family:'IBM Plex Mono', monospace; margin-top:2px;}
@@ -986,7 +986,7 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
    flat menu-dividers between same-color sections with no real edges. Ties
    Settings into the same visual language as the train info panel instead
    of looking like a separate, older part of the app. */
-.settings-section{background:var(--bg); border:1px solid var(--border); border-radius:12px; padding:12px 14px; margin-top:12px;}
+.settings-section{background:var(--bg); border:1px solid var(--border); border-radius:12px; padding:12px 14px; margin-top:12px; box-shadow:0 2px 8px -4px rgba(0,0,0,0.35);}
 .settings-section:first-child{margin-top:0;}
 .menu-section-label{font-size:11px; text-transform:uppercase; letter-spacing:0.06em; color:var(--text-faint); font-family:'Space Grotesk', sans-serif; margin-bottom:2px; font-weight:700;}
 .section-toggle{display:flex; align-items:center; justify-content:space-between; cursor:pointer; padding:2px; margin-bottom:2px; transition:opacity 0.15s ease;}
@@ -1049,7 +1049,18 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
   #rosterList{grid-template-columns:1fr 1fr;}
 }
 
-.roster-row{background:var(--bg); border:1px solid var(--border); border-radius:10px; padding:12px;}
+.roster-row{
+  background:var(--bg); border:1px solid var(--border); border-radius:10px; padding:12px;
+  transition:border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+}
+/* Every .roster-row is a clickable navigation target (to that car's own
+   page — see openCarDetail) but had no hover/active feedback at all
+   despite that, so it read as static/flat rather than as an interactive
+   card. Scoped to #rosterList specifically since .roster-row is reused
+   elsewhere (e.g. inside the expanded consist editor) where it's just a
+   layout container, not something you click. */
+#rosterList .roster-row:hover{border-color:var(--accent); transform:translateY(-1px); box-shadow:0 6px 16px -6px rgba(0,0,0,0.4);}
+#rosterList .roster-row:active{transform:translateY(0) scale(0.99);}
 .roster-row-head{display:flex; align-items:center; gap:8px; margin-bottom:8px; flex-wrap:wrap;}
 .roster-car-chip{font-family:'IBM Plex Mono', monospace; font-weight:700; font-size:13px; color:var(--text);}
 .roster-type-tag{font-size:10.5px; color:var(--text-faint); font-family:'IBM Plex Mono', monospace;}
@@ -1077,7 +1088,7 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
   background:var(--panel); color:var(--text); font-size:12.5px; font-family:'IBM Plex Sans', sans-serif;
   margin-top:8px; transition:border-color 0.15s ease;
 }
-.roster-input:focus, .roster-textarea:focus{outline:none; border-color:var(--accent);}
+.roster-input:focus, .roster-textarea:focus{outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(20,108,67,0.25);}
 .roster-textarea{min-height:48px; resize:vertical;}
 .roster-readonly{
   font-size:12.5px; color:var(--text-dim); padding:7px 0; min-height:20px;
@@ -4613,6 +4624,11 @@ async function showCarModal(v){
   if(tripNotes && ((tripNotes.headsign && v.headsign && tripNotes.headsign !== v.headsign) || tripNotes.date !== todayDateString())){
     await clearTripNotes(v.id);
     tripNotes = null;
+    // Re-check after this second await, same as right after the Promise.all
+    // above — if the user closed this train's modal (or opened a different
+    // one) during this clear, don't let this stale call's render clobber
+    // whatever's actually on screen now.
+    if(modalRefreshToken !== myModalToken) return;
   }
 
   // Simple per-car crowding list — only shown if at least one car actually
@@ -7482,10 +7498,16 @@ function renderVehicleList(){
   // after (and meant to represent) just the one branch actually selected,
   // so it shouldn't grow to include cross-branch trains just because
   // they're temporarily also visible on the map above it.
+  //
+  // REDASHMONT/REDBRAINTREE are also flagged isMulti (needed for their
+  // stop-index matching, since Red Line has no clean per-branch v.branch
+  // value) but each represents one specific branch, not a true
+  // multi-branch trunk like SUBWAY/REDTRUNK — same trap countForPage's own
+  // comment calls out, and checked here the same way, first.
   const pageBranchId = RED_PAGE_TO_BRANCH_ID[key] || key;
-  let relevant = page.isMulti
-    ? state.vehicles.filter(v => findStopIndex(key, v.stopName) !== null)
-    : state.vehicles.filter(v => getEffectiveBranchForToggle(v) === pageBranchId && findStopIndex(key, v.stopName) !== null);
+  let relevant = (RED_PAGE_TO_BRANCH_ID[key] || !page.isMulti)
+    ? state.vehicles.filter(v => getEffectiveBranchForToggle(v) === pageBranchId && findStopIndex(key, v.stopName) !== null)
+    : state.vehicles.filter(v => findStopIndex(key, v.stopName) !== null);
 
   if(state.filterDirection !== 'ALL'){
     relevant = relevant.filter(v => String(v.direction) === state.filterDirection);
@@ -8060,30 +8082,42 @@ function carDetailTrackLineStyle(){
   return { color: LINE_BRAND_HEX[state.activeLine] || '#9CA3AF', weight:2.5, opacity:0.85 };
 }
 
-// Green Line track centerlines (incl. yard/branch-junction linework),
-// sourced from MassGIS's official MBTA Rapid Transit Lines dataset and
-// bundled as a static file — fetched once and cached, drawn under the
-// vehicle markers. Public GIS data doesn't break out individual switches as
-// points, but branch junctions (where the shared trunk splits into B/C/D/E)
-// are included in the linework itself. Green Line only, since that's what
-// was asked for and it's the only line with real yard/branch complexity.
-let greenLineTracksGeoJSON = null;
-let greenLineTracksFetchPromise = null;
-function drawGreenLineTracksOnMap(map){
-  if(state.activeLine !== 'green') return;
-  if(greenLineTracksGeoJSON){
-    L.geoJSON(greenLineTracksGeoJSON, { style: carDetailTrackLineStyle() }).addTo(map);
+// Real track centerlines (incl. yard/branch-junction linework for Green),
+// sourced from MassGIS's official MBTA Rapid Transit Lines dataset —
+// the exact same authoritative source used for Green's own file, queried
+// for the other 3 lines too and bundled the same way — one static file
+// per line, fetched once and cached, drawn under the vehicle markers.
+// Public GIS data doesn't break out individual switches as points, but
+// branch junctions (where Green's shared trunk splits into B/C/D/E) are
+// included in the linework itself. Used to be Green Line only ("the only
+// line with real yard/branch complexity") — the actual reason for that
+// scoping was just that Red/Orange/Blue's own geodata hadn't been sourced
+// yet, not that a real track overlay wouldn't be just as useful for
+// confirming a heavy rail car's plotted position sits on its real track.
+const LINE_TRACKS_GEOJSON_URL = {
+  green: '/green-line-tracks.geojson', red: '/red-line-tracks.geojson',
+  orange: '/orange-line-tracks.geojson', blue: '/blue-line-tracks.geojson'
+};
+const lineTracksGeoJSONCache = {};
+const lineTracksFetchPromises = {};
+function drawLineTracksOnMap(map){
+  const line = state.activeLine;
+  const url = LINE_TRACKS_GEOJSON_URL[line];
+  if(!url) return;
+  if(lineTracksGeoJSONCache[line]){
+    L.geoJSON(lineTracksGeoJSONCache[line], { style: carDetailTrackLineStyle() }).addTo(map);
     return;
   }
-  if(!greenLineTracksFetchPromise){
-    greenLineTracksFetchPromise = fetch('/green-line-tracks.geojson').then(r => r.ok ? r.json() : null).catch(()=>null);
+  if(!lineTracksFetchPromises[line]){
+    lineTracksFetchPromises[line] = fetch(url).then(r => r.ok ? r.json() : null).catch(()=>null);
   }
-  greenLineTracksFetchPromise.then(data=>{
+  lineTracksFetchPromises[line].then(data=>{
     if(!data) return;
-    greenLineTracksGeoJSON = data;
-    // The map may have been destroyed (user navigated away) by the time this
-    // fetch resolves — only draw onto it if it's still the live instance.
-    if(carDetailMapInstance === map){
+    lineTracksGeoJSONCache[line] = data;
+    // The map may have been destroyed (user navigated away), or the line
+    // switched, by the time this fetch resolves — only draw onto it if
+    // it's still the live instance showing this same line.
+    if(carDetailMapInstance === map && state.activeLine === line){
       L.geoJSON(data, { style: carDetailTrackLineStyle() }).addTo(map);
     }
   });
@@ -8104,7 +8138,7 @@ function initOrUpdateCarDetailMap(v, leader, follower){
       attribution: '&copy; OpenStreetMap &copy; CARTO &middot; Tracks: MassGIS',
       maxZoom: 19
     }).addTo(map);
-    drawGreenLineTracksOnMap(map);
+    drawLineTracksOnMap(map);
     // Was hardcoded to Green's own hex regardless of which line's car
     // detail page this map was actually opened from — every Orange/Red/
     // Blue car showed up as a green dot no matter what. LINE_BRAND_HEX is
