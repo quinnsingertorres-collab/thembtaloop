@@ -5657,12 +5657,26 @@ async function fetchTerminusSchedule(branchKey, directionId){
     .slice(0, 15);
 }
 
-async function loadCarPredictions(){
-  if(!firebaseReady) return {};
+// Scoped to just the tripIds actually being shown, instead of reading the
+// WHOLE car_predictions collection every time someone opens a station's
+// departures — that collection gets a doc per trip ever predicted, with
+// nothing to ever clean old ones out, so a full unfiltered .get() here
+// only ever gets slower as the app accumulates more history. This is
+// almost certainly why the departures modal could take a very long time
+// to load. Chunked into groups of 10 — the conservative, always-safe
+// limit for a Firestore 'in' query regardless of SDK version — and run in
+// parallel, even though today's caller (showTerminusSchedule, capped at
+// 15 trips) never needs more than two chunks.
+async function loadCarPredictions(tripIds){
+  if(!firebaseReady || !tripIds || !tripIds.length) return {};
   try{
-    const snap = await fbDb.collection('car_predictions').get();
+    const chunks = [];
+    for(let i = 0; i < tripIds.length; i += 10) chunks.push(tripIds.slice(i, i + 10));
+    const snaps = await Promise.all(chunks.map(chunk =>
+      fbDb.collection('car_predictions').where(firebase.firestore.FieldPath.documentId(), 'in', chunk).get()
+    ));
     const map = {};
-    snap.forEach(doc => map[doc.id] = doc.data());
+    snaps.forEach(snap => snap.forEach(doc => map[doc.id] = doc.data()));
     return map;
   }catch(e){ console.error(e); return {}; }
 }
@@ -5829,7 +5843,7 @@ async function showTerminusSchedule(branchKey, stopName, directionId){
   // Shares the same 15-minute roster-page cache as showCarModal above,
   // instead of a fresh uncached full read of the users collection.
   const [predictions, rosterCache] = await Promise.all([
-    loadCarPredictions(), loadRosterPanelData()
+    loadCarPredictions(trips.map(t => t.tripId)), loadRosterPanelData()
   ]);
   const userInfoMap = rosterCache.tagMap;
   if(modalRefreshToken !== myToken) return;
@@ -5911,7 +5925,7 @@ async function showTerminusSchedule(branchKey, stopName, directionId){
       ? (isGreenLine ? liveMatch.label : formatCarNumberForDisplay(String(liveMatch.label).split('-')[0]))
       : ((pred && pred.carNumber) ? pred.carNumber : '');
     const predictedTag = liveMatch
-      ? `<span class="signin-note" style="color:#0F8A4B;">Confirmed \u2014 this train is currently tracked and assigned to this exact trip</span>`
+      ? `<span class="signin-note" style="color:#0F8A4B;">Confirmed via MBTA API</span>`
       : (pred && pred.carNumber)
         ? `<span class="signin-note">By ${liveName(pred.editedBy, pred.editedByUid, userInfoMap)} \u2014 ${formatEditLogTimestamp(pred.ts)}</span>`
         : `<span class="signin-note">No prediction yet \u2014 be the first to add one</span>`;

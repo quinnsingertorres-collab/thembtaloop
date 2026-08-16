@@ -503,11 +503,66 @@ async function commitPairChanges(changes, ts){
   }
 }
 
+// Both the sheet's row count AND its actual values are cached briefly,
+// in-memory, on the Cloud Functions instance — shared across every car
+// this endpoint is asked about, not per-key. Previously every single
+// request re-read the ENTIRE sheet from scratch, unconditionally; since
+// it's an append-only log that's never trimmed, that read only ever got
+// slower as more history piled up, which is almost certainly why opening
+// a car's info (Pairing/Set history section) could take a very long
+// time — made worse recently by the full-"set" tracking on Red/Orange/Blue
+// appending several rows per change instead of Green's one. TTL matches
+// the 30s Cache-Control already on this endpoint's HTTP response, so this
+// doesn't add any staleness beyond what clients already tolerated.
+const PAIR_HISTORY_CACHE_TTL_MS = 45 * 1000;
+// Hard cap on how many of the sheet's most recent rows are ever read in
+// one call — without this, the read cost still grows forever even with
+// caching, just more slowly. 8000 rows comfortably covers
+// PAIR_HISTORY_MAX_AGE_MS (3 weeks) at any realistic append rate here.
+const PAIR_HISTORY_ROW_CAP = 8000;
+let _pairHistoryRowsCache = { rows: null, ts: 0 };
+
+async function getPairHistoryRows(){
+  const now = Date.now();
+  if(_pairHistoryRowsCache.rows && (now - _pairHistoryRowsCache.ts) < PAIR_HISTORY_CACHE_TTL_MS){
+    return _pairHistoryRowsCache.rows;
+  }
+  const sheets = await getSheetsClient();
+  // Starting at row 2 (skipping the header row) by default, so every path
+  // below returns pure data rows with no special-casing needed elsewhere.
+  let range = `${PAIR_HISTORY_SHEET_TAB}!A2:C`;
+  try{
+    // Metadata-only lookup (no cell data transferred, so it's cheap
+    // regardless of sheet size) — used just to bound the real read below
+    // to the most recent PAIR_HISTORY_ROW_CAP rows instead of the whole
+    // sheet. Falls back to the unbounded range above if this fails for any
+    // reason (a brand new sheet, an unexpected API shape, quota hiccup) —
+    // worse latency that day, not a broken feature.
+    const meta = await sheets.spreadsheets.get({
+      spreadsheetId: PAIR_HISTORY_SHEET_ID,
+      ranges: [PAIR_HISTORY_SHEET_TAB],
+      fields: 'sheets.properties.gridProperties.rowCount'
+    });
+    const rowCount = meta.data.sheets && meta.data.sheets[0] &&
+      meta.data.sheets[0].properties.gridProperties.rowCount;
+    if(rowCount && rowCount > PAIR_HISTORY_ROW_CAP){
+      const startRow = Math.max(2, rowCount - PAIR_HISTORY_ROW_CAP);
+      range = `${PAIR_HISTORY_SHEET_TAB}!A${startRow}:C${rowCount}`;
+    }
+  }catch(e){
+    console.error('Pair history row-count lookup failed, falling back to a full read:', e);
+  }
+  const result = await sheets.spreadsheets.values.get({ spreadsheetId: PAIR_HISTORY_SHEET_ID, range });
+  const rows = result.data.values || [];
+  _pairHistoryRowsCache = { rows, ts: now };
+  return rows;
+}
+
 // HTTPS endpoint index.html's loadPairHistory() calls instead of reading
-// Firestore directly (see PAIR_HISTORY_ENDPOINT there). Reads the whole
-// sheet in one call, filters to the requested car, and reconstructs the
-// same {partner, from, to} shape the client already expects — from/to
-// chaining explained in the big comment on commitPairChanges above.
+// Firestore directly (see PAIR_HISTORY_ENDPOINT there). Filters the cached/
+// bounded rows above to the requested car, and reconstructs the same
+// {partners, from, to} shape the client already expects — from/to chaining
+// explained in the big comment on commitPairChanges above.
 exports.getPairHistory = onRequest({ secrets: [GOOGLE_SHEETS_CREDENTIALS] }, async (req, res) => {
   applyCors(res);
   if(req.method === 'OPTIONS'){ res.status(204).send(''); return; }
@@ -516,18 +571,12 @@ exports.getPairHistory = onRequest({ secrets: [GOOGLE_SHEETS_CREDENTIALS] }, asy
   if(!key){ res.status(400).json({ error: 'Missing ?key=' }); return; }
 
   try{
-    const sheets = await getSheetsClient();
-    const result = await sheets.spreadsheets.values.get({
-      spreadsheetId: PAIR_HISTORY_SHEET_ID,
-      range: `${PAIR_HISTORY_SHEET_TAB}!A:C`
-    });
-    const rows = result.data.values || [];
+    const rows = await getPairHistoryRows();
 
-    // Row 0 is the header (CarKey | Partner | From) — everything from row 1
-    // on is real data. Filter to this car, sort oldest-first (append order
-    // should already be chronological, but sorting is cheap insurance
-    // against any out-of-order writes).
-    const carRows = rows.slice(1)
+    // Filter to this car, sort oldest-first (append order should already
+    // be chronological, but sorting is cheap insurance against any
+    // out-of-order writes).
+    const carRows = rows
       .filter(r => r[0] === key)
       .map(r => ({ partners: parsePartnersCell(r[1]), from: new Date(r[2]).getTime() }))
       .filter(r => !isNaN(r.from))
