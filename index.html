@@ -1091,6 +1091,21 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
 }
 .roster-reset-btn:hover{background:rgba(214,69,69,0.1); border-color:#D64545;}
 .storage-note{font-size:11px; color:var(--text-faint); margin-top:12px; line-height:1.5;}
+/* Groups an inline edit control (a text/time input) with its own action
+   button on one row, instead of each usage hand-rolling its own
+   width:auto/display:inline-block/margin overrides on .roster-input
+   (100% width by default) and .account-btn (also 100% by default) — that
+   ad hoc approach is what made the station schedule modal's Predicted
+   cars / Correct time controls look scattered and inconsistently sized.
+   Wraps to its own line on narrow screens instead of overflowing. */
+.modal-edit-row{display:flex; gap:8px; align-items:center; margin-top:8px; flex-wrap:wrap;}
+.modal-edit-row .roster-input{width:auto; flex:1 1 120px; margin-top:0; min-width:0;}
+.modal-edit-row .account-btn{width:auto; flex:0 0 auto; margin-top:0; padding:8px 12px; white-space:nowrap;}
+/* Standalone action buttons (Drop trip, Remove this added departure...)
+   that used to each get their own one-off width:auto override and stack
+   as separate full-width bars — grouped onto one row, evenly sized. */
+.modal-btn-row{display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;}
+.modal-btn-row .account-btn, .modal-btn-row .roster-reset-btn{width:auto; flex:0 0 auto; margin-top:0;}
 /* Pairing history: one condensed list, newest first, current pairing
    (if any) simply the first row rather than its own separate highlighted
    banner box — replaces an earlier two-piece layout (a bordered "current
@@ -4400,6 +4415,19 @@ function formatCarNumberForDisplay(carNum){
   return carNum;
 }
 
+// Real, line-appropriate "e.g." car-number examples for placeholder text —
+// every such placeholder used to default to a Green Line-style pair
+// ("3838-3868") regardless of which line was actually selected, so a Red
+// Line user editing a consist or predicting cars saw an example numbered
+// nothing like their own line's real cars. One representative adjacent-
+// pair example per line, drawn from each line's own real numbering range
+// (see ROSTER_RANGES_BY_LINE) — Blue's is zero-padded to match how its
+// live feed (and formatCarNumberForDisplay above) actually reports numbers.
+const CAR_NUMBER_EXAMPLE = { green:'3838-3839', red:'1934-1935', orange:'1400-1401', blue:'0700-0701' };
+function carNumberExample(){
+  return CAR_NUMBER_EXAMPLE[state.activeLine] || CAR_NUMBER_EXAMPLE.green;
+}
+
 function getCarPositionLabel(i, isGreenLine){
   if(isGreenLine){
     return i === 0 ? 'Lead Car' : (i === 1 ? 'Trailer Car' : 'Car ' + (i+1));
@@ -4766,7 +4794,7 @@ async function showCarModal(v){
        <input type="text" class="roster-input" id="consistAddInput" data-enter-target="consistAddBtn" placeholder="Car number to add, e.g. 3868" style="margin-top:6px;">
        <button class="account-btn" id="consistAddBtn" style="margin-top:6px;">Add car</button>
        <div class="roster-field-label" style="margin-top:10px;">Or directly edit the whole set</div>
-       <input type="text" class="roster-input" id="consistEditInput" data-enter-target="consistSaveBtn" value="${effectiveLabel}" placeholder="e.g. 3838-3868">
+       <input type="text" class="roster-input" id="consistEditInput" data-enter-target="consistSaveBtn" value="${effectiveLabel}" placeholder="e.g. ${carNumberExample()}">
        <button class="account-btn" id="consistSaveBtn" style="margin-top:6px;">Save consist correction</button>`
     : `<div class="signin-note">Sign in to correct this train's car numbers.</div>`;
 
@@ -5759,6 +5787,7 @@ function operatorFieldHtml(tripId, position, pred, userInfoMap){
 let modalRefreshToken = 0;
 
 async function showTerminusSchedule(branchKey, stopName, directionId){
+  clearStaleModalStickyInfo();
   const myToken = ++modalRefreshToken;
   const alreadyOpen = document.getElementById('carModalOverlay').classList.contains('show');
   document.getElementById('carModalTitle').textContent = `${displayName(stopName)} \u2014 Scheduled Departures`;
@@ -5827,18 +5856,25 @@ async function showTerminusSchedule(branchKey, stopName, directionId){
       ? `<span class="signin-note">Time corrected by ${liveName(pred.timeEditedBy, pred.timeEditedByUid, userInfoMap)}</span>`
       : '';
     const timeEditControl = state.signedIn
-      ? `<input type="time" class="roster-input" data-time-trip="${trip.tripId}" value="${dep.toTimeString().slice(0,5)}" style="width:110px; display:inline-block;">
-         <button class="account-btn" data-save-time="${trip.tripId}" style="width:auto; display:inline-block; padding:6px 10px; margin-top:0; margin-left:6px;">Correct time</button>`
+      ? `<div class="modal-edit-row">
+           <input type="time" class="roster-input" data-time-trip="${trip.tripId}" value="${dep.toTimeString().slice(0,5)}" style="flex:0 0 130px;">
+           <button class="account-btn" data-save-time="${trip.tripId}">Correct time</button>
+         </div>`
       : '';
     const removeManualBtn = (trip.isManual || trip.manualDocId)
-      ? `<button class="roster-reset-btn" data-remove-manual="${trip.manualDocId}" style="width:auto; display:inline-block; margin-top:6px;">Remove this added departure</button>`
+      ? `<button class="roster-reset-btn" data-remove-manual="${trip.manualDocId}">Remove this added departure</button>`
       : '';
     // Drops this specific trip out of the schedule entirely (e.g. it's on
     // MBTA's published schedule but isn't actually going to run today).
     // Comes back on its own — see the undropTrip() call above — the moment
     // a live train is confirmed tracking on this exact trip ID.
     const dropTripBtn = state.signedIn
-      ? `<button class="account-btn" data-drop-trip="${trip.tripId}" style="width:auto; display:inline-block; margin-top:6px; margin-left:6px; background:#D64545;">Drop trip</button>`
+      ? `<button class="account-btn" data-drop-trip="${trip.tripId}" style="background:#D64545;">Drop trip</button>`
+      : '';
+    // Both share one row instead of stacking as separate full-width bars —
+    // empty string when neither applies so no stray blank row is added.
+    const tripBtnRow = (removeManualBtn || dropTripBtn)
+      ? `<div class="modal-btn-row">${removeManualBtn}${dropTripBtn}</div>`
       : '';
 
     if(!withinPredictionWindow){
@@ -5848,8 +5884,7 @@ async function showTerminusSchedule(branchKey, stopName, directionId){
           <span class="signin-note">Car prediction available within 1.5 hours of departure</span>
           ${timeCorrectionNote}
           ${timeEditControl}
-          ${removeManualBtn}
-          ${dropTripBtn}
+          ${tripBtnRow}
         </div>`;
     }
 
@@ -5860,8 +5895,10 @@ async function showTerminusSchedule(branchKey, stopName, directionId){
         ? `<span class="signin-note">By ${liveName(pred.editedBy, pred.editedByUid, userInfoMap)} \u2014 ${formatEditLogTimestamp(pred.ts)}</span>`
         : `<span class="signin-note">No prediction yet \u2014 be the first to add one</span>`;
     const editControl = state.signedIn
-      ? `<input type="text" class="roster-input" data-predict-trip="${trip.tripId}" data-old-value="${carNumber}" value="${carNumber}" placeholder="e.g. 3838-3868" style="width:130px; display:inline-block;">
-         <button class="account-btn" data-save-predict="${trip.tripId}" style="width:auto; display:inline-block; padding:6px 10px; margin-top:0; margin-left:6px;">Save</button>`
+      ? `<div class="modal-edit-row">
+           <input type="text" class="roster-input" data-predict-trip="${trip.tripId}" data-old-value="${carNumber}" value="${carNumber}" placeholder="e.g. ${carNumberExample()}">
+           <button class="account-btn" data-save-predict="${trip.tripId}">Save</button>
+         </div>`
       : '';
 
     const operatorsHtml = operatorFieldHtml(trip.tripId, 'Lead', pred, userInfoMap) + operatorFieldHtml(trip.tripId, 'Trailer', pred, userInfoMap);
@@ -5874,8 +5911,7 @@ async function showTerminusSchedule(branchKey, stopName, directionId){
         ${editControl}
         ${timeCorrectionNote}
         ${timeEditControl}
-        ${removeManualBtn}
-        ${dropTripBtn}
+        ${tripBtnRow}
         ${operatorsHtml}
       </div>`;
   }).join('');
@@ -5883,15 +5919,22 @@ async function showTerminusSchedule(branchKey, stopName, directionId){
   const addDepartureForm = state.signedIn
     ? `<div class="modal-section">
         <h4>Add a departure missing from MBTA's schedule</h4>
-        <input type="time" class="roster-input" id="addDepartureTime" style="width:110px; display:inline-block;">
-        <input type="text" class="roster-input" id="addDepartureHeadsign" placeholder="Destination" style="width:150px; display:inline-block; margin-left:6px;">
-        <button class="account-btn" id="addDepartureBtn" style="margin-top:6px;">Add departure</button>
+        <div class="modal-edit-row">
+          <input type="time" class="roster-input" id="addDepartureTime" style="flex:0 0 130px;">
+          <input type="text" class="roster-input" id="addDepartureHeadsign" placeholder="Destination">
+        </div>
+        <button class="account-btn" id="addDepartureBtn">Add departure</button>
       </div>`
     : '';
 
-  document.getElementById('carModalBody').innerHTML =
-    `<div class="modal-row"><span style="color:var(--text-faint); font-size:11px;">Departure times are from MBTA's published schedule unless corrected below. Car numbers are entirely community-submitted, not automatic or official MBTA data, and only shown within 1.5 hours of departure.</span><strong></strong></div>`
-    + rows + addDepartureForm;
+  // Short disclaimer, styled like the app's other fine-print notes
+  // (.storage-note) instead of an oversized modal-row — and placed at the
+  // very end, after every trip and the add-departure form, so it reads as
+  // a footnote rather than the first thing anyone sees on opening this
+  // modal (which used to push the actual departures below the fold).
+  const disclaimer = `<div class="storage-note">Times follow MBTA's schedule unless corrected. Car numbers are community-submitted, not official MBTA data.</div>`;
+
+  document.getElementById('carModalBody').innerHTML = rows + addDepartureForm + disclaimer;
 
   document.querySelectorAll('[data-save-predict]').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
