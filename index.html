@@ -5888,25 +5888,38 @@ async function showTerminusSchedule(branchKey, stopName, directionId){
         </div>`;
     }
 
-    const carNumber = liveMatch ? liveMatch.label : ((pred && pred.carNumber) ? pred.carNumber : '');
+    // Red/Orange/Blue consists aren't married pairs the way Green's are \u2014
+    // predicting/confirming a "lead-trailer" number for them implied a
+    // fixed 2-car unit that doesn't really exist on those lines, and in
+    // practice only the lead car is ever visible/relevant for spotting a
+    // train at a terminus anyway. Same lead-car-only convention already
+    // used elsewhere for non-Green display labels (see e.g. line ~6047's
+    // displayCarLabel) \u2014 just applied here too.
+    const isGreenLine = state.activeLine === 'green';
+    const carNumber = liveMatch
+      ? (isGreenLine ? liveMatch.label : formatCarNumberForDisplay(String(liveMatch.label).split('-')[0]))
+      : ((pred && pred.carNumber) ? pred.carNumber : '');
     const predictedTag = liveMatch
       ? `<span class="signin-note" style="color:#0F8A4B;">Confirmed \u2014 this train is currently tracked and assigned to this exact trip</span>`
       : (pred && pred.carNumber)
         ? `<span class="signin-note">By ${liveName(pred.editedBy, pred.editedByUid, userInfoMap)} \u2014 ${formatEditLogTimestamp(pred.ts)}</span>`
         : `<span class="signin-note">No prediction yet \u2014 be the first to add one</span>`;
+    const predictionExample = isGreenLine ? carNumberExample() : carNumberExample().split('-')[0];
     const editControl = state.signedIn
       ? `<div class="modal-edit-row">
-           <input type="text" class="roster-input" data-predict-trip="${trip.tripId}" data-old-value="${carNumber}" value="${carNumber}" placeholder="e.g. ${carNumberExample()}">
+           <input type="text" class="roster-input" data-predict-trip="${trip.tripId}" data-old-value="${carNumber}" value="${carNumber}" placeholder="e.g. ${predictionExample}">
            <button class="account-btn" data-save-predict="${trip.tripId}">Save</button>
          </div>`
       : '';
 
-    const operatorsHtml = operatorFieldHtml(trip.tripId, 'Lead', pred, userInfoMap) + operatorFieldHtml(trip.tripId, 'Trailer', pred, userInfoMap);
+    const operatorsHtml = isGreenLine
+      ? operatorFieldHtml(trip.tripId, 'Lead', pred, userInfoMap) + operatorFieldHtml(trip.tripId, 'Trailer', pred, userInfoMap)
+      : operatorFieldHtml(trip.tripId, 'Lead', pred, userInfoMap);
 
     return `
       <div class="modal-section">
         <div class="modal-row"><span>${timeStr}</span><strong>to ${trip.headsign || 'Unknown'}</strong></div>
-        <div class="modal-row"><span>Predicted cars (lead-trailer)</span><strong>${carNumber || '\u2014'}</strong></div>
+        <div class="modal-row"><span>${isGreenLine ? 'Predicted cars (lead-trailer)' : 'Predicted lead car'}</span><strong>${carNumber || '\u2014'}</strong></div>
         ${predictedTag}
         ${editControl}
         ${timeCorrectionNote}
