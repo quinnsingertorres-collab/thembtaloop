@@ -1157,14 +1157,20 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
 #carDetailMapContainer .leaflet-control-attribution{background:rgba(11,20,32,0.75); color:var(--text-faint); font-size:9px;}
 #carDetailMapContainer .leaflet-control-attribution a{color:var(--text-faint);}
 </style>
+<!-- Leaflet's CSS stays here in the document head (stylesheets are meant
+     to load early so the map's own layout/controls aren't unstyled for a
+     moment) — but its JS, plus html2canvas and the 3 Firebase scripts
+     below, used to sit right here too. Those are all plain blocking
+     script tags (no defer/async), so the browser couldn't parse ANY of
+     the actual page body (the gate screen, main app markup, every modal)
+     until all 5 finished downloading and executing — pure dead time
+     before anything visible could even start rendering. They're moved to
+     just before the main app script at the end of body instead: same
+     execution order (these still run, in order, before that script does,
+     since script execution order always follows document order), just
+     reached after the browser has already parsed and painted the actual
+     page shell instead of before it. -->
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-<!-- Renders the Track Map panel to a canvas for the "Snapshot Map" button
-     (see snapshotMapBtn below) — client-side only, no server round trip. -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 </head>
 <body class="dark">
 
@@ -1705,6 +1711,19 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
   </div>
 </div>
 
+<!-- Moved here from <head> — see the comment there — so the whole page
+     body above has already been parsed (and can paint) before the
+     browser has to block on these. Leaflet's JS and the 3 Firebase compat
+     scripts, in that order, all before the main app script below since it
+     uses all of them starting from its very first lines
+     (firebase.initializeApp, etc). html2canvas is NOT here — it's lazy-
+     loaded only if/when the Snapshot Map button is actually clicked (see
+     loadHtml2Canvas near that button's code), since most visits never use
+     that feature at all. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script>
 /* ---------------- Back-navigation guard ---------------- */
 /* This is a single-page app with no internal routing of its own (no
@@ -10286,11 +10305,27 @@ if(mobileTrainsBackdrop) mobileTrainsBackdrop.addEventListener('click', ()=>{
     return out;
   }
 
-  btn.addEventListener('click', async ()=>{
-    if(typeof html2canvas !== 'function'){
-      setLabel('Unavailable', 1800);
-      return;
+  // html2canvas is only needed for this one button, and most visits never
+  // click it — lazy-loaded on first use here instead of a static <script>
+  // tag every visitor paid the download/parse cost for regardless.
+  // Cached as a promise so a second click while it's still loading (or
+  // after it's already loaded) never injects the script twice.
+  let html2canvasLoadPromise = null;
+  function loadHtml2Canvas(){
+    if(typeof html2canvas === 'function') return Promise.resolve(true);
+    if(!html2canvasLoadPromise){
+      html2canvasLoadPromise = new Promise((resolve)=>{
+        const script = document.createElement('script');
+        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+        script.onload = ()=> resolve(typeof html2canvas === 'function');
+        script.onerror = ()=> resolve(false);
+        document.head.appendChild(script);
+      });
     }
+    return html2canvasLoadPromise;
+  }
+
+  btn.addEventListener('click', async ()=>{
     // .panel--plain is the whole Track Map panel (title + W/E labels +
     // ladder) — same element referenced elsewhere as trackMapPanel. It's
     // display:none on every page except the track map itself, and this
@@ -10298,6 +10333,12 @@ if(mobileTrainsBackdrop) mobileTrainsBackdrop.addEventListener('click', ()=>{
     const target = document.querySelector('.main-grid > .panel--plain');
     if(!target) return;
     btn.disabled = true;
+    setLabel('Loading…');
+    const html2canvasReady = await loadHtml2Canvas();
+    if(!html2canvasReady){
+      setLabel('Unavailable', 1800);
+      return;
+    }
     setLabel('Capturing…');
 
     // Build the PNG as a promise, but don't await it yet — passing a
@@ -10534,14 +10575,18 @@ async function init(){
   setInterval(tickClock, 1000);
   fetchWeather();
   setInterval(fetchWeather, 600000);
-  refreshVehicles();
   // MBTA's underlying vehicle position data (reported via each train's AVL
   // system) itself typically only refreshes every ~10-15s at the source,
   // so polling much faster than that wouldn't reliably return newer data —
   // this is close to the fastest that's actually useful, without adding
   // request volume for no benefit. Their v3 API's rate limit with a
-  // registered key has plenty of headroom above this.
-  setInterval(refreshVehicles, 10000);
+  // registered key has plenty of headroom above this. Gated by tab
+  // visibility (not by page — the roster's "Active now" badges and the
+  // car detail page's live status both depend on this too, not just the
+  // track map) so a backgrounded tab stops polling MBTA entirely instead
+  // of doing it forever in the background; catches up the moment the tab
+  // is visible again, same as every other startGatedPoll call below.
+  startGatedPoll(refreshVehicles, 10000, { scopeToLivePage: false });
 
   updateDiscordBanner();
 
@@ -10583,11 +10628,11 @@ async function init(){
   startGatedPoll(refreshHiddenTrainsCache, 60000);
   startGatedPoll(refreshOperatorSearchCache, 60000);
 
-  refreshEnhancedTripData();
   // Matches the edge cache's s-maxage=10 on /api/enhanced-vehicle-positions
   // (see that file) — polling any faster wouldn't get fresher data than
-  // what's already sitting in the cache, just more requests to it.
-  setInterval(refreshEnhancedTripData, 10000);
+  // what's already sitting in the cache, just more requests to it. Gated
+  // by tab visibility for the same reason as refreshVehicles above.
+  startGatedPoll(refreshEnhancedTripData, 10000, { scopeToLivePage: false });
 
   startGatedPoll(refreshSoloType7OverrideCache, 60000);
   startGatedPoll(refreshBranchReassignmentCache, 60000);
