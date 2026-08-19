@@ -426,6 +426,7 @@ body.dark .discord-banner{background:#5865F2; border-color:#5865F2; color:#fff;}
 }
 .mobile-trains-close{display:none;}
 .mobile-trains-backdrop{display:none;}
+.mobile-trains-open-tab{display:none;}
 @media (max-width:899px){
   /* Swaps "trains on this branch" from sitting in normal document flow
      below the track map — which meant scrolling all the way past the whole
@@ -478,6 +479,26 @@ body.dark .discord-banner{background:#5865F2; border-color:#5865F2; color:#fff;}
     transition:color 0.15s ease;
   }
   .mobile-trains-close:hover{color:var(--text);}
+  /* Visible open handle for the swipe-in drawer — the swipe gesture itself
+     (see the touchstart/touchmove handling near the bottom of the script)
+     has no on-screen affordance at all, so on a phone nobody's told to
+     swipe there's otherwise no way to discover the trains panel exists.
+     Mirrors the desktop .trains-panel-toggle tab (same edge-attached shape,
+     same spot conceptually), just click/tap instead of a collapse toggle,
+     and only shown on the track map itself — same gating as the swipe
+     gesture, since there's nothing to reveal on any other page. Hidden the
+     instant the drawer's actually open so it doesn't sit on top of it. */
+  .mobile-trains-open-tab{
+    display:none; align-items:center; justify-content:center;
+    position:fixed; top:50%; right:0; transform:translateY(-50%);
+    width:22px; height:64px; border-radius:10px 0 0 10px;
+    background:var(--panel); border:1px solid var(--border); border-right:none;
+    color:var(--text-dim); cursor:pointer; padding:0;
+    box-shadow:-2px 0 10px rgba(0,0,0,0.25);
+    z-index:65;
+  }
+  body.track-map-page .mobile-trains-open-tab{display:flex;}
+  body.mobile-trains-open .mobile-trains-open-tab{display:none;}
 }
 
 /* ---------- Panels ---------- */
@@ -1407,6 +1428,10 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
        needed there since that one lives fully off to the side instead of
        overlapping the map. -->
   <div class="mobile-trains-backdrop" id="mobileTrainsBackdrop"></div>
+
+  <button class="mobile-trains-open-tab" id="mobileTrainsOpenTab" title="Show trains on this branch" aria-label="Show trains on this branch">
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M15 5l-7 7 7 7" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </button>
 
   <div class="panel full-bleed" id="rosterPanel" style="display:none;">
    <div class="full-bleed-inner">
@@ -2797,6 +2822,16 @@ let stopArrivalTracker = {};
        }
        match /car_out_of_service/{carId} {
          allow read: if false;
+         allow write: if true;
+       }
+       // Moderator/trusted-member-posted diversions & closures (see
+       // showAlertsModal's composer). Read openly since every visitor's
+       // Service Alerts modal fetches these directly, same as the
+       // MBTA-sourced half of that same modal; write access is gated in
+       // the UI (only shown to signed-in moderators/trusted members), same
+       // trust model as every other open-write community collection above.
+       match /community_alerts/{alertId} {
+         allow read: if true;
          allow write: if true;
        }
        // Scheduled-function-only bookkeeping (last-seen stops, pair state,
@@ -6388,6 +6423,16 @@ function getAlertRouteIds(){
   return ['Green-B','Green-C','Green-D','Green-E','Mattapan'];
 }
 
+// Human-readable labels for the same 8 MBTA route ids getAlertRouteIds()
+// returns — used both for the diversion/closure composer's line/branch
+// picker and for labeling community-posted alerts in the list. Must match
+// ALERT_ROUTE_PREF_FIELDS's keys in functions/index.js, since that's what
+// decides who gets pushed when one of these gets posted.
+const ALERT_ROUTE_LABELS = {
+  'Green-B':'Green Line B', 'Green-C':'Green Line C', 'Green-D':'Green Line D', 'Green-E':'Green Line E',
+  'Mattapan':'Mattapan Line', 'Red':'Red Line', 'Orange':'Orange Line', 'Blue':'Blue Line'
+};
+
 function allKnownStopNames(){
   const names = new Set();
   DEPARTURE_LOOKUP_PAGES.forEach(key => PAGES[key].stops.forEach(s => names.add(s)));
@@ -6427,6 +6472,61 @@ async function fetchAlerts(){
     .filter(a => !a.postedAt || (now - new Date(a.postedAt).getTime()) <= FOUR_HOURS_MS);
 }
 
+// Moderator/trusted-member-reported diversions and closures — a separate
+// collection from MBTA's own feed (fetchAlerts above) since these are
+// community-sourced, not MBTA's, but shown merged into the same Service
+// Alerts modal so there's one place to check both. Same expired-doc-cleanup
+// pattern as loadModAlerts (see below): anything past its own expiresAt
+// gets deleted the next time anyone happens to fetch this list, rather than
+// needing a separate scheduled cleanup job. filter by a single 'in' clause
+// only (no orderBy on a different field) so this doesn't need a composite
+// Firestore index — sorted client-side instead.
+async function fetchCommunityAlerts(){
+  if(!firebaseReady) return [];
+  try{
+    const routes = getAlertRouteIds();
+    const snap = await fbDb.collection('community_alerts').where('route', 'in', routes).get();
+    const now = Date.now();
+    const out = [];
+    const expiredDocs = [];
+    snap.forEach(doc=>{
+      const d = doc.data();
+      if(d.expiresAt && d.expiresAt < now) expiredDocs.push(doc.ref);
+      else out.push({ id: doc.id, ...d });
+    });
+    expiredDocs.forEach(ref => ref.delete().catch(e => console.error(e)));
+    out.sort((a,b) => (b.ts || 0) - (a.ts || 0));
+    return out;
+  }catch(e){ console.error(e); return []; }
+}
+
+// Rendered inline inside the Service Alerts modal, only for moderators/
+// trusted members (see showAlertsModal) — scoped to whichever routes are
+// actually relevant to the line currently being viewed, same set
+// getAlertRouteIds() already uses for the MBTA-sourced half of this modal.
+function communityAlertComposerHtml(){
+  const routeOptions = getAlertRouteIds().map(r => `<option value="${r}">${ALERT_ROUTE_LABELS[r] || r}</option>`).join('');
+  return `
+    <div class="modal-section" id="communityAlertComposer" style="display:none;">
+      <div class="roster-field-label">Line/branch</div>
+      <select class="roster-input" id="communityAlertRoute">${routeOptions}</select>
+      <div class="roster-field-label">Diversion / closure details</div>
+      <textarea class="roster-textarea" id="communityAlertText" placeholder="e.g. Shuttle buses replacing service between Sullivan Square and Wellington..."></textarea>
+      <div class="roster-field-label">Expires in</div>
+      <select class="roster-input" id="communityAlertExpiry">
+        <option value="1">1 hour</option>
+        <option value="4">4 hours</option>
+        <option value="12">12 hours</option>
+        <option value="24" selected>24 hours</option>
+        <option value="72">3 days</option>
+        <option value="168">7 days</option>
+        <option value="0">Never (manual removal only)</option>
+      </select>
+      <button class="account-btn" id="communityAlertSendBtn" style="margin-top:8px;">Post diversion/closure</button>
+      <span class="roster-submit-note" id="communityAlertNote"></span>
+    </div>`;
+}
+
 function timeSincePosted(iso){
   if(!iso) return '';
   const minutes = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60000));
@@ -6445,23 +6545,42 @@ async function showAlertsModal(){
   document.getElementById('carModalBody').innerHTML = '<div class="modal-row"><span>Loading&hellip;</span><strong></strong></div>';
   document.getElementById('carModalOverlay').classList.add('show');
 
-  let alerts;
+  const canPostAlerts = state.isModerator || state.isTrustedMember;
+
+  let mbtaAlerts = [];
+  let mbtaFailed = false;
   try{
-    alerts = await fetchAlerts();
+    mbtaAlerts = await fetchAlerts();
   }catch(e){
     console.error(e);
-    document.getElementById('carModalBody').innerHTML = '<div class="modal-row"><span>Could not load T-Alerts right now.</span><strong></strong></div>';
-    return;
+    mbtaFailed = true;
   }
+  const communityAlerts = await fetchCommunityAlerts();
+  mbtaAlerts.sort((a,b) => b.severity - a.severity);
 
-  if(alerts.length === 0){
-    document.getElementById('carModalBody').innerHTML = '<div class="modal-row"><span>No alerts from the last 4 hours.</span><strong></strong></div>';
-    return;
-  }
+  // Community-reported diversions/closures are shown first \u2014 they're
+  // usually the more immediately actionable, locally-sourced ones (a
+  // shuttle bus detail MBTA's own feed hasn't caught up to posting yet),
+  // ahead of MBTA's own official alerts below them.
+  const addBtnHtml = canPostAlerts
+    ? `<button class="modal-info-btn" id="communityAlertToggleBtn" style="margin:0 0 10px;">+ Report a diversion/closure</button>`
+    : '';
+  const composerHtml = canPostAlerts ? communityAlertComposerHtml() : '';
 
-  alerts.sort((a,b) => b.severity - a.severity);
+  const communityHtml = communityAlerts.map(a=>{
+    const canRemove = state.isModerator || (a.postedByUid && a.postedByUid === state.uid);
+    const removeBtn = canRemove
+      ? `<button class="modal-info-btn" data-remove-community-alert="${a.id}" style="margin-top:6px;">Remove</button>`
+      : '';
+    return `
+      <div class="modal-section" style="border-left:3px solid var(--accent);">
+        <div class="alert-header">${linkifyStationNames(a.text)}</div>
+        <div class="alert-posted">${ALERT_ROUTE_LABELS[a.route] || a.route} \u00b7 Reported by ${a.postedBy || 'a member'} \u00b7 ${timeSincePosted(new Date(a.ts).toISOString())}</div>
+        ${removeBtn}
+      </div>`;
+  }).join('');
 
-  document.getElementById('carModalBody').innerHTML = alerts.map(a=>{
+  const mbtaHtml = mbtaAlerts.map(a=>{
     const headerHtml = linkifyStationNames(a.header);
     const descHtml = a.description ? `<div class="alert-desc">${linkifyStationNames(a.description)}</div>` : '';
     const postedHtml = a.postedAt ? `<div class="alert-posted">${timeSincePosted(a.postedAt)}</div>` : '';
@@ -6473,10 +6592,53 @@ async function showAlertsModal(){
       </div>`;
   }).join('');
 
+  const emptyHtml = (communityAlerts.length === 0 && mbtaAlerts.length === 0)
+    ? `<div class="modal-row"><span>${mbtaFailed ? 'Could not load T-Alerts right now.' : 'No alerts from the last 4 hours.'}</span><strong></strong></div>`
+    : '';
+
+  document.getElementById('carModalBody').innerHTML = addBtnHtml + composerHtml + communityHtml + mbtaHtml + emptyHtml;
+
   document.getElementById('carModalBody').querySelectorAll('.alert-station').forEach(el=>{
     el.addEventListener('click', (e)=>{
       e.stopPropagation();
       showStationDeparturesByName(el.dataset.station);
+    });
+  });
+
+  const toggleBtn = document.getElementById('communityAlertToggleBtn');
+  if(toggleBtn) toggleBtn.addEventListener('click', ()=>{
+    const composer = document.getElementById('communityAlertComposer');
+    if(composer) composer.style.display = composer.style.display === 'none' ? '' : 'none';
+  });
+
+  const sendBtn = document.getElementById('communityAlertSendBtn');
+  if(sendBtn) sendBtn.addEventListener('click', async ()=>{
+    const textEl = document.getElementById('communityAlertText');
+    const routeEl = document.getElementById('communityAlertRoute');
+    const expiryEl = document.getElementById('communityAlertExpiry');
+    const note = document.getElementById('communityAlertNote');
+    const text = textEl.value.trim();
+    if(!text){ note.textContent = 'Enter details first.'; setTimeout(()=>{ note.textContent=''; }, 2000); return; }
+    if(!firebaseReady){ note.textContent = 'Firebase not configured'; return; }
+    const expiryHours = parseInt(expiryEl.value, 10);
+    const expiresAt = expiryHours > 0 ? Date.now() + expiryHours * 60 * 60 * 1000 : null;
+    try{
+      await fbDb.collection('community_alerts').add({
+        route: routeEl.value, text, ts: Date.now(),
+        postedBy: state.userName, postedByUid: state.uid || null, expiresAt
+      });
+      logEdit(state.userName, state.uid, `Reported diversion/closure on ${ALERT_ROUTE_LABELS[routeEl.value] || routeEl.value}: "${text.slice(0,60)}"`);
+      showAlertsModal(); // full refresh \u2014 simplest way to show it in the list immediately, same as it'll look on reopen
+    }catch(e){ console.error(e); note.textContent = 'Failed to post \u2014 check Firestore rules'; }
+  });
+
+  document.getElementById('carModalBody').querySelectorAll('[data-remove-community-alert]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      if(!window.confirm('Remove this diversion/closure report?')) return;
+      try{
+        await fbDb.collection('community_alerts').doc(btn.dataset.removeCommunityAlert).delete();
+        showAlertsModal();
+      }catch(e){ console.error(e); }
     });
   });
 }
@@ -10311,6 +10473,11 @@ if(trainsPanelToggle){
 const mobileTrainsBackdrop = document.getElementById('mobileTrainsBackdrop');
 if(mobileTrainsBackdrop) mobileTrainsBackdrop.addEventListener('click', ()=>{
   document.body.classList.remove('mobile-trains-open');
+});
+
+const mobileTrainsOpenTab = document.getElementById('mobileTrainsOpenTab');
+if(mobileTrainsOpenTab) mobileTrainsOpenTab.addEventListener('click', ()=>{
+  document.body.classList.add('mobile-trains-open');
 });
 
 // Belt-and-suspenders backup for the standalone-only zoom lock set on the

@@ -126,7 +126,18 @@ function getSheetsClient(){
       });
       const authClient = await auth.getClient();
       return google.sheets({ version: 'v4', auth: authClient });
-    })();
+    })().catch((e) => {
+      // Without this, a single failure on the FIRST call (bad/stale
+      // credentials, sheet not shared yet, a transient auth hiccup) would
+      // memoize the REJECTED promise forever — every later call on this
+      // same warm instance would immediately re-reject with that same
+      // stale error, permanently and silently breaking writes/reads until
+      // the instance happened to recycle, with nothing in the logs to
+      // suggest it was ever retried. Clearing the cache here means the
+      // next call gets a genuine fresh attempt instead.
+      _sheetsClientPromise = null;
+      throw e;
+    });
   }
   return _sheetsClientPromise;
 }
@@ -361,6 +372,13 @@ const ALERT_ROUTE_PREF_FIELDS = {
   'Blue': 'notifyAlertsBlue'
 };
 const ALERT_ROUTE_IDS = Object.keys(ALERT_ROUTE_PREF_FIELDS);
+// Human-readable labels for the same 8 routes, for push notification copy —
+// must match index.html's own ALERT_ROUTE_LABELS (used for its composer's
+// line/branch picker and for labeling posted diversions in the list).
+const ALERT_ROUTE_LABELS = {
+  'Green-B': 'Green Line B', 'Green-C': 'Green Line C', 'Green-D': 'Green Line D', 'Green-E': 'Green Line E',
+  'Mattapan': 'Mattapan Line', 'Red': 'Red Line', 'Orange': 'Orange Line', 'Blue': 'Blue Line'
+};
 
 // Same activity/datetime filtering as index.html's own fetchAlerts (only
 // currently-active alerts relevant to boarding/riding, not every historical
@@ -388,6 +406,27 @@ async function fetchServiceAlertsForPush(){
 }
 
 const SERVICE_ALERTS_STATE_REF = () => db.collection('bot_state').doc('service_alerts');
+
+// A moderator/trusted member posting a diversion or closure (see
+// index.html's showAlertsModal composer) pushes to the SAME per-branch
+// subscriber set as an official MBTA T-Alert for that route — reusing
+// ALERT_ROUTE_PREF_FIELDS rather than the unconditional sendToAllSubscribers
+// every mod_alerts post uses, since this is meant to be a targeted,
+// line-specific report, not a site-wide announcement.
+exports.sendPushOnCommunityAlert = onDocumentCreated(
+  { document: 'community_alerts/{alertId}', secrets: [VAPID_PRIVATE_KEY] },
+  async (event) => {
+    const data = event.data.data();
+    if(!data || !data.text || !data.route) return;
+    const prefField = ALERT_ROUTE_PREF_FIELDS[data.route];
+    if(!prefField) return;
+    await sendToFilteredSubscribers(prefField, {
+      title: `${ALERT_ROUTE_LABELS[data.route] || data.route} diversion/closure`,
+      body: data.text.slice(0, 180),
+      url: './'
+    });
+  }
+);
 
 function rosterStorageKey(line, carNum){
   return line === 'green' ? String(carNum) : `${line}-${carNum}`;
@@ -569,9 +608,9 @@ function parsePartnersCell(cell){
 
 async function commitPairChanges(changes, ts){
   if(!changes.length) return;
-  try{
+  const fromIso = new Date(ts).toISOString();
+  const append = async () => {
     const sheets = await getSheetsClient();
-    const fromIso = new Date(ts).toISOString();
     await sheets.spreadsheets.values.append({
       spreadsheetId: PAIR_HISTORY_SHEET_ID,
       range: `${PAIR_HISTORY_SHEET_TAB}!A:C`,
@@ -581,8 +620,27 @@ async function commitPairChanges(changes, ts){
         values: changes.map(({ key, partners }) => [key, serializePartners(partners), fromIso])
       }
     });
+  };
+  try{
+    await append();
   }catch(e){
-    console.error('Failed to append pair history rows to the sheet:', e);
+    // One retry, since getSheetsClient no longer memoizes a broken client
+    // forever (see its own comment) — a transient auth hiccup on the first
+    // attempt now gets a genuinely fresh client on the second, instead of
+    // silently dropping this run's pairing changes. Logs the actual
+    // status/message (not just the error object's default toString, which
+    // for a googleapis error often just says "Error") so a REAL persistent
+    // problem — sheet not shared with the service account, wrong tab name,
+    // stale/malformed GOOGLE_SHEETS_CREDENTIALS — is diagnosable from the
+    // Cloud Functions logs instead of vanishing into "Failed to append."
+    console.error('Pair history append failed on first attempt, retrying once:',
+      e.code || e.status || '', e.message || e);
+    try{
+      await append();
+    }catch(e2){
+      console.error('Pair history append failed on retry too — giving up for this run:',
+        e2.code || e2.status || '', e2.message || e2, e2.errors || '');
+    }
   }
 }
 
@@ -920,13 +978,24 @@ exports.syncLastSeenCars = onSchedule({ schedule: 'every 1 minutes', secrets: [V
     const serviceAlerts = await fetchServiceAlertsForPush();
     const alertsStateRef = SERVICE_ALERTS_STATE_REF();
     const alertsStateSnap = await alertsStateRef.get();
-    const priorAlertIds = new Set(alertsStateSnap.exists ? (alertsStateSnap.data().ids || []) : []);
-    const nextAlertIds = [];
+    // A map of id -> firstPushedAt, NOT just an array of currently-active
+    // ids — a long-running or recurring alert (e.g. one whose active_period
+    // is only weekdays, or has scheduled gaps) drops out of MBTA's
+    // filter[datetime]=NOW results during those gaps, and previously this
+    // whole list got REPLACED each run with only what was active THIS run —
+    // so the moment a long-term alert's id disappeared from one run's
+    // results, it looked brand new again the next time it reappeared and
+    // got pushed a second (or third...) time. Accumulating instead of
+    // replacing means once an id's been pushed, it stays suppressed
+    // through any number of later on/off gaps, not just while it happens
+    // to stay continuously active.
+    const priorSeen = alertsStateSnap.exists ? (alertsStateSnap.data().seen || {}) : {};
+    const nextSeen = Object.assign({}, priorSeen);
     const alertPushes = [];
 
     serviceAlerts.forEach(alert => {
-      nextAlertIds.push(alert.id);
-      if(priorAlertIds.has(alert.id)) return; // already pushed about this one
+      if(Object.prototype.hasOwnProperty.call(priorSeen, alert.id)) return; // already pushed about this one, ever
+      nextSeen[alert.id] = now;
       // One push per distinct branch this alert touches, not per route id
       // blindly repeated — an alert naming both Green-B and Green-C, for
       // example, still only sends one push to a Green-B-only subscriber and
@@ -942,7 +1011,19 @@ exports.syncLastSeenCars = onSchedule({ schedule: 'every 1 minutes', secrets: [V
     });
 
     if(alertPushes.length) await Promise.all(alertPushes);
-    await alertsStateRef.set({ ids: nextAlertIds, updatedAt: now });
+
+    // Bound growth — an id genuinely worth suppressing forever would mean
+    // this map growing without limit over years. 90 days comfortably
+    // outlasts any real MBTA alert's lifespan (even long-term construction
+    // notices get reissued with a new id well before then); if the exact
+    // same id somehow resurfaces after 90+ days of total silence, treating
+    // that as "new" again is a reasonable trade, not a real duplicate.
+    const PRUNE_AFTER_MS = 90 * 24 * 60 * 60 * 1000;
+    Object.keys(nextSeen).forEach(id => {
+      if((now - nextSeen[id]) > PRUNE_AFTER_MS) delete nextSeen[id];
+    });
+
+    await alertsStateRef.set({ seen: nextSeen, updatedAt: now });
   }catch(e){
     console.error('T-Alerts push check failed:', e);
   }
