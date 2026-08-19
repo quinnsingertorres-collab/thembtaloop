@@ -310,6 +310,55 @@ const LAST_SEEN_LINE_FEEDS = [
   }
 ];
 
+// ---- T-Alerts push notifications ----
+// Maps each MBTA route id this app cares about to the boolean field on a
+// subscriber's push_subscriptions doc that opts them into pushes for THAT
+// specific line/branch — same "one prefField per category" convention as
+// notifyDestinationChange etc. above, just one field per route instead of
+// one per event type. Green Line is split by branch (B/C/D/E) plus Mattapan,
+// matching MBTA's own route ids and the granularity index.html's own T-Alerts
+// modal already fetches by (see getAlertRouteIds) — Red/Orange/Blue don't
+// have separate branch-level route ids in MBTA's alerts feed, so those three
+// are each a single toggle.
+const ALERT_ROUTE_PREF_FIELDS = {
+  'Green-B': 'notifyAlertsGreenB',
+  'Green-C': 'notifyAlertsGreenC',
+  'Green-D': 'notifyAlertsGreenD',
+  'Green-E': 'notifyAlertsGreenE',
+  'Mattapan': 'notifyAlertsMattapan',
+  'Red': 'notifyAlertsRed',
+  'Orange': 'notifyAlertsOrange',
+  'Blue': 'notifyAlertsBlue'
+};
+const ALERT_ROUTE_IDS = Object.keys(ALERT_ROUTE_PREF_FIELDS);
+
+// Same activity/datetime filtering as index.html's own fetchAlerts (only
+// currently-active alerts relevant to boarding/riding, not every historical
+// alert MBTA has on file) but across all 8 routes in one call instead of
+// per-line, and pulling informed_entity instead of header/description text
+// (all this needs is which routes each alert touches, to know who to push).
+async function fetchServiceAlertsForPush(){
+  const url = 'https://api-v3.mbta.com/alerts?filter[route]=' + ALERT_ROUTE_IDS.join(',') +
+    '&filter[activity]=BOARD,EXIT,RIDE&filter[datetime]=NOW&fields[alert]=header,effect,severity,informed_entity' +
+    '&api_key=' + MBTA_API_KEY;
+  const res = await fetch(url, { headers: MBTA_HEADERS });
+  if(!res.ok) throw new Error('MBTA alerts API returned ' + res.status);
+  const json = await res.json();
+  return (json.data || []).map(a => {
+    const routes = new Set();
+    (a.attributes.informed_entity || []).forEach(ie => { if(ie.route) routes.add(ie.route); });
+    return {
+      id: a.id,
+      header: a.attributes.header || '',
+      effect: a.attributes.effect || '',
+      severity: a.attributes.severity || 0,
+      routes: Array.from(routes).filter(r => ALERT_ROUTE_PREF_FIELDS[r])
+    };
+  }).filter(a => a.routes.length > 0);
+}
+
+const SERVICE_ALERTS_STATE_REF = () => db.collection('bot_state').doc('service_alerts');
+
 function rosterStorageKey(line, carNum){
   return line === 'green' ? String(carNum) : `${line}-${carNum}`;
 }
@@ -771,6 +820,42 @@ exports.syncLastSeenCars = onSchedule({ schedule: 'every 1 minutes', secrets: [V
     }
   });
   if(pushes.length) await Promise.all(pushes);
+
+  // ---- T-Alerts push notifications (per line/branch) ----
+  // A separate MBTA endpoint (alerts, not vehicles) and its own small state
+  // doc — wrapped in its own try/catch so a failure fetching or pushing
+  // alerts never undoes the vehicle-tracking/pair-history work above, which
+  // has already committed by this point regardless.
+  try{
+    const serviceAlerts = await fetchServiceAlertsForPush();
+    const alertsStateRef = SERVICE_ALERTS_STATE_REF();
+    const alertsStateSnap = await alertsStateRef.get();
+    const priorAlertIds = new Set(alertsStateSnap.exists ? (alertsStateSnap.data().ids || []) : []);
+    const nextAlertIds = [];
+    const alertPushes = [];
+
+    serviceAlerts.forEach(alert => {
+      nextAlertIds.push(alert.id);
+      if(priorAlertIds.has(alert.id)) return; // already pushed about this one
+      // One push per distinct branch this alert touches, not per route id
+      // blindly repeated — an alert naming both Green-B and Green-C, for
+      // example, still only sends one push to a Green-B-only subscriber and
+      // one to a Green-C-only subscriber, not two of each.
+      const prefFields = new Set(alert.routes.map(r => ALERT_ROUTE_PREF_FIELDS[r]).filter(Boolean));
+      prefFields.forEach(prefField => {
+        alertPushes.push(sendToFilteredSubscribers(prefField, {
+          title: 'T-Alert',
+          body: alert.header.slice(0, 180),
+          url: './'
+        }));
+      });
+    });
+
+    if(alertPushes.length) await Promise.all(alertPushes);
+    await alertsStateRef.set({ ids: nextAlertIds, updatedAt: now });
+  }catch(e){
+    console.error('T-Alerts push check failed:', e);
+  }
 
   await pairStateRef.set({
     cars: nextPairs,

@@ -1701,6 +1701,51 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
           </div>
         </div>
       </div>
+
+      <div class="settings-section" data-section="talerts">
+        <div class="menu-section-label section-toggle">
+          <span>T-Alerts</span>
+          <svg class="section-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+        <div class="section-body">
+          <div class="menu-row" style="flex-direction:column; align-items:flex-start; gap:2px;">
+            <span class="menu-note" style="margin-left:0;">Get a push notification the moment MBTA posts a new service alert for a line/branch &mdash; even with the app closed. Needs push notifications enabled above.</span>
+          </div>
+          <div class="menu-divider"></div>
+          <div class="menu-row">
+            <span>Green Line B<span class="menu-note">(push only)</span></span>
+            <div class="switch" id="notifAlertsGreenBSwitch"><div class="knob"></div></div>
+          </div>
+          <div class="menu-row">
+            <span>Green Line C<span class="menu-note">(push only)</span></span>
+            <div class="switch" id="notifAlertsGreenCSwitch"><div class="knob"></div></div>
+          </div>
+          <div class="menu-row">
+            <span>Green Line D<span class="menu-note">(push only)</span></span>
+            <div class="switch" id="notifAlertsGreenDSwitch"><div class="knob"></div></div>
+          </div>
+          <div class="menu-row">
+            <span>Green Line E<span class="menu-note">(push only)</span></span>
+            <div class="switch" id="notifAlertsGreenESwitch"><div class="knob"></div></div>
+          </div>
+          <div class="menu-row">
+            <span>Mattapan Line<span class="menu-note">(push only)</span></span>
+            <div class="switch" id="notifAlertsMattapanSwitch"><div class="knob"></div></div>
+          </div>
+          <div class="menu-row">
+            <span>Red Line<span class="menu-note">(push only)</span></span>
+            <div class="switch" id="notifAlertsRedSwitch"><div class="knob"></div></div>
+          </div>
+          <div class="menu-row">
+            <span>Orange Line<span class="menu-note">(push only)</span></span>
+            <div class="switch" id="notifAlertsOrangeSwitch"><div class="knob"></div></div>
+          </div>
+          <div class="menu-row">
+            <span>Blue Line<span class="menu-note">(push only)</span></span>
+            <div class="switch" id="notifAlertsBlueSwitch"><div class="knob"></div></div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -3294,6 +3339,14 @@ async function savePrefs(){
       notifPushDestinationChange: state.notifPushDestinationChange,
       notifPushLineChange: state.notifPushLineChange,
       notifPushOutOfService: state.notifPushOutOfService,
+      notifAlertsGreenB: state.notifAlertsGreenB,
+      notifAlertsGreenC: state.notifAlertsGreenC,
+      notifAlertsGreenD: state.notifAlertsGreenD,
+      notifAlertsGreenE: state.notifAlertsGreenE,
+      notifAlertsMattapan: state.notifAlertsMattapan,
+      notifAlertsRed: state.notifAlertsRed,
+      notifAlertsOrange: state.notifAlertsOrange,
+      notifAlertsBlue: state.notifAlertsBlue,
       otherBranchesVisible: state.otherBranchesVisible,
       statusChipShowDate: state.statusChipShowDate,
       statusChipShowWeather: state.statusChipShowWeather,
@@ -4129,7 +4182,16 @@ function renderTrainDots(){
         bubble.innerHTML = `<span class="${bletterClass}">${bubbleBranch}</span><span class="bnums"><span class="bline bline-first">${effectiveBubbleLabel}</span></span>${destBadge}${expressBadge}${standingByBadge}`;
       }
 
-      const anchorX = side === 'west' ? (staggeredBubbleX + layout.BUBBLE_W) : staggeredBubbleX;
+      // Anchored a few px INSIDE the bubble's edge, not exactly on it — a
+      // line ending precisely at the bubble's own boundary can leave a
+      // hairline gap depending on subpixel rounding, since the bubble
+      // (z-index 3) and line (z-index 1) are positioned independently. The
+      // small overlap is invisible (covered by the bubble itself) but
+      // guarantees the line always visually reaches all the way to it.
+      const LEADER_LINE_OVERLAP = 4;
+      const anchorX = side === 'west'
+        ? (staggeredBubbleX + layout.BUBBLE_W - LEADER_LINE_OVERLAP)
+        : (staggeredBubbleX + LEADER_LINE_OVERLAP);
       let line = existingLines[entry.v.id];
       if(!line){
         line = document.createElement('div');
@@ -6619,12 +6681,13 @@ async function subscribeToPushNotifications(){
   }
 }
 
-// Mirrors this device's 5 push-relevant preference toggles (Double Type 8s,
-// Pride train, and the 3 push-only categories) onto its push_subscriptions
-// doc, so the Cloud Functions that filter by these fields (see
-// functions/index.js's sendToFilteredSubscribers) stay in sync with
-// whatever's actually been opted into. Safe to call even if push was never
-// enabled on this device — it just no-ops when there's no subscription.
+// Mirrors this device's push-relevant preference toggles (Double Type 8s,
+// Pride train, the 3 push-only community-reported categories, and the 8
+// per-line/branch T-Alerts toggles) onto its push_subscriptions doc, so the
+// Cloud Functions that filter by these fields (see functions/index.js's
+// sendToFilteredSubscribers) stay in sync with whatever's actually been
+// opted into. Safe to call even if push was never enabled on this device —
+// it just no-ops when there's no subscription.
 async function syncPushPreferences(){
   if(!firebaseReady || !('serviceWorker' in navigator) || !('PushManager' in window)) return;
   try{
@@ -6637,7 +6700,18 @@ async function syncPushPreferences(){
       notifyPride: !!state.notifPride,
       notifyDestinationChange: !!state.notifPushDestinationChange,
       notifyLineChange: !!state.notifPushLineChange,
-      notifyOutOfService: !!state.notifPushOutOfService
+      notifyOutOfService: !!state.notifPushOutOfService,
+      // Field names below must match ALERT_ROUTE_PREF_FIELDS in
+      // functions/index.js exactly — that's what syncLastSeenCars filters
+      // push_subscriptions by when a new T-Alert comes in for each branch.
+      notifyAlertsGreenB: !!state.notifAlertsGreenB,
+      notifyAlertsGreenC: !!state.notifAlertsGreenC,
+      notifyAlertsGreenD: !!state.notifAlertsGreenD,
+      notifyAlertsGreenE: !!state.notifAlertsGreenE,
+      notifyAlertsMattapan: !!state.notifAlertsMattapan,
+      notifyAlertsRed: !!state.notifAlertsRed,
+      notifyAlertsOrange: !!state.notifAlertsOrange,
+      notifyAlertsBlue: !!state.notifAlertsBlue
     }, { merge: true });
   }catch(e){ console.error(e); }
 }
@@ -9684,7 +9758,8 @@ document.querySelectorAll('.section-toggle').forEach(toggle=>{
 // functions/index.js's sendToFilteredSubscribers). Whenever one of these
 // specific toggles changes, this device's push_subscriptions doc (if it has
 // one) needs to be kept in sync, on top of the usual local savePrefs().
-const PUSH_SYNCED_NOTIF_KEYS = ['notifDoubleType8', 'notifPride', 'notifPushDestinationChange', 'notifPushLineChange', 'notifPushOutOfService'];
+const PUSH_SYNCED_NOTIF_KEYS = ['notifDoubleType8', 'notifPride', 'notifPushDestinationChange', 'notifPushLineChange', 'notifPushOutOfService',
+  'notifAlertsGreenB', 'notifAlertsGreenC', 'notifAlertsGreenD', 'notifAlertsGreenE', 'notifAlertsMattapan', 'notifAlertsRed', 'notifAlertsOrange', 'notifAlertsBlue'];
 function wireNotifToggle(id, stateKey){
   document.getElementById(id).addEventListener('click', ()=>{
     state[stateKey] = !state[stateKey];
@@ -9704,6 +9779,14 @@ wireNotifToggle('notifCarBackInServiceSwitch', 'notifCarBackInService');
 wireNotifToggle('notifPushDestChangeSwitch', 'notifPushDestinationChange');
 wireNotifToggle('notifPushLineChangeSwitch', 'notifPushLineChange');
 wireNotifToggle('notifPushOOSSwitch', 'notifPushOutOfService');
+wireNotifToggle('notifAlertsGreenBSwitch', 'notifAlertsGreenB');
+wireNotifToggle('notifAlertsGreenCSwitch', 'notifAlertsGreenC');
+wireNotifToggle('notifAlertsGreenDSwitch', 'notifAlertsGreenD');
+wireNotifToggle('notifAlertsGreenESwitch', 'notifAlertsGreenE');
+wireNotifToggle('notifAlertsMattapanSwitch', 'notifAlertsMattapan');
+wireNotifToggle('notifAlertsRedSwitch', 'notifAlertsRed');
+wireNotifToggle('notifAlertsOrangeSwitch', 'notifAlertsOrange');
+wireNotifToggle('notifAlertsBlueSwitch', 'notifAlertsBlue');
 
 /* ---------------- Filters ---------------- */
 
@@ -10599,6 +10682,17 @@ async function init(){
   state.notifPushDestinationChange = !!prefs.notifPushDestinationChange;
   state.notifPushLineChange = !!prefs.notifPushLineChange;
   state.notifPushOutOfService = !!prefs.notifPushOutOfService;
+  // T-Alerts per line/branch — also push-only, same opt-in-by-default
+  // convention, actual delivery handled server-side by syncLastSeenCars'
+  // T-Alerts block in functions/index.js.
+  state.notifAlertsGreenB = !!prefs.notifAlertsGreenB;
+  state.notifAlertsGreenC = !!prefs.notifAlertsGreenC;
+  state.notifAlertsGreenD = !!prefs.notifAlertsGreenD;
+  state.notifAlertsGreenE = !!prefs.notifAlertsGreenE;
+  state.notifAlertsMattapan = !!prefs.notifAlertsMattapan;
+  state.notifAlertsRed = !!prefs.notifAlertsRed;
+  state.notifAlertsOrange = !!prefs.notifAlertsOrange;
+  state.notifAlertsBlue = !!prefs.notifAlertsBlue;
   document.getElementById('notifMasterSwitch').classList.toggle('on', state.notifMaster);
   document.getElementById('notifDoubleType8Switch').classList.toggle('on', state.notifDoubleType8);
   document.getElementById('notifPrideSwitch').classList.toggle('on', state.notifPride);
@@ -10607,6 +10701,14 @@ async function init(){
   document.getElementById('notifPushDestChangeSwitch').classList.toggle('on', state.notifPushDestinationChange);
   document.getElementById('notifPushLineChangeSwitch').classList.toggle('on', state.notifPushLineChange);
   document.getElementById('notifPushOOSSwitch').classList.toggle('on', state.notifPushOutOfService);
+  document.getElementById('notifAlertsGreenBSwitch').classList.toggle('on', state.notifAlertsGreenB);
+  document.getElementById('notifAlertsGreenCSwitch').classList.toggle('on', state.notifAlertsGreenC);
+  document.getElementById('notifAlertsGreenDSwitch').classList.toggle('on', state.notifAlertsGreenD);
+  document.getElementById('notifAlertsGreenESwitch').classList.toggle('on', state.notifAlertsGreenE);
+  document.getElementById('notifAlertsMattapanSwitch').classList.toggle('on', state.notifAlertsMattapan);
+  document.getElementById('notifAlertsRedSwitch').classList.toggle('on', state.notifAlertsRed);
+  document.getElementById('notifAlertsOrangeSwitch').classList.toggle('on', state.notifAlertsOrange);
+  document.getElementById('notifAlertsBlueSwitch').classList.toggle('on', state.notifAlertsBlue);
 
   state.otherBranchesVisible = Object.assign({ B:false, C:false, D:false, E:false, ashmont:false, braintree:false }, prefs.otherBranchesVisible || {});
 
