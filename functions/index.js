@@ -34,6 +34,16 @@
 //   - Green Line train-spotting push alerts (double Type 8s, the Pride car)
 //     — the server-side equivalent of index.html's own checkTrainNotifications,
 //     which only fires while a tab is open. See the bottom of syncLastSeenCars.
+//   - "Car back after a long gap" push alerts: reuses the same
+//     firstTrackedToday bookkeeping above to notice when a car reappears
+//     after being absent longer than a subscriber's own chosen threshold
+//     (Settings' longGapThresholdDays), flagging the notification as
+//     possibly inaccurate if the roster still lists that car as Out of
+//     Service, Retired, or Scrapped.
+//
+// Also polls MBTA's alerts feed once a minute (still inside syncLastSeenCars)
+// for T-Alerts pushes, gated per line/branch by another set of boolean
+// fields on push_subscriptions (see ALERT_ROUTE_PREF_FIELDS below).
 //
 // ---- One-time setup (see the deployment instructions provided alongside
 // this file for the full walkthrough) ----
@@ -185,6 +195,26 @@ async function sendToAllSubscribers(payload){
 async function sendToFilteredSubscribers(prefField, payload){
   const snap = await db.collection('push_subscriptions').where(prefField, '==', true).get();
   await deliverToSubscriptionSnapshot(snap, payload);
+}
+
+// Same opt-in-boolean pattern as sendToFilteredSubscribers, plus a
+// per-subscriber NUMERIC threshold (Firestore can't combine an equality
+// filter on one field with a range comparison against a per-document value
+// on another in one query) — so this fetches everyone opted into prefField
+// with one plain equality query, then filters in memory by comparing each
+// subscriber's own saved threshold against this specific event's actual
+// value. Used by the "car back after a long gap" alert below, where
+// thresholdField holds how many days of absence that person wants to hear
+// about (index.html's longGapThresholdDays Settings selector).
+async function sendToFilteredSubscribersWithThreshold(prefField, thresholdField, actualValue, payload){
+  const snap = await db.collection('push_subscriptions').where(prefField, '==', true).get();
+  if(snap.empty) return;
+  const qualifying = snap.docs.filter(doc => {
+    const threshold = doc.data()[thresholdField];
+    return typeof threshold === 'number' && actualValue >= threshold;
+  });
+  if(qualifying.length === 0) return;
+  await deliverToSubscriptionSnapshot({ empty: false, docs: qualifying }, payload);
 }
 
 exports.sendPushOnModAlert = onDocumentCreated(
@@ -425,7 +455,11 @@ async function fetchLineVehicles(line, url){
       }else{
         partners = keys.filter((k, idx) => idx !== i);
       }
-      carEntries.push({ key, stopName, partners });
+      // carNum/line included alongside the roster storage key so callers
+      // that need a human-readable car number (push notification copy) or
+      // the owning line (e.g. to look up its roster doc) don't have to
+      // reverse-parse `key`, which is only unprefixed for Green.
+      carEntries.push({ key, stopName, partners, carNum: carNums[i], line });
     });
     vehicles.push({ id: v.id, label: v.attributes.label, carNums });
   });
@@ -696,8 +730,21 @@ exports.syncLastSeenCars = onSchedule({ schedule: 'every 1 minutes', secrets: [V
   const nextActive = {};
   const rosterPatches = {};
   const currentKeys = new Set();
+  // "Car back after a long gap" push candidates, gathered below and acted
+  // on after this loop (once nextStops/nextActive/rosterPatches are all
+  // settled) — see that block for why lastActiveAt (already tracked here
+  // for the first-tracked-today feature) is the right signal to reuse
+  // rather than a separate read.
+  const longGapCandidates = [];
+  // Floor below which a gap isn't even worth querying subscribers about —
+  // chiefly to skip the routine multi-hour overnight shutdown every car
+  // has every single day, which would otherwise "reappear" as a candidate
+  // every single morning for every single car. The lowest selectable
+  // threshold in Settings (longGapThresholdDays) is 3 days, so 1 day of
+  // slack here costs nothing real while cutting out nearly all the noise.
+  const MIN_GAP_DAYS_TO_CONSIDER = 1;
 
-  current.forEach(({ key, stopName }) => {
+  current.forEach(({ key, stopName, carNum, line }) => {
     currentKeys.add(key);
     nextStops[key] = stopName;
     if(priorStops[key] !== stopName){
@@ -716,6 +763,17 @@ exports.syncLastSeenCars = onSchedule({ schedule: 'every 1 minutes', secrets: [V
       // "pull out."
       nextActive[key] = { lastActiveAt: now, trackingDay: today, firstTrackedToday: now };
       rosterPatches[key] = Object.assign({}, rosterPatches[key], { firstTrackedToday: now, trackingDay: today });
+      // prior.lastActiveAt (when it exists) is exactly how long ago this
+      // car was last confirmed active, however long that gap turns out to
+      // be — a brief AVL blip, an overnight shutdown, or a genuine
+      // multi-week absence. No prior at all means this is the very first
+      // time this car's ever been tracked, which isn't a "return."
+      if(prior && prior.lastActiveAt){
+        const gapDays = (now - prior.lastActiveAt) / (24 * 60 * 60 * 1000);
+        if(gapDays >= MIN_GAP_DAYS_TO_CONSIDER){
+          longGapCandidates.push({ key, carNum, line, gapDays });
+        }
+      }
     }
   });
 
@@ -737,6 +795,38 @@ exports.syncLastSeenCars = onSchedule({ schedule: 'every 1 minutes', secrets: [V
   if(patchEntries.length) await commitRosterPatches(patchEntries);
   await stateRef.set({ stops: nextStops, updatedAt: now });
   await firstTrackedRef.set({ cars: nextActive, updatedAt: now });
+
+  // ---- "Car back after a long gap" push notifications ----
+  // Own try/catch, same reasoning as the T-Alerts block further down: a
+  // failure here shouldn't undo the tracking work that's already committed
+  // above. Only reads roster docs for the (typically 0-2 per run) actual
+  // candidates gathered above, not every car — the status field is only
+  // needed here, for the "may be inaccurate" caveat below, so there's no
+  // reason to pay for it on every run either.
+  if(longGapCandidates.length){
+    try{
+      const rosterSnaps = await Promise.all(
+        longGapCandidates.map(c => db.collection('roster').doc(c.key).get())
+      );
+      const INACCURATE_IF_STATUS = ['Out of Service', 'Retired', 'Scrapped'];
+      const longGapPushes = longGapCandidates.map((c, i) => {
+        const data = rosterSnaps[i].exists ? rosterSnaps[i].data() : {};
+        const caveat = INACCURATE_IF_STATUS.includes(data.status)
+          ? ` — roster still lists it as ${data.status}, so this may be inaccurate`
+          : '';
+        const days = Math.round(c.gapDays);
+        const gapText = `${days} day${days === 1 ? '' : 's'}`;
+        return sendToFilteredSubscribersWithThreshold('notifyLongGapReturn', 'longGapThresholdDays', c.gapDays, {
+          title: 'Car back in service',
+          body: `Car ${c.carNum} is tracking again after ${gapText} untracked${caveat}`,
+          url: './'
+        });
+      });
+      await Promise.all(longGapPushes);
+    }catch(e){
+      console.error('Long-gap car return push check failed:', e);
+    }
+  }
 
   // ---- pair tracking + Green Line train-spotting push alerts, sharing one
   // state doc read/write ----

@@ -1699,6 +1699,20 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
             <span>Cars marked out of service<span class="menu-note">(push only)</span></span>
             <div class="switch" id="notifPushOOSSwitch"><div class="knob"></div></div>
           </div>
+          <div class="menu-row">
+            <span>Car back after a long gap<span class="menu-note">(push only)</span></span>
+            <div class="switch" id="notifLongGapReturnSwitch"><div class="knob"></div></div>
+          </div>
+          <div class="menu-row" id="longGapThresholdRow" style="flex-direction:column; align-items:flex-start; gap:8px;">
+            <span>Minimum time untracked</span>
+            <select class="roster-input" id="longGapThresholdSelect" style="width:100%;">
+              <option value="3">3 days</option>
+              <option value="7">1 week</option>
+              <option value="14">2 weeks</option>
+              <option value="30">1 month</option>
+              <option value="60">2 months</option>
+            </select>
+          </div>
         </div>
       </div>
 
@@ -3339,6 +3353,8 @@ async function savePrefs(){
       notifPushDestinationChange: state.notifPushDestinationChange,
       notifPushLineChange: state.notifPushLineChange,
       notifPushOutOfService: state.notifPushOutOfService,
+      notifLongGapReturn: state.notifLongGapReturn,
+      longGapThresholdDays: state.longGapThresholdDays,
       notifAlertsGreenB: state.notifAlertsGreenB,
       notifAlertsGreenC: state.notifAlertsGreenC,
       notifAlertsGreenD: state.notifAlertsGreenD,
@@ -6701,6 +6717,10 @@ async function syncPushPreferences(){
       notifyDestinationChange: !!state.notifPushDestinationChange,
       notifyLineChange: !!state.notifPushLineChange,
       notifyOutOfService: !!state.notifPushOutOfService,
+      // Must match the field names sendToFilteredSubscribersWithThreshold
+      // reads in functions/index.js's "car back after a long gap" block.
+      notifyLongGapReturn: !!state.notifLongGapReturn,
+      longGapThresholdDays: state.longGapThresholdDays || 14,
       // Field names below must match ALERT_ROUTE_PREF_FIELDS in
       // functions/index.js exactly — that's what syncLastSeenCars filters
       // push_subscriptions by when a new T-Alert comes in for each branch.
@@ -9753,12 +9773,13 @@ document.querySelectorAll('.section-toggle').forEach(toggle=>{
     if(section) section.classList.toggle('collapsed');
   });
 });
-// The 5 categories that also have a push side (server-side Cloud Functions
+// Every category that also has a push side (server-side Cloud Functions
 // filter push_subscriptions docs by these same fields — see
-// functions/index.js's sendToFilteredSubscribers). Whenever one of these
-// specific toggles changes, this device's push_subscriptions doc (if it has
-// one) needs to be kept in sync, on top of the usual local savePrefs().
-const PUSH_SYNCED_NOTIF_KEYS = ['notifDoubleType8', 'notifPride', 'notifPushDestinationChange', 'notifPushLineChange', 'notifPushOutOfService',
+// functions/index.js's sendToFilteredSubscribers/sendToFilteredSubscribersWithThreshold).
+// Whenever one of these specific toggles changes, this device's
+// push_subscriptions doc (if it has one) needs to be kept in sync, on top
+// of the usual local savePrefs().
+const PUSH_SYNCED_NOTIF_KEYS = ['notifDoubleType8', 'notifPride', 'notifPushDestinationChange', 'notifPushLineChange', 'notifPushOutOfService', 'notifLongGapReturn',
   'notifAlertsGreenB', 'notifAlertsGreenC', 'notifAlertsGreenD', 'notifAlertsGreenE', 'notifAlertsMattapan', 'notifAlertsRed', 'notifAlertsOrange', 'notifAlertsBlue'];
 function wireNotifToggle(id, stateKey){
   document.getElementById(id).addEventListener('click', ()=>{
@@ -9779,6 +9800,27 @@ wireNotifToggle('notifCarBackInServiceSwitch', 'notifCarBackInService');
 wireNotifToggle('notifPushDestChangeSwitch', 'notifPushDestinationChange');
 wireNotifToggle('notifPushLineChangeSwitch', 'notifPushLineChange');
 wireNotifToggle('notifPushOOSSwitch', 'notifPushOutOfService');
+wireNotifToggle('notifLongGapReturnSwitch', 'notifLongGapReturn');
+// The threshold row is meaningless while the toggle above it is off, same
+// "gray it out, don't let it do anything" treatment as the time/weather
+// chip's own sub-rows (see updateStatusChipSubRowsDisabled).
+function updateLongGapThresholdRowDisabled(){
+  const row = document.getElementById('longGapThresholdRow');
+  if(!row) return;
+  const disabled = !state.notifLongGapReturn;
+  row.style.opacity = disabled ? '0.4' : '';
+  const select = document.getElementById('longGapThresholdSelect');
+  if(select){
+    select.style.pointerEvents = disabled ? 'none' : '';
+    select.disabled = disabled;
+  }
+}
+document.getElementById('notifLongGapReturnSwitch').addEventListener('click', updateLongGapThresholdRowDisabled);
+document.getElementById('longGapThresholdSelect').addEventListener('change', (e)=>{
+  state.longGapThresholdDays = parseInt(e.target.value, 10) || 14;
+  savePrefs();
+  syncPushPreferences();
+});
 wireNotifToggle('notifAlertsGreenBSwitch', 'notifAlertsGreenB');
 wireNotifToggle('notifAlertsGreenCSwitch', 'notifAlertsGreenC');
 wireNotifToggle('notifAlertsGreenDSwitch', 'notifAlertsGreenD');
@@ -10682,6 +10724,8 @@ async function init(){
   state.notifPushDestinationChange = !!prefs.notifPushDestinationChange;
   state.notifPushLineChange = !!prefs.notifPushLineChange;
   state.notifPushOutOfService = !!prefs.notifPushOutOfService;
+  state.notifLongGapReturn = !!prefs.notifLongGapReturn;
+  state.longGapThresholdDays = Object.prototype.hasOwnProperty.call(prefs, 'longGapThresholdDays') ? prefs.longGapThresholdDays : 14;
   // T-Alerts per line/branch — also push-only, same opt-in-by-default
   // convention, actual delivery handled server-side by syncLastSeenCars'
   // T-Alerts block in functions/index.js.
@@ -10701,6 +10745,9 @@ async function init(){
   document.getElementById('notifPushDestChangeSwitch').classList.toggle('on', state.notifPushDestinationChange);
   document.getElementById('notifPushLineChangeSwitch').classList.toggle('on', state.notifPushLineChange);
   document.getElementById('notifPushOOSSwitch').classList.toggle('on', state.notifPushOutOfService);
+  document.getElementById('notifLongGapReturnSwitch').classList.toggle('on', state.notifLongGapReturn);
+  document.getElementById('longGapThresholdSelect').value = String(state.longGapThresholdDays);
+  updateLongGapThresholdRowDisabled();
   document.getElementById('notifAlertsGreenBSwitch').classList.toggle('on', state.notifAlertsGreenB);
   document.getElementById('notifAlertsGreenCSwitch').classList.toggle('on', state.notifAlertsGreenC);
   document.getElementById('notifAlertsGreenDSwitch').classList.toggle('on', state.notifAlertsGreenD);
