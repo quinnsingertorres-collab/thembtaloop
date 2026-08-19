@@ -662,6 +662,20 @@ body.dark .stop-dot{background:var(--bg);}
 
 .empty-state{text-align:center; padding:24px 10px; color:var(--text-faint); font-family:'IBM Plex Mono', monospace; font-size:12.5px;}
 
+.train-loading-scene{padding:14px 4px 4px;}
+.train-loading-track{position:relative; width:100%; height:96px; overflow:hidden; border-radius:8px;}
+.train-loading-rail{position:absolute; left:0; right:0; height:2px; background:var(--border);}
+.train-loading-rail.r1{bottom:16px;}
+.train-loading-rail.r2{bottom:11px;}
+.train-loading-img{position:absolute; top:16px; height:64px; width:auto; left:-45%; animation:trainDriveAcross 3.2s linear infinite;}
+.train-loading-caption{text-align:center; margin-top:8px; color:var(--text-faint); font-family:'IBM Plex Mono', monospace; font-size:12.5px;}
+.train-loading-dot{display:inline-block; color:var(--accent); animation:trainLoadingDotPop 1.4s ease-in-out infinite; opacity:0.25;}
+.train-loading-dot:nth-child(1){animation-delay:0s;}
+.train-loading-dot:nth-child(2){animation-delay:0.22s;}
+.train-loading-dot:nth-child(3){animation-delay:0.44s;}
+@keyframes trainDriveAcross{ from{ left:-45%; } to{ left:135%; } }
+@keyframes trainLoadingDotPop{ 0%, 60%, 100%{ transform:scale(0.5); opacity:0.25; } 25%{ transform:scale(1); opacity:1; } }
+
 /* ---------- Bottom nav ---------- */
 .bottom-nav{
   position:fixed; left:0; right:0; bottom:0;
@@ -1378,7 +1392,7 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
           <option value="Unknown">Unknown</option>
         </select>
       </div>
-      <div class="vehicle-list" id="vehicleList"><div class="empty-state">Loading vehicles&hellip;</div></div>
+      <div class="vehicle-list" id="vehicleList"><div class="train-loading-scene"><div class="train-loading-track"><div class="train-loading-rail r1"></div><div class="train-loading-rail r2"></div><img class="train-loading-img" src="/type8-loading.png" alt=""></div><div class="train-loading-caption">Loading trains<span class="train-loading-dot">.</span><span class="train-loading-dot">.</span><span class="train-loading-dot">.</span></div></div></div>
       </div>
     </div>
   </div>
@@ -2647,7 +2661,12 @@ function rosterBuildYearFor(line, type, car){
   return rosterCarInfoFor(line, type).year;
 }
 
-let state = { vehicles: [], currentPage: 'B', lastMainPage: 'B', live: null, abbreviate: false, staggerBunchedTrains: false, signedIn: false, userName: '', photoURL: '', isModerator: false, isTrustedMember: false, filterDirection: 'ALL', filterType: 'ALL', rosterSearch: '', rosterTypeFilter: 'ALL', notifMaster: true, notifDoubleType8: false, notifPride: false, notifType9: false, notifCarBackInService: false, activeLine: 'green', otherBranchesVisible: { B:false, C:false, D:false, E:false, ashmont:false, braintree:false }, statusChipShowDate: true, statusChipShowWeather: true, clockShowSeconds: true, clock24Hour: false, statusChipPosition: 'below', viewingCarKey: null, viewingCarNumber: null };
+let state = { vehicles: [], vehiclesEverLoaded: false, currentPage: 'B', lastMainPage: 'B', live: null, abbreviate: false, staggerBunchedTrains: false, signedIn: false, userName: '', photoURL: '', isModerator: false, isTrustedMember: false, filterDirection: 'ALL', filterType: 'ALL', rosterSearch: '', rosterTypeFilter: 'ALL', notifMaster: true, notifDoubleType8: false, notifPride: false, notifType9: false, notifCarBackInService: false, activeLine: 'green', otherBranchesVisible: { B:false, C:false, D:false, E:false, ashmont:false, braintree:false }, statusChipShowDate: true, statusChipShowWeather: true, clockShowSeconds: true, clock24Hour: false, statusChipPosition: 'below', viewingCarKey: null, viewingCarNumber: null };
+
+// Same markup as the static placeholder in the vehicle-list HTML (see
+// #vehicleList in the body) — reused here so the animated loading scene
+// also reappears while switching lines, not just on first page load.
+const TRAIN_LOADING_SCENE_HTML = '<div class="train-loading-scene"><div class="train-loading-track"><div class="train-loading-rail r1"></div><div class="train-loading-rail r2"></div><img class="train-loading-img" src="/type8-loading.png" alt=""></div><div class="train-loading-caption">Loading trains<span class="train-loading-dot">.</span><span class="train-loading-dot">.</span><span class="train-loading-dot">.</span></div></div>';
 let layout = null; // computed pixel layout for the current ladder
 
 // Tracks, per vehicle id, when it was first observed STOPPED_AT its current
@@ -7304,6 +7323,7 @@ async function refreshVehicles(){
     state.vehicles = [];
     setLiveStatus(false);
   }
+  state.vehiclesEverLoaded = true;
 
   const now = Date.now();
 
@@ -7529,6 +7549,10 @@ function renderVehicleList(){
 
   if(relevant.length === 0){
     const noServiceAtAll = state.vehicles.length === 0;
+    if(noServiceAtAll && !state.vehiclesEverLoaded){
+      list.innerHTML = TRAIN_LOADING_SCENE_HTML;
+      return;
+    }
     const hasActiveFilters = state.filterDirection !== 'ALL' || state.filterType !== 'ALL';
     const msg = noServiceAtAll
       ? 'No trains currently reported \u2014 there may be no active service right now.'
@@ -9251,6 +9275,7 @@ function revealApp(line, forcedPage, forcedCarNumber){
       : (LINE_PAGE_KEYS[line] || []).includes(savedPage)
   );
   state.vehicles = []; // avoid a stale frame showing the other line's trains while the new feed loads
+  state.vehiclesEverLoaded = false; // show the loading scene again, not a premature "no trains" message
   // A forced page (from a URL like /green/b on initial load) takes
   // priority over whatever page was last saved locally.
   let targetPage;
