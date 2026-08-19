@@ -12,28 +12,58 @@
 //   (see /functions in the project repo), triggered the moment a moderator
 //   posts an alert or notification in Firestore.
 
-const CACHE_NAME = 'itl-shell-v1';
+const CACHE_NAME = 'itl-shell-v2';
+
+// Only the trains-panel loading illustration is precached here — deliberately
+// not the whole app shell. It's the one static asset that's genuinely worth
+// having on-device before the first request for it even happens (it's what
+// shows during that very first load), while everything else (HTML, MBTA/
+// weather API responses) still needs to stay live per the fetch-handler
+// comment below.
+const PRECACHE_URLS = ['/type8-loading.png'];
 
 self.addEventListener('install', (event) => {
+  event.waitUntil(
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(PRECACHE_URLS)).catch((e) => {
+      console.error('SW precache failed:', e);
+    })
+  );
   self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil(
+    caches.keys()
+      .then((keys) => Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))))
+      .then(() => self.clients.claim())
+  );
 });
 
-// Fetch listener intentionally does nothing — NOT calling event.respondWith()
-// means the browser handles every request completely natively, exactly as if
-// this listener didn't exist. An earlier version of this file called
-// event.respondWith(fetch(event.request)) for every request, which re-routed
-// cross-origin API calls (MBTA vehicles/alerts/schedules, Open-Meteo weather)
-// through the service worker. Combined with skipWaiting()+clients.claim()
-// below, a freshly-deployed update would take control of an already-open tab
-// immediately — which could break or stall those live API calls right at the
-// moment an update was pushed, falling back to demo mode. Just having this
-// listener registered (even empty) is enough for installability checks.
+// Fetch listener intentionally does nothing for almost every request — NOT
+// calling event.respondWith() means the browser handles that request
+// completely natively, exactly as if this listener didn't exist. An earlier
+// version of this file called event.respondWith(fetch(event.request)) for
+// every request, which re-routed cross-origin API calls (MBTA vehicles/
+// alerts/schedules, Open-Meteo weather) through the service worker. Combined
+// with skipWaiting()+clients.claim() above, a freshly-deployed update would
+// take control of an already-open tab immediately — which could break or
+// stall those live API calls right at the moment an update was pushed,
+// falling back to demo mode. Just having this listener registered (even
+// empty) is enough for installability checks.
+//
+// The one deliberate exception is the precached loading illustration above:
+// serving it cache-first means it's available instantly (even offline) on
+// every load after the first, instead of re-fetching it from the network
+// every time.
 self.addEventListener('fetch', (event) => {
-  // no-op on purpose
+  const url = new URL(event.request.url);
+  if(PRECACHE_URLS.includes(url.pathname)){
+    event.respondWith(
+      caches.match(event.request).then((cached) => cached || fetch(event.request))
+    );
+    return;
+  }
+  // no-op on purpose for everything else
 });
 
 // If a real push payload ever does arrive (once/if server-side push is added
