@@ -600,11 +600,19 @@ body.dark .discord-banner{background:#5865F2; border-color:#5865F2; color:#fff;}
   transition:background 0.4s ease;
 }
 body.dark .stop-dot{background:var(--bg);}
+/* "Station closed" marker: an octagonal stop-sign shape (clip-path, since
+   border-radius can't draw an octagon) rather than the plain circle every
+   other .stop-dot uses, so a bypassed station reads as a real stop-sign at
+   a glance instead of just "a red dot with an X". The border the base
+   .stop-dot rule sets is still there underneath but gets clipped away along
+   with the corners, which is fine — the flat fill color alone reads clearly
+   at this size. */
 .stop-dot-bypassed{
   background:#D64545 !important; border-color:#D64545 !important;
+  clip-path:polygon(30% 0%, 70% 0%, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0% 70%, 0% 30%);
 }
 .stop-dot-bypassed::before, .stop-dot-bypassed::after{
-  content:''; position:absolute; left:50%; top:50%; width:13px; height:2px; background:#fff;
+  content:''; position:absolute; left:50%; top:50%; width:12px; height:2.5px; background:#fff; border-radius:1.5px;
 }
 .stop-dot-bypassed::before{ transform:translate(-50%,-50%) rotate(45deg); }
 .stop-dot-bypassed::after{ transform:translate(-50%,-50%) rotate(-45deg); }
@@ -2344,15 +2352,17 @@ const BYPASSED_STOPS = [
   ...buildRangeClosure(['SUBWAY'], 'North Station', 'Kenmore',
     { reason:'No Green Line service through the central subway between North Station and Kenmore. This is to allow for trackwork.', from:'2026-08-08', until:'2026-08-16' },
     { excludeFrom:true, excludeTo:true }),
-  // Aug 20-30: no Orange Line service anywhere between Back Bay and Oak
-  // Grove (per MBTA's own T-Alerts digest — "no Orange Line service between
-  // Back Bay and Oak Grove"), not just a partial segment, so both endpoints
-  // stay in the closed range (no excludeFrom/excludeTo). Shuttle buses only
-  // cover the Oak Grove-North Station portion of that; Green Line offers a
-  // walking-connection alternative between North Station and Copley for the
-  // rest, but doesn't restore actual Orange Line train service there.
-  ...buildRangeClosure(['ORANGE'], 'Back Bay', 'Oak Grove',
-    { reason:'No Orange Line service between Back Bay and Oak Grove. Shuttle buses replace service between Oak Grove and North Station; Haverhill Commuter Rail is fare-free from Oak Grove, Malden Center, and North Station as an alternate route.', from:'2026-08-20', until:'2026-08-30' })
+  // The Aug 20-30 Orange Line Back Bay <-> Oak Grove closure that used to
+  // live here as a hardcoded entry has been migrated to a real
+  // community_alerts Firestore document instead (see loadDiversionsList/
+  // refreshLiveDiversionBypassCache below) — that's what actually drives
+  // the moderator-facing "Upcoming Diversions" list on the Publish Alerts
+  // & Diversions page, which a hardcoded BYPASSED_STOPS entry never
+  // appeared in. Keeping both would mean this one always wins (matchIn
+  // below checks BYPASSED_STOPS before liveDiversionBypassStops), silently
+  // freezing out any edits made to the Firestore version — so once a
+  // closure like this is posted as a real diversion, it should NOT also
+  // have an entry here.
 ];
 
 // liveDiversionBypassStops is the dynamic counterpart to the hardcoded
