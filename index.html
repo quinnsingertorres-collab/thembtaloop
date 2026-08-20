@@ -7024,6 +7024,12 @@ document.getElementById('notifBellBtn').addEventListener('click', showAlertsAndN
 // from and the fullscreen API experience is a desktop-browser thing;
 // "*" (reload) stays available everywhere since it's a harmless, useful
 // fallback everywhere, not just kiosk-style full-screen setups.
+// "+"/"-" mirror the on-screen ladder zoom buttons for desktop users who'd
+// rather not reach for the mouse — same desktop-width gate as "f" since
+// mobile already has pinch-to-zoom for this. Both the top-row "+"/"-" keys
+// (which need Shift on most layouts, so e.key arrives as "+"/"-" already)
+// and their unshifted/numpad counterparts ("=" and "_") are accepted so it
+// works regardless of whether Shift happened to be held.
 function toggleFullscreen(){
   if(!document.fullscreenElement){
     document.documentElement.requestFullscreen().catch(e => console.error('Fullscreen request failed:', e));
@@ -7040,6 +7046,10 @@ document.addEventListener('keydown', (e)=>{
     location.reload();
   }else if((e.key === 'f' || e.key === 'F') && window.innerWidth >= 900 && (document.fullscreenEnabled || document.documentElement.requestFullscreen)){
     toggleFullscreen();
+  }else if((e.key === '+' || e.key === '=') && window.innerWidth >= 900){
+    applyLadderZoom(state.ladderZoom + 0.25);
+  }else if((e.key === '-' || e.key === '_') && window.innerWidth >= 900){
+    applyLadderZoom(state.ladderZoom - 0.25);
   }
 });
 
