@@ -10293,6 +10293,24 @@ async function ensureShortIdFallback(){
   }
 }
 
+// The 5-digit ID and 4-6 digit PIN fields (accountPinInput here, plus
+// idSignInIdInput/idSignInPinInput inside showIdSignInModal below) already
+// get hard-rejected server-side if anything non-numeric sneaks through
+// (setAccountPin/signInWithIdAndPin both regex-check on the way in), and
+// the submit-time checks right below do the same client-side — but neither
+// of those stops someone from typing a letter into the field in the first
+// place, since inputmode="numeric" is just a mobile-keyboard hint and
+// pattern="[0-9]*" only matters inside a real <form> submit, which these
+// aren't. This strips anything non-digit on every keystroke instead, so the
+// field itself can never hold anything but digits.
+function restrictInputToDigits(el){
+  el.addEventListener('input', ()=>{
+    const digitsOnly = el.value.replace(/\D/g, '');
+    if(digitsOnly !== el.value) el.value = digitsOnly;
+  });
+}
+restrictInputToDigits(document.getElementById('accountPinInput'));
+
 document.getElementById('setPinBtn').addEventListener('click', async ()=>{
   const input = document.getElementById('accountPinInput');
   const note = document.getElementById('accountPinNote');
@@ -10342,6 +10360,10 @@ function showIdSignInModal(){
       <div class="menu-note" id="idSignInNote"></div>
     </div>`;
   document.getElementById('carModalOverlay').classList.add('show');
+  // See restrictInputToDigits's own comment (near accountPinInput above) —
+  // same reasoning, applied to this modal's freshly-created ID/PIN inputs.
+  restrictInputToDigits(document.getElementById('idSignInIdInput'));
+  restrictInputToDigits(document.getElementById('idSignInPinInput'));
 
   document.getElementById('idSignInSubmitBtn').addEventListener('click', async ()=>{
     const shortId = document.getElementById('idSignInIdInput').value.trim();
