@@ -2131,7 +2131,11 @@ const UNKNOWN_HEX = '#6B7280';
 // (defined near the other gesture handlers further down) for how zoom
 // gestures/buttons change state.ladderZoom and trigger a rebuild.
 const ROW_H_BASE = 48;
-const LADDER_ZOOM_MIN = 0.6, LADDER_ZOOM_MAX = 2.5;
+// Min is 1 (not <1) on purpose — the original spacing is the most zoomed-out
+// the ladder ever gets now, so pinching/scrolling/clicking "out" can only
+// bring you back to the default layout, never shrink stations closer
+// together than that. Zooming in (>1) still goes up to 2.5x.
+const LADDER_ZOOM_MIN = 1, LADDER_ZOOM_MAX = 2.5;
 
 // width/length/electrical added from the MBTA Vehicle Inventory doc
 // (07/28/26 version) — seats/builder/year left exactly as they were
