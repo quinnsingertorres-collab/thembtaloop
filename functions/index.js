@@ -1266,6 +1266,32 @@ exports.syncLastSeenCars = onSchedule({ schedule: 'every 1 minutes', secrets: [V
     console.error('T-Alerts push check failed:', e);
   }
 
+  // ---- Expired community diversion/closure cleanup ----
+  // community_alerts docs (the Publish Alerts & Diversions composer in
+  // index.html) otherwise only get deleted lazily, whenever some client
+  // happens to read past their expiresAt (fetchCommunityAlerts/
+  // loadDiversionsList/refreshLiveDiversionBypassCache all do this on read)
+  // — fine for a popular route, but a diversion on a quiet branch could sit
+  // in Firestore indefinitely if nobody happens to load alerts for that
+  // route again after it expires. Sweeping here too, once a minute, means
+  // an expired diversion (and the small amount of Firestore storage/reads
+  // it costs) is gone within a minute of expiring regardless of traffic.
+  // Own try/catch, same reasoning as the blocks above — a failure here
+  // shouldn't touch anything else this run already committed.
+  try{
+    const alertsSnap = await db.collection('community_alerts').get();
+    const expiredRefs = [];
+    alertsSnap.forEach(doc => {
+      const expiresAt = doc.data().expiresAt;
+      if(expiresAt && expiresAt < now) expiredRefs.push(doc.ref);
+    });
+    if(expiredRefs.length){
+      await Promise.all(expiredRefs.map(ref => ref.delete().catch(e => console.error(e))));
+    }
+  }catch(e){
+    console.error('Expired diversion cleanup failed:', e);
+  }
+
   await pairStateRef.set({
     cars: nextPairs,
     alerts: { doubleType8: nextDoubleType8, pride: nextPride },
