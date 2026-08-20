@@ -1182,14 +1182,36 @@ exports.syncLastSeenCars = onSchedule({ schedule: 'every 1 minutes', secrets: [V
   const priorState = pairStateSnap.exists ? pairStateSnap.data() : {};
   const priorPairs = priorState.cars || {};
   const priorAlerts = priorState.alerts || {};
+  // Bug fix: change-detection used to be just `(priorPairs[key] || '') !==
+  // serialized`, which treats "never tracked before" (priorPairs[key] is
+  // undefined) the same as "tracked and currently running solo"
+  // (priorPairs[key] === ''), since both fall back to ''. That meant a car
+  // that's simply never been PAIRED (a solo Type 7, a short Red/Orange/Blue
+  // consist, etc.) never wrote a single row to the sheet — not on its first
+  // sighting (undefined -> '' looked like "no change"), and never
+  // afterward unless it actually picked up a partner at some point. Cars
+  // that only ever ran solo were effectively invisible in pair/set history
+  // — this is the "only some cars" bug. loggedKeys tracks, separately from
+  // the current pairing state, which car keys have EVER had at least one
+  // row written to the sheet — a car's first appearance in `current` always
+  // logs a baseline row now regardless of whether it's paired, and
+  // (unlike resetting priorPairs) this is purely additive: any car that
+  // was already silently stuck at '' under the old logic gets its
+  // baseline row the very next time this function runs after deploy,
+  // without touching any existing state or sheet data.
+  const priorLoggedKeys = new Set(priorState.loggedKeys || []);
+  const nextLoggedKeys = new Set(priorLoggedKeys);
 
   const nextPairs = {};
   const pairChanges = [];
   current.forEach(({ key, partners }) => {
     const serialized = serializePartners(partners);
     nextPairs[key] = serialized;
-    if((priorPairs[key] || '') !== serialized){
+    const changed = (priorPairs[key] || '') !== serialized;
+    const neverLogged = !priorLoggedKeys.has(key);
+    if(changed || neverLogged){
       pairChanges.push({ key, partners: partners || [] });
+      nextLoggedKeys.add(key);
     }
   });
   // Carry forward any car that isn't in this particular run's data (a train
@@ -1344,6 +1366,7 @@ exports.syncLastSeenCars = onSchedule({ schedule: 'every 1 minutes', secrets: [V
 
   await pairStateRef.set({
     cars: nextPairs,
+    loggedKeys: Array.from(nextLoggedKeys),
     alerts: { doubleType8: nextDoubleType8, pride: nextPride },
     updatedAt: now
   });
