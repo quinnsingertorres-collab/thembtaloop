@@ -1031,60 +1031,6 @@ exports.getPairHistory = onRequest({ secrets: [GOOGLE_SHEETS_CREDENTIALS] }, asy
   }
 });
 
-// ---- TEMPORARY one-time migration: old pair_history Firestore collection
-// -> PairHistory Google Sheet ----
-// commitPairChanges/getPairHistory above replaced a Firestore-backed
-// pair_history collection (one doc per car, an `entries` array of
-// {partner, from, to}) with this Sheet — see the "pair_history used to
-// live here" comment in index.html's Firestore rules. That migration never
-// copied the old docs' data over, so it's just been sitting there unused
-// ever since. This endpoint does that copy: reads every pair_history doc,
-// converts each entry to the same [key, partners, fromIso] row shape
-// commitPairChanges appends (no "to" column — getPairHistory reconstructs
-// that by sorting each car's rows by `from` and chaining, same as it
-// already does for everything else in the sheet, so old and new rows for
-// the same car interleave correctly regardless of write order). partner is
-// a single string or null in the old shape (this model predates Red/
-// Orange/Blue "set" tracking), so it maps to a 0-or-1-element partners
-// array. Gated behind a shared key since it writes real data — meant to be
-// called once by hand right after deploying, then deleted from this file
-// (along with a manual delete of the now-migrated pair_history collection
-// itself — see the deploy note that goes with this) rather than left
-// sitting around as a standing endpoint.
-exports.migrateOldPairHistory = onRequest({ secrets: [GOOGLE_SHEETS_CREDENTIALS] }, async (req, res) => {
-  applyCors(res);
-  if(req.method === 'OPTIONS'){ res.status(204).send(''); return; }
-  if(req.query.key !== 'itl-pairhist-migrate-2026'){ res.status(403).json({ error: 'forbidden' }); return; }
-
-  try{
-    const snap = await db.collection('pair_history').get();
-    const rows = [];
-    snap.forEach(doc => {
-      const key = doc.id;
-      const entries = doc.data().entries || [];
-      entries.forEach(e => {
-        if(!e || !e.from) return;
-        const partners = e.partner ? [e.partner] : [];
-        rows.push([key, serializePartners(partners), new Date(e.from).toISOString()]);
-      });
-    });
-    if(!rows.length){ res.status(200).json({ imported: 0, docs: snap.size }); return; }
-
-    const sheets = await getSheetsClient();
-    await sheets.spreadsheets.values.append({
-      spreadsheetId: PAIR_HISTORY_SHEET_ID,
-      range: `${PAIR_HISTORY_SHEET_TAB}!A:C`,
-      valueInputOption: 'RAW',
-      insertDataOption: 'INSERT_ROWS',
-      requestBody: { values: rows }
-    });
-    res.status(200).json({ imported: rows.length, docs: snap.size });
-  }catch(e){
-    console.error('migrateOldPairHistory failed:', e);
-    res.status(500).json({ error: e.message || 'migration failed' });
-  }
-});
-
 // secrets: [VAPID_PRIVATE_KEY] is needed here now too — the train-spotting
 // alerts block at the end of this function calls sendToFilteredSubscribers,
 // which needs that secret's value to send a push, same as the Firestore
