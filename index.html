@@ -1029,6 +1029,8 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
    row (per-car details, consist editor, trip notes, hide-train...). */
 .modal-section{background:var(--bg); border:1px solid var(--border); border-radius:12px; padding:12px 14px; margin-top:10px; box-shadow:0 2px 8px -4px rgba(0,0,0,0.35);}
 .modal-section:first-child{margin-top:0;}
+.modal-section-label{font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; color:var(--text-faint); margin:14px 0 2px;}
+.modal-section-label:first-child{margin-top:0;}
 .alert-header{font-weight:700; font-size:13px; color:var(--text); line-height:1.4;}
 .alert-posted{font-size:10.5px; color:var(--text-faint); font-family:'IBM Plex Mono', monospace; margin-top:2px;}
 .alert-desc{font-size:12px; color:var(--text-dim); line-height:1.5; margin-top:6px; white-space:pre-wrap;}
@@ -1343,12 +1345,7 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
   </div>
   <div class="signed-in-bar" id="signedInBar"><span class="user-chip" id="userChip">G</span></div>
 
-  <button class="alert-btn" id="alertsBtn" title="Service alerts">
-    <svg viewBox="0 0 24 24" width="18" height="18" fill="none"><path d="M12 3.5L2 20.5h20L12 3.5z" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/><line x1="12" y1="9.5" x2="12" y2="14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="17" r="1.15" fill="currentColor"/></svg>
-    <span class="alert-dot" id="alertsDot" style="display:none;"></span>
-  </button>
-
-  <button class="alert-btn" id="notifBellBtn" title="Notifications">
+  <button class="alert-btn" id="notifBellBtn" title="Alerts &amp; Notifications">
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M13.73 21a2 2 0 0 1-3.46 0" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
     <span class="alert-dot" id="notifDot" style="display:none;"></span>
   </button>
@@ -2973,9 +2970,10 @@ let stopArrivalTracker = {};
          allow read: if false;
          allow write: if true;
        }
-       // Moderator/trusted-member-posted diversions & closures (see
-       // showAlertsModal's composer). Read openly since every visitor's
-       // Service Alerts modal fetches these directly, same as the
+       // Moderator/trusted-member-posted diversions & closures (posted
+       // from Publish Alerts & Diversions). Read openly since every
+       // visitor's Alerts & Notifications modal fetches these directly,
+       // same as the
        // MBTA-sourced half of that same modal; write access is gated in
        // the UI (only shown to signed-in moderators/trusted members), same
        // trust model as every other open-write community collection above.
@@ -4076,7 +4074,7 @@ function buildLadder(){
 // scroll container here (see the body.track-map-page comment near
 // .top-bar's CSS — there's no separate scrollable wrapper around #ladder),
 // so that's what needs adjusting, not some inner element's scrollTop.
-function applyLadderZoom(newZoom, anchorViewportY){
+function applyLadderZoom(newZoom, anchorViewportY, fast){
   const clamped = Math.min(LADDER_ZOOM_MAX, Math.max(LADDER_ZOOM_MIN, newZoom));
   if(Math.abs(clamped - state.ladderZoom) < 0.001) return;
   const ladderEl = document.getElementById('ladder');
@@ -4089,16 +4087,21 @@ function applyLadderZoom(newZoom, anchorViewportY){
   const offsetInLadder = (anchorY + window.scrollY) - ladderTopDocY;
   const newOffsetInLadder = offsetInLadder * (newRowH / oldRowH);
   state.ladderZoom = clamped;
-  // relayoutLadderSmoothly() (not buildLadder() directly) — buildLadder()
-  // alone wipes and recreates the whole #ladder innerHTML, including every
-  // live train-bubble/leader-line element, with nothing that puts them
-  // back. relayoutLadderSmoothly() is the existing wrapper (already used by
-  // the resize/orientation-change handlers below) that detaches those
-  // elements first, calls buildLadder(), then reattaches and repositions
-  // them via renderTrainDots() — without it, every train visibly vanished
-  // the moment you zoomed and didn't come back until the next full page
-  // navigation rebuilt the ladder from scratch.
-  relayoutLadderSmoothly();
+  // relayoutLadderSmoothly()/relayoutLadderFast() (not buildLadder()
+  // directly) — buildLadder() alone wipes and recreates the whole #ladder
+  // innerHTML, including every live train-bubble/leader-line element, with
+  // nothing that puts them back. Both wrappers detach those elements
+  // first, call buildLadder(), then reattach and reposition them via
+  // renderTrainDots() — without that, every train visibly vanished the
+  // moment you zoomed and didn't come back until the next full page
+  // navigation rebuilt the ladder from scratch. fast=true (used while a
+  // pinch gesture is actively in progress — see setupLadderZoom) skips the
+  // FLIP-measure-and-animate pass relayoutLadderSmoothly() does for the
+  // static track dots/lines/labels, since that per-frame
+  // getBoundingClientRect()+transition overhead is what made continuous
+  // pinch-zoom feel laggy on phones; a single discrete zoom step (buttons,
+  // ctrl+wheel) still gets the nicer eased version.
+  if(fast) relayoutLadderFast(); else relayoutLadderSmoothly();
   window.scrollTo(0, ladderTopDocY + newOffsetInLadder - anchorY);
 }
 
@@ -4132,7 +4135,7 @@ function applyLadderZoom(newZoom, anchorViewportY){
         rebuildQueued = true;
         const touches = e.touches;
         requestAnimationFrame(()=>{
-          applyLadderZoom(pinchStartZoom * (touchDist(touches) / pinchStartDist), touchMidY(touches));
+          applyLadderZoom(pinchStartZoom * (touchDist(touches) / pinchStartDist), touchMidY(touches), true);
           rebuildQueued = false;
         });
       }
@@ -6811,101 +6814,6 @@ function timeSincePosted(iso){
   return remMinutes > 0 ? `${hours}h ${remMinutes}m ago` : `${hours}h ago`;
 }
 
-async function showAlertsModal(){
-  clearStaleModalStickyInfo();
-  const lineTitle = state.activeLine === 'green' ? 'Green Line & Mattapan'
-    : `${lineDisplayName(state.activeLine)} Line`;
-  document.getElementById('carModalTitle').textContent = `Service Alerts \u2014 ${lineTitle}`;
-  document.getElementById('carModalBody').innerHTML = loadingSceneHtml();
-  document.getElementById('carModalOverlay').classList.add('show');
-
-  let mbtaAlerts = [];
-  let mbtaFailed = false;
-  try{
-    mbtaAlerts = await fetchAlerts();
-  }catch(e){
-    console.error(e);
-    mbtaFailed = true;
-  }
-  const communityAlerts = await fetchCommunityAlerts();
-  mbtaAlerts.sort((a,b) => b.severity - a.severity);
-
-  // Community-reported diversions/closures are shown first \u2014 they're
-  // usually the more immediately actionable, locally-sourced ones (a
-  // shuttle bus detail MBTA's own feed hasn't caught up to posting yet),
-  // ahead of MBTA's own official alerts below them. Posting one now happens
-  // on the Publish Alerts & Diversions page (moderators/trusted members
-  // only) rather than inline here \u2014 this modal is view/remove only.
-  const addBtnHtml = (state.isModerator || state.isTrustedMember)
-    ? `<div class="modal-row"><span class="menu-note" style="margin-left:0;">Moderators and trusted members can post a diversion from Publish Alerts &amp; Diversions in the menu.</span><strong></strong></div>`
-    : '';
-
-  const communityHtml = communityAlerts.map(a=>{
-    const canRemove = state.isModerator || (a.postedByUid && a.postedByUid === state.uid);
-    const removeBtn = canRemove
-      ? `<button class="modal-info-btn" data-remove-community-alert="${a.id}" style="margin-top:6px;">Remove</button>`
-      : '';
-    const routeLine = a.fromStation && a.toStation
-      ? `${linkifyStationNames(a.fromStation)} \u2192 ${linkifyStationNames(a.toStation)}`
-      : linkifyStationNames(a.text || ''); // pre-migration docs (old free-text-only shape)
-    const notesHtml = a.notes ? `<div class="alert-desc">${linkifyStationNames(a.notes)}</div>` : '';
-    return `
-      <div class="modal-section" style="border-left:3px solid var(--accent);">
-        <div class="alert-header">${routeLine}</div>
-        ${notesHtml}
-        <div class="alert-posted">${ALERT_ROUTE_LABELS[a.route] || a.route} \u00b7 Reported by ${a.postedBy || 'a member'} \u00b7 ${timeSincePosted(new Date(a.ts).toISOString())}</div>
-        ${removeBtn}
-      </div>`;
-  }).join('');
-
-  const mbtaHtml = mbtaAlerts.map(a=>{
-    const headerHtml = linkifyStationNames(a.header);
-    const descHtml = a.description ? `<div class="alert-desc">${linkifyStationNames(a.description)}</div>` : '';
-    const postedHtml = a.postedAt ? `<div class="alert-posted">${timeSincePosted(a.postedAt)}</div>` : '';
-    return `
-      <div class="modal-section">
-        <div class="alert-header">${headerHtml}</div>
-        ${postedHtml}
-        ${descHtml}
-      </div>`;
-  }).join('');
-
-  const emptyHtml = (communityAlerts.length === 0 && mbtaAlerts.length === 0)
-    ? `<div class="modal-row"><span>${mbtaFailed ? 'Could not load T-Alerts right now.' : 'No alerts from the last 4 hours.'}</span><strong></strong></div>`
-    : '';
-
-  document.getElementById('carModalBody').innerHTML = addBtnHtml + communityHtml + mbtaHtml + emptyHtml;
-
-  document.getElementById('carModalBody').querySelectorAll('.alert-station').forEach(el=>{
-    el.addEventListener('click', (e)=>{
-      e.stopPropagation();
-      showStationDeparturesByName(el.dataset.station);
-    });
-  });
-
-  document.getElementById('carModalBody').querySelectorAll('[data-remove-community-alert]').forEach(btn=>{
-    btn.addEventListener('click', async ()=>{
-      if(!window.confirm('Remove this diversion/closure report?')) return;
-      try{
-        await fbDb.collection('community_alerts').doc(btn.dataset.removeCommunityAlert).delete();
-        refreshLiveDiversionBypassCache();
-        showAlertsModal();
-      }catch(e){ console.error(e); }
-    });
-  });
-}
-
-document.getElementById('alertsBtn').addEventListener('click', showAlertsModal);
-
-async function checkForAlerts(){
-  try{
-    const alerts = await fetchAlerts();
-    document.getElementById('alertsDot').style.display = alerts.length > 0 ? 'block' : 'none';
-  }catch(e){
-    console.error(e);
-  }
-}
-
 /* ---------------- Moderator-pushed alerts & notifications ---------------- */
 
 const NOTIF_SEEN_KEY = 'notif_last_seen_ts_v1';
@@ -6958,28 +6866,32 @@ async function loadAllModItems(){
   return alerts.concat(notifs).sort((a,b) => (b.ts || 0) - (a.ts || 0));
 }
 
-async function showNotificationsPanel(){
+async function showAlertsAndNotificationsModal(){
   clearStaleModalStickyInfo();
-  document.getElementById('carModalTitle').textContent = 'Notifications';
+  const lineTitle = state.activeLine === 'green' ? 'Green Line & Mattapan'
+    : `${lineDisplayName(state.activeLine)} Line`;
+  document.getElementById('carModalTitle').textContent = 'Alerts & Notifications';
   document.getElementById('carModalBody').innerHTML = loadingSceneHtml();
   document.getElementById('carModalOverlay').classList.add('show');
 
-  if(!firebaseReady){
-    document.getElementById('carModalBody').innerHTML = '<div class="modal-row"><span>Notifications need Firebase configured.</span><strong></strong></div>';
-    return;
+  let mbtaAlerts = [];
+  let mbtaFailed = false;
+  try{
+    mbtaAlerts = await fetchAlerts();
+  }catch(e){
+    console.error(e);
+    mbtaFailed = true;
   }
+  const communityAlerts = await fetchCommunityAlerts();
+  const modItems = firebaseReady ? await loadAllModItems() : [];
+  mbtaAlerts.sort((a,b) => b.severity - a.severity);
 
-  const items = await loadAllModItems();
-
+  // Opening this modal counts as "seen" for the moderator-notifications dot,
+  // same as the old standalone notifications panel used to do.
   try{ localStorage.setItem(NOTIF_SEEN_KEY, String(Date.now())); }catch(e){ /* ignore */ }
   document.getElementById('notifDot').style.display = 'none';
 
-  if(items.length === 0){
-    document.getElementById('carModalBody').innerHTML = '<div class="modal-row"><span>No notifications yet.</span><strong></strong></div>';
-    return;
-  }
-
-  document.getElementById('carModalBody').innerHTML = items.map(item=>{
+  const notifHtml = modItems.map(item=>{
     const expiryNote = item.expiresAt
       ? `<div class="signin-note">Expires ${new Date(item.expiresAt).toLocaleString('en-US', { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' })}</div>`
       : `<div class="signin-note">Does not expire automatically</div>`;
@@ -7006,16 +6918,85 @@ async function showNotificationsPanel(){
       </div>`;
   }).join('');
 
-  document.querySelectorAll('[data-remove-mod-item]').forEach(btn=>{
+  // Community-reported diversions/closures are shown first — they're
+  // usually the more immediately actionable, locally-sourced ones (a
+  // shuttle bus detail MBTA's own feed hasn't caught up to posting yet),
+  // ahead of MBTA's own official alerts below them. Posting one now happens
+  // on the Publish Alerts & Diversions page (moderators/trusted members
+  // only) rather than inline here — this modal is view/remove only.
+  const addBtnHtml = (state.isModerator || state.isTrustedMember)
+    ? `<div class="modal-row"><span class="menu-note" style="margin-left:0;">Moderators and trusted members can post a diversion from Publish Alerts &amp; Diversions in the menu.</span><strong></strong></div>`
+    : '';
+
+  const communityHtml = communityAlerts.map(a=>{
+    const canRemove = state.isModerator || (a.postedByUid && a.postedByUid === state.uid);
+    const removeBtn = canRemove
+      ? `<button class="modal-info-btn" data-remove-community-alert="${a.id}" style="margin-top:6px;">Remove</button>`
+      : '';
+    const routeLine = a.fromStation && a.toStation
+      ? `${linkifyStationNames(a.fromStation)} → ${linkifyStationNames(a.toStation)}`
+      : linkifyStationNames(a.text || ''); // pre-migration docs (old free-text-only shape)
+    const notesHtml = a.notes ? `<div class="alert-desc">${linkifyStationNames(a.notes)}</div>` : '';
+    return `
+      <div class="modal-section" style="border-left:3px solid var(--accent);">
+        <div class="alert-header">${routeLine}</div>
+        ${notesHtml}
+        <div class="alert-posted">${ALERT_ROUTE_LABELS[a.route] || a.route} · Reported by ${a.postedBy || 'a member'} · ${timeSincePosted(new Date(a.ts).toISOString())}</div>
+        ${removeBtn}
+      </div>`;
+  }).join('');
+
+  const mbtaHtml = mbtaAlerts.map(a=>{
+    const headerHtml = linkifyStationNames(a.header);
+    const descHtml = a.description ? `<div class="alert-desc">${linkifyStationNames(a.description)}</div>` : '';
+    const postedHtml = a.postedAt ? `<div class="alert-posted">${timeSincePosted(a.postedAt)}</div>` : '';
+    return `
+      <div class="modal-section">
+        <div class="alert-header">${headerHtml}</div>
+        ${postedHtml}
+        ${descHtml}
+      </div>`;
+  }).join('');
+
+  const serviceAlertsEmptyHtml = (communityAlerts.length === 0 && mbtaAlerts.length === 0)
+    ? `<div class="modal-row"><span>${mbtaFailed ? 'Could not load T-Alerts right now.' : 'No alerts from the last 4 hours.'}</span><strong></strong></div>`
+    : '';
+
+  const notifSectionHtml = modItems.length > 0
+    ? `<div class="modal-section-label">Notifications</div>${notifHtml}`
+    : '';
+  const serviceAlertsSectionHtml = `<div class="modal-section-label">Service Alerts — ${lineTitle}</div>${addBtnHtml}${communityHtml}${mbtaHtml}${serviceAlertsEmptyHtml}`;
+
+  document.getElementById('carModalBody').innerHTML = notifSectionHtml + serviceAlertsSectionHtml;
+
+  document.getElementById('carModalBody').querySelectorAll('.alert-station').forEach(el=>{
+    el.addEventListener('click', (e)=>{
+      e.stopPropagation();
+      showStationDeparturesByName(el.dataset.station);
+    });
+  });
+
+  document.getElementById('carModalBody').querySelectorAll('[data-remove-community-alert]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      if(!window.confirm('Remove this diversion/closure report?')) return;
+      try{
+        await fbDb.collection('community_alerts').doc(btn.dataset.removeCommunityAlert).delete();
+        refreshLiveDiversionBypassCache();
+        showAlertsAndNotificationsModal();
+      }catch(e){ console.error(e); }
+    });
+  });
+
+  document.getElementById('carModalBody').querySelectorAll('[data-remove-mod-item]').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
       if(!window.confirm('Remove this notification for everyone?')) return;
       await deleteModItem(btn.dataset.removeModKind, btn.dataset.removeModItem);
-      showNotificationsPanel();
+      showAlertsAndNotificationsModal();
     });
   });
 }
 
-document.getElementById('notifBellBtn').addEventListener('click', showNotificationsPanel);
+document.getElementById('notifBellBtn').addEventListener('click', showAlertsAndNotificationsModal);
 
 // Fullscreen and reload used to be their own buttons floating over the
 // bottom nav — replaced with keyboard shortcuts ("f" to toggle full
@@ -7232,20 +7213,25 @@ function updateNotifPermissionUI(permission){
 
 const NOTIF_ALERTED_KEY = 'notif_last_alerted_ts_v1';
 
-async function checkForNotifications(){
-  if(!firebaseReady) return;
+async function checkForAlertsAndNotifications(){
   try{
-    const items = await loadAllModItems();
-    if(items.length === 0) return;
+    const [mbtaAlerts, items] = await Promise.all([
+      fetchAlerts().catch(e => { console.error(e); return []; }),
+      firebaseReady ? loadAllModItems() : Promise.resolve([])
+    ]);
+
     let lastSeen = 0;
     try{ lastSeen = parseInt(localStorage.getItem(NOTIF_SEEN_KEY) || '0', 10) || 0; }catch(e){ /* ignore */ }
-    const hasUnseen = items.some(item => (item.ts || 0) > lastSeen);
-    document.getElementById('notifDot').style.display = hasUnseen ? 'block' : 'none';
+    const hasUnseenModItems = items.some(item => (item.ts || 0) > lastSeen);
+    document.getElementById('notifDot').style.display = (hasUnseenModItems || mbtaAlerts.length > 0) ? 'block' : 'none';
+
+    if(items.length === 0) return;
 
     // The toast/local notification should only ever fire once per alert —
     // tracked separately from "seen" (which only updates when the person
-    // opens the notifications panel), so the reminder dot can stay visible
-    // as a persistent reminder without re-triggering the toast every poll.
+    // opens the alerts & notifications modal), so the reminder dot can stay
+    // visible as a persistent reminder without re-triggering the toast
+    // every poll.
     let lastAlerted = 0;
     try{ lastAlerted = parseInt(localStorage.getItem(NOTIF_ALERTED_KEY) || '0', 10) || 0; }catch(e){ /* ignore */ }
     const newest = items[0];
@@ -9776,7 +9762,7 @@ function revealApp(line, forcedPage, forcedCarNumber){
   ensureStopIdMap(line).then(()=>{
     if(state.activeLine === line){ buildLadder(); renderTrainDots(); }
   });
-  checkForAlerts();
+  checkForAlertsAndNotifications();
   let savedPage = null;
   try{ savedPage = localStorage.getItem(LAST_PAGE_KEY); }catch(e){ /* ignore */ }
   const defaultPage = LINE_DEFAULT_PAGE[line] || 'B';
@@ -10784,6 +10770,34 @@ function relayoutLadderSmoothly(){
   });
 }
 
+// Same vehicle-preserving rebuild as relayoutLadderSmoothly() above, minus
+// the FLIP measurement/animation for the static track structure (lines,
+// dots, labels) — that's a getBoundingClientRect() call per element plus a
+// CSS transition setup, worth it for a one-off discrete zoom step (a
+// button click, a ctrl+wheel tick) but too much per-frame work to keep up
+// with a continuous pinch gesture on a phone, which is what was making
+// pinch-zoom feel janky/laggy rather than tracking fingers smoothly. Used
+// by setupLadderZoom's touchmove handler; relayoutLadderSmoothly() is still
+// used for the zoom buttons and ctrl+wheel, where the eased transition
+// between two discrete states actually looks nice rather than fighting a
+// continuous drag.
+function relayoutLadderFast(){
+  const ladderEl = document.getElementById('ladder');
+  if(!ladderEl) return;
+  const svgBefore = document.getElementById('ladderLines');
+  const preservedVehicles = Array.from(ladderEl.querySelectorAll('.train-bubble, .train-leader-line, .train-leader-elbow'));
+  const preservedDots = svgBefore ? Array.from(svgBefore.querySelectorAll('.train-leader-dot')) : [];
+
+  buildLadder();
+
+  preservedVehicles.forEach(el => ladderEl.appendChild(el));
+  const svgAfter = document.getElementById('ladderLines');
+  if(svgAfter) preservedDots.forEach(el => svgAfter.appendChild(el));
+
+  renderTrainDots();
+  alignMainGridPanels();
+}
+
 let panelRelayoutTimer;
 const carModalOverlayEl = document.getElementById('carModalOverlay');
 if(carModalOverlayEl){
@@ -11465,16 +11479,13 @@ async function init(){
 
   updateDiscordBanner();
 
-  // Alerts matter app-wide (not just on the track map), so this is only
-  // gated by tab visibility, not by page — see startGatedPoll above.
-  startGatedPoll(checkForAlerts, 60000, { scopeToLivePage: false });
-
-  // Same reasoning as checkForAlerts above: matters app-wide, so only
-  // gated by tab visibility, not by page. checkForNotifications reads two
-  // capped queries (30 docs each); checkCarBackInServiceNotifications reads
-  // a full small collection — neither needs to run while the tab is
-  // backgrounded, and both catch up immediately once it's visible again.
-  startGatedPoll(checkForNotifications, 60000, { scopeToLivePage: false });
+  // Alerts + moderator notifications now share one bell button and one
+  // combined poller — matters app-wide, so only gated by tab visibility,
+  // not by page. Reads a T-Alerts fetch plus two capped queries (30 docs
+  // each); checkCarBackInServiceNotifications reads a full small
+  // collection — neither needs to run while the tab is backgrounded, and
+  // both catch up immediately once it's visible again.
+  startGatedPoll(checkForAlertsAndNotifications, 60000, { scopeToLivePage: false });
   startGatedPoll(checkCarBackInServiceNotifications, 60000, { scopeToLivePage: false });
 
   document.getElementById('pushEnableBtn').addEventListener('click', subscribeToPushNotifications);
