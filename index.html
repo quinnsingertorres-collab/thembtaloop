@@ -531,6 +531,14 @@ body.dark .discord-banner{background:#5865F2; border-color:#5865F2; color:#fff;}
 }
 .ladder-zoom-btn:hover{background:var(--accent); color:#fff;}
 .ladder-zoom-btn:active{transform:scale(0.95);}
+/* Mobile already has pinch-to-zoom on the ladder itself (see
+   setupLadderZoom in JS) — the buttons were only there as a substitute for
+   devices without a trackpad/touchscreen pinch gesture, so they're just
+   redundant clutter on a touchscreen phone. Same breakpoint isMobileLadder
+   uses for the ladder's own bubble sizing. */
+@media (max-width:640px){
+  .ladder-zoom-controls{display:none;}
+}
 
 .track-col-labels{
   display:flex; justify-content:space-between;
