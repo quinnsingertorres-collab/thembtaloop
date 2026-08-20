@@ -728,13 +728,29 @@ body.dark .stop-dot{background:var(--bg);}
 .train-loading-rail{position:absolute; left:0; right:0; height:2px; background:var(--border);}
 .train-loading-rail.r1{bottom:16px;}
 .train-loading-rail.r2{bottom:11px;}
-.train-loading-img{position:absolute; top:16px; height:64px; width:auto; left:-45%; animation:trainDriveAcross 3.2s linear infinite;}
+/* Two coupled cars, not one — a real Type 8 married pair usually runs as a
+   2-unit consist. Each <img> is the same side-view car; putting two in a
+   row (with only a hairline gap, like a coupler) and animating the ROW
+   (not each image separately) keeps them moving in lockstep with zero risk
+   of drifting out of sync the way two independently-animated images could.
+   Runs right-to-left: the image's own "front" (the cab end with the
+   destination sign) is drawn on ITS left edge, so with the whole consist
+   traveling leftward, the FIRST img in the row leads front-first — the
+   correct way for a train to drive, rather than appearing to reverse
+   across the screen. */
+.train-loading-consist{position:absolute; top:16px; display:flex; align-items:flex-start; gap:2px; animation:trainDriveAcross 5.3s linear infinite;}
+.train-loading-img{height:64px; width:auto; display:block;}
 .train-loading-caption{text-align:center; margin-top:8px; color:var(--text-faint); font-family:'IBM Plex Mono', monospace; font-size:12.5px;}
 .train-loading-dot{display:inline-block; color:var(--accent); animation:trainLoadingDotPop 1.4s ease-in-out infinite; opacity:0.25;}
 .train-loading-dot:nth-child(1){animation-delay:0s;}
 .train-loading-dot:nth-child(2){animation-delay:0.22s;}
 .train-loading-dot:nth-child(3){animation-delay:0.44s;}
-@keyframes trainDriveAcross{ from{ left:-45%; } to{ left:135%; } }
+/* Wider start/end offsets than a single car needed (was -45%/135%) since
+   the two-car consist is roughly twice as wide — these keep it fully
+   off-screen at both ends of the loop regardless of container width.
+   "from" is the right-hand start, "to" is the left-hand end, since this
+   now runs right-to-left. */
+@keyframes trainDriveAcross{ from{ left:200%; } to{ left:-100%; } }
 @keyframes trainLoadingDotPop{ 0%, 60%, 100%{ transform:scale(0.5); opacity:0.25; } 25%{ transform:scale(1); opacity:1; } }
 
 /* ---------- Bottom nav ---------- */
@@ -1458,7 +1474,7 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
           <option value="Unknown">Unknown</option>
         </select>
       </div>
-      <div class="vehicle-list" id="vehicleList"><div class="train-loading-scene"><div class="train-loading-track"><div class="train-loading-rail r1"></div><div class="train-loading-rail r2"></div><img class="train-loading-img" src="/type8-loading.png" alt=""></div><div class="train-loading-caption">Loading trains<span class="train-loading-dot">.</span><span class="train-loading-dot">.</span><span class="train-loading-dot">.</span></div></div></div>
+      <div class="vehicle-list" id="vehicleList"><div class="train-loading-scene"><div class="train-loading-track"><div class="train-loading-rail r1"></div><div class="train-loading-rail r2"></div><div class="train-loading-consist"><img class="train-loading-img" src="/type8-loading.png" alt=""><img class="train-loading-img" src="/type8-loading.png" alt=""></div></div><div class="train-loading-caption">Loading trains<span class="train-loading-dot">.</span><span class="train-loading-dot">.</span><span class="train-loading-dot">.</span></div></div></div>
       </div>
     </div>
   </div>
@@ -1553,7 +1569,7 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
     <div class="roster-row" id="diversionListRow">
       <div class="roster-row-head"><span class="roster-car-chip">Upcoming Diversions</span></div>
       <div class="roster-edited-by">Every diversion/closure currently posted, across every line &mdash; not just the one selected above. Moderators can edit or remove any of these; trusted members can remove their own.</div>
-      <div id="diversionListBody"><div class="train-loading-scene"><div class="train-loading-track"><div class="train-loading-rail r1"></div><div class="train-loading-rail r2"></div><img class="train-loading-img" src="/type8-loading.png" alt=""></div><div class="train-loading-caption">Loading<span class="train-loading-dot">.</span><span class="train-loading-dot">.</span><span class="train-loading-dot">.</span></div></div></div>
+      <div id="diversionListBody"><div class="train-loading-scene"><div class="train-loading-track"><div class="train-loading-rail r1"></div><div class="train-loading-rail r2"></div><div class="train-loading-consist"><img class="train-loading-img" src="/type8-loading.png" alt=""><img class="train-loading-img" src="/type8-loading.png" alt=""></div></div><div class="train-loading-caption">Loading<span class="train-loading-dot">.</span><span class="train-loading-dot">.</span><span class="train-loading-dot">.</span></div></div></div>
     </div>
 
     <div class="roster-row" id="disruptionModeRow">
@@ -2871,7 +2887,7 @@ let state = { vehicles: [], vehiclesEverLoaded: false, currentPage: 'B', lastMai
 // Same markup as the static placeholder in the vehicle-list HTML (see
 // #vehicleList in the body) — reused here so the animated loading scene
 // also reappears while switching lines, not just on first page load.
-const TRAIN_LOADING_SCENE_HTML = '<div class="train-loading-scene"><div class="train-loading-track"><div class="train-loading-rail r1"></div><div class="train-loading-rail r2"></div><img class="train-loading-img" src="/type8-loading.png" alt=""></div><div class="train-loading-caption">Loading trains<span class="train-loading-dot">.</span><span class="train-loading-dot">.</span><span class="train-loading-dot">.</span></div></div>';
+const TRAIN_LOADING_SCENE_HTML = '<div class="train-loading-scene"><div class="train-loading-track"><div class="train-loading-rail r1"></div><div class="train-loading-rail r2"></div><div class="train-loading-consist"><img class="train-loading-img" src="/type8-loading.png" alt=""><img class="train-loading-img" src="/type8-loading.png" alt=""></div></div><div class="train-loading-caption">Loading trains<span class="train-loading-dot">.</span><span class="train-loading-dot">.</span><span class="train-loading-dot">.</span></div></div>';
 
 // Same scene, generic caption — every other spot in the app that used to
 // show plain "Loading…" text (car detail/schedule/alerts modals, the
@@ -2882,7 +2898,7 @@ const TRAIN_LOADING_SCENE_HTML = '<div class="train-loading-scene"><div class="t
 // where it's helpful.
 function loadingSceneHtml(caption){
   const text = caption || 'Loading';
-  return `<div class="train-loading-scene"><div class="train-loading-track"><div class="train-loading-rail r1"></div><div class="train-loading-rail r2"></div><img class="train-loading-img" src="/type8-loading.png" alt=""></div><div class="train-loading-caption">${text}<span class="train-loading-dot">.</span><span class="train-loading-dot">.</span><span class="train-loading-dot">.</span></div></div>`;
+  return `<div class="train-loading-scene"><div class="train-loading-track"><div class="train-loading-rail r1"></div><div class="train-loading-rail r2"></div><div class="train-loading-consist"><img class="train-loading-img" src="/type8-loading.png" alt=""><img class="train-loading-img" src="/type8-loading.png" alt=""></div></div><div class="train-loading-caption">${text}<span class="train-loading-dot">.</span><span class="train-loading-dot">.</span><span class="train-loading-dot">.</span></div></div>`;
 }
 let layout = null; // computed pixel layout for the current ladder
 
