@@ -67,6 +67,9 @@ const { defineSecret } = require('firebase-functions/params');
 const admin = require('firebase-admin');
 const webpush = require('web-push');
 const { google } = require('googleapis');
+const crypto = require('crypto');
+const { promisify } = require('util');
+const scryptAsync = promisify(crypto.scrypt);
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -150,6 +153,203 @@ function applyCors(res){
   res.set('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.set('Access-Control-Allow-Headers', 'Content-Type');
 }
+
+// Same idea as applyCors above but for the two POST endpoints below —
+// needs Authorization allowed through (setAccountPin) and POST instead of
+// GET, otherwise identical (wide-open origin: both endpoints are meant to
+// be called from any browser, same as the rest of this app's public API).
+function applyCorsPost(res){
+  res.set('Access-Control-Allow-Origin', '*');
+  res.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+}
+
+/* ---------------- Sign-in with ID ----------------
+   Every account gets a permanent 5-digit ID (assignShortIdOnUserCreate,
+   below) the moment it's created. Pairing that ID with a PIN the person
+   sets themselves (setAccountPin) gives them a second way back into their
+   account (signInWithIdAndPin) that doesn't require the Google popup —
+   handy on a shared/kiosk-style device, or anywhere Google sign-in is
+   awkward. The ID itself isn't treated as a secret (it's readable by any
+   signed-in visitor via users/{uid}.shortId, same trust level as a
+   username/display name); the PIN is what actually gates access, hashed
+   with a random per-account salt via scrypt and stored in its own
+   Admin-SDK-only user_pins/{uid} doc — see the Firestore rules comment
+   near the top of index.html for why that has to be a separate collection
+   from users/{uid} rather than just another field on it. */
+
+// scrypt-hashes a PIN with either a freshly generated salt (when setting a
+// PIN) or a caller-supplied one (when verifying a sign-in attempt against
+// an already-stored hash — same salt has to be reused or the hashes can
+// never match). 64-byte derived key is comfortably more than scrypt needs
+// for a keyspace this small; the salt is what actually matters here, since
+// it's what stops two people who happen to pick the same PIN from getting
+// identical stored hashes.
+async function hashPin(pin, saltHex){
+  const salt = saltHex ? Buffer.from(saltHex, 'hex') : crypto.randomBytes(16);
+  const derived = await scryptAsync(pin, salt, 64);
+  return { saltHex: salt.toString('hex'), hashHex: derived.toString('hex') };
+}
+
+function randomShortId(){
+  return String(Math.floor(Math.random() * 100000)).padStart(5, '0');
+}
+
+const SHORT_ID_MAX_ATTEMPTS = 20;
+const SIGNIN_RATE_LIMIT_MAX = 8;
+const SIGNIN_RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
+
+// Fires once per account, the instant its users/{uid} doc is first created
+// (index.html's onAuthStateChanged creates that doc on someone's very
+// first sign-in, Google or otherwise). Picks a random 5-digit candidate
+// and, inside a transaction against short_ids/{candidate}, only commits it
+// if that slot is still free — collisions get a fresh random retry rather
+// than counting up sequentially, so short IDs don't leak signup order the
+// way an incrementing counter would. 20 retries against a 100,000-slot
+// space is astronomically more than this app will ever need.
+exports.assignShortIdOnUserCreate = onDocumentCreated(
+  'users/{uid}',
+  async (event) => {
+    const uid = event.params.uid;
+    const existing = event.data.data();
+    if(existing && existing.shortId) return; // already has one — don't clobber
+
+    let assigned = null;
+    for(let attempt = 0; attempt < SHORT_ID_MAX_ATTEMPTS && !assigned; attempt++){
+      const candidate = randomShortId();
+      const shortIdRef = db.collection('short_ids').doc(candidate);
+      const userRef = db.collection('users').doc(uid);
+      try{
+        await db.runTransaction(async (tx) => {
+          const shortSnap = await tx.get(shortIdRef);
+          if(shortSnap.exists) throw new Error('COLLISION');
+          tx.set(shortIdRef, { uid, createdAt: Date.now() });
+          tx.set(userRef, { shortId: candidate }, { merge: true });
+        });
+        assigned = candidate;
+      }catch(e){
+        if(e.message !== 'COLLISION') console.error('Short ID assignment attempt failed:', e);
+        // otherwise just loop and try another random candidate
+      }
+    }
+    if(!assigned){
+      console.error(`Could not assign a unique short ID to ${uid} after ${SHORT_ID_MAX_ATTEMPTS} attempts.`);
+    }
+  }
+);
+
+// Lets an already-signed-in user set or change the PIN paired with their
+// short ID. Requires a real Firebase ID token in the Authorization header
+// (verified server-side below) so this can only ever be called by the
+// account owner — there's no path from "knows someone's short ID" to
+// "can set their PIN".
+exports.setAccountPin = onRequest(async (req, res) => {
+  applyCorsPost(res);
+  if(req.method === 'OPTIONS'){ res.status(204).send(''); return; }
+  if(req.method !== 'POST'){ res.status(405).json({ error: 'POST only' }); return; }
+
+  const authHeader = req.get('Authorization') || '';
+  const idToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+  if(!idToken){ res.status(401).json({ error: 'Missing Authorization header' }); return; }
+
+  let uid;
+  try{
+    const decoded = await admin.auth().verifyIdToken(idToken);
+    uid = decoded.uid;
+  }catch(e){
+    res.status(401).json({ error: 'Your session expired — sign in again and retry' });
+    return;
+  }
+
+  const pin = String((req.body && req.body.pin) || '').trim();
+  if(!/^\d{4,6}$/.test(pin)){
+    res.status(400).json({ error: 'PIN must be 4-6 digits' });
+    return;
+  }
+
+  try{
+    const { saltHex, hashHex } = await hashPin(pin);
+    await db.collection('user_pins').doc(uid).set({ saltHex, hashHex, updatedAt: Date.now() });
+    res.status(200).json({ ok: true });
+  }catch(e){
+    console.error('setAccountPin failed:', e);
+    res.status(500).json({ error: 'Could not save PIN — try again' });
+  }
+});
+
+// The actual "sign in with ID" endpoint: takes a 5-digit ID + PIN, and on a
+// match mints a real Firebase custom token for that account's uid — the
+// client exchanges it via signInWithCustomToken() for an ordinary
+// authenticated session, indistinguishable from having just come through
+// the Google popup (same admins/trusted_members checks apply). Rate-limited
+// per short ID via signin_attempts, since a 4-6 digit PIN is only ever as
+// safe as the throttle guarding it — 8 attempts per 15 minutes makes
+// brute-forcing even a 4-digit PIN (10,000 possibilities) take months per
+// account, while staying generous enough that a person fat-fingering their
+// own PIN a few times never gets locked out.
+exports.signInWithIdAndPin = onRequest(async (req, res) => {
+  applyCorsPost(res);
+  if(req.method === 'OPTIONS'){ res.status(204).send(''); return; }
+  if(req.method !== 'POST'){ res.status(405).json({ error: 'POST only' }); return; }
+
+  const shortId = String((req.body && req.body.shortId) || '').trim();
+  const pin = String((req.body && req.body.pin) || '').trim();
+  if(!/^\d{5}$/.test(shortId) || !/^\d{4,6}$/.test(pin)){
+    res.status(400).json({ error: 'Enter your 5-digit ID and PIN' });
+    return;
+  }
+
+  const attemptsRef = db.collection('signin_attempts').doc(shortId);
+  try{
+    const limited = await db.runTransaction(async (tx) => {
+      const snap = await tx.get(attemptsRef);
+      const now = Date.now();
+      const data = snap.exists ? snap.data() : null;
+      const windowExpired = !data || (now - data.windowStart) >= SIGNIN_RATE_LIMIT_WINDOW_MS;
+      if(!windowExpired && data.count >= SIGNIN_RATE_LIMIT_MAX) return true;
+      tx.set(attemptsRef, windowExpired
+        ? { count: 1, windowStart: now }
+        : { count: data.count + 1, windowStart: data.windowStart });
+      return false;
+    });
+    if(limited){
+      res.status(429).json({ error: 'Too many attempts — try again in a few minutes' });
+      return;
+    }
+  }catch(e){
+    console.error('signInWithIdAndPin rate-limit check failed:', e);
+    // Fail open on the rate limiter itself — a Firestore hiccup here
+    // shouldn't lock everyone out of signing in. The PIN check right below
+    // is the real gate either way.
+  }
+
+  try{
+    const shortSnap = await db.collection('short_ids').doc(shortId).get();
+    if(!shortSnap.exists){ res.status(401).json({ error: 'Incorrect ID or PIN' }); return; }
+    const uid = shortSnap.data().uid;
+
+    const pinSnap = await db.collection('user_pins').doc(uid).get();
+    if(!pinSnap.exists){ res.status(401).json({ error: 'Incorrect ID or PIN' }); return; }
+
+    const { saltHex, hashHex } = pinSnap.data();
+    const { hashHex: attemptHashHex } = await hashPin(pin, saltHex);
+    const attemptBuf = Buffer.from(attemptHashHex, 'hex');
+    const storedBuf = Buffer.from(hashHex, 'hex');
+    // Same-length check first — timingSafeEqual throws on a length
+    // mismatch instead of returning false, and length here is constant
+    // (both are always 64-byte scrypt outputs) so this never itself leaks
+    // anything, it's just guarding against a malformed/corrupt stored doc.
+    const matches = attemptBuf.length === storedBuf.length && crypto.timingSafeEqual(attemptBuf, storedBuf);
+    if(!matches){ res.status(401).json({ error: 'Incorrect ID or PIN' }); return; }
+
+    await attemptsRef.delete().catch(()=>{}); // successful sign-in resets the throttle
+    const token = await admin.auth().createCustomToken(uid);
+    res.status(200).json({ token });
+  }catch(e){
+    console.error('signInWithIdAndPin failed:', e);
+    res.status(500).json({ error: 'Sign-in failed — try again' });
+  }
+});
 
 // Sends one push payload to every doc in a given push_subscriptions
 // snapshot, cleaning up any subscription the push service reports as dead

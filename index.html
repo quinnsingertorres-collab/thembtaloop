@@ -219,6 +219,14 @@ body{padding:16px 16px 96px;}
   cursor:pointer; box-shadow:0 1px 4px rgba(0,0,0,0.18); padding:0;
 }
 .google-btn-wrap{position:relative; display:inline-block;}
+/* Deliberately just small plain text under the main circle, not a second
+   full-size icon button — this is a secondary/rare path (see idSignInBtn's
+   title) and giving it equal visual weight to the primary Google button
+   would suggest they're two equally common choices. Only visible while
+   googleBtnWrap itself is (i.e. signed out) since both wrap in the same
+   parent and get hidden together by completeSignIn/resetSignedOutUI. */
+.id-signin-link{position:absolute; top:100%; left:50%; transform:translateX(-50%); margin-top:4px; background:none; border:none; padding:0; font-size:10px; font-family:'IBM Plex Mono', monospace; color:var(--text-faint); cursor:pointer; white-space:nowrap;}
+.id-signin-link:hover{color:var(--text);}
 .alert-btn{
   position:relative; display:flex; align-items:center; justify-content:center; width:38px; height:38px;
   background:var(--panel); border:1px solid var(--border); border-radius:50%; color:#B45309;
@@ -246,6 +254,7 @@ body{padding:16px 16px 96px;}
    text, so it can never end up split awkwardly mid-parenthesis by the
    browser's own line-wrapping the way inline text does on narrow screens. */
 .menu-note{display:block; color:var(--text-faint); font-weight:400; font-size:12px; margin-top:2px;}
+.menu-note.error{color:#D64545;}
 .menu-link{display:flex; align-items:center; justify-content:space-between; gap:10px; padding:9px 6px; font-size:13px; color:var(--text); cursor:pointer; border-radius:7px; transition:background 0.15s;}
 .menu-link:hover{background:var(--bg);}
 .menu-link-arrow{color:var(--text-faint); font-size:16px;}
@@ -1360,6 +1369,7 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
     <button class="google-btn" id="googleSignInBtn" title="Sign in">
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none"><circle cx="12" cy="8" r="4" stroke="currentColor" stroke-width="2"/><path d="M4 20c0-4.4 3.6-7 8-7s8 2.6 8 7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
     </button>
+    <button class="id-signin-link" id="idSignInBtn" title="Sign in with your 5-digit ID + PIN instead">ID</button>
   </div>
   <div class="signed-in-bar" id="signedInBar"><span class="user-chip" id="userChip">G</span></div>
 
@@ -1736,6 +1746,15 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
             <div class="menu-note" style="margin-bottom:6px;">Shown next to any reports, edits, or roster changes you submit.</div>
             <input type="text" id="accountNameInput" class="account-input" placeholder="Display name">
             <button id="saveNameBtn" class="account-btn">Save name</button>
+            <div class="menu-divider"></div>
+            <div class="menu-row" style="flex-direction:column; align-items:flex-start; gap:4px;">
+              <span>Your sign-in ID</span>
+              <span class="menu-note" id="accountShortIdValue" style="font-family:'IBM Plex Mono', monospace; font-size:14px; color:var(--text);">&mdash;</span>
+              <span class="menu-note">Set a PIN below, then use this ID + PIN to sign in on another device without Google.</span>
+            </div>
+            <input type="text" inputmode="numeric" pattern="[0-9]*" id="accountPinInput" class="account-input" placeholder="New PIN (4-6 digits)" maxlength="6" style="margin-top:8px;">
+            <button id="setPinBtn" class="account-btn">Set PIN</button>
+            <div class="menu-note" id="accountPinNote"></div>
             <div class="menu-divider"></div>
             <div class="menu-row">
               <span>Remove snapshot watermark<span class="menu-note">(signed-in perk — affects Snapshot Map on the track map)</span></span>
@@ -3002,6 +3021,39 @@ let stopArrivalTracker = {};
        // Scheduled-function-only bookkeeping (last-seen stops, pair state,
        // train-spotting alert state) — never touched by any client code.
        match /bot_state/{docId} {
+         allow read: if false;
+         allow write: if false;
+       }
+       // Sign-in-with-ID support (see assignShortIdOnUserCreate/
+       // setAccountPin/signInWithIdAndPin in functions/index.js). None of
+       // these three are ever touched by the client directly — only by
+       // those Cloud Functions via the Admin SDK, which bypasses rules
+       // entirely, so "if false" here just means "no client, signed in or
+       // not, can read or write these" rather than actually blocking the
+       // functions themselves.
+       //   short_ids/{5-digit id} -> { uid } — reverse lookup so
+       //   signInWithIdAndPin can resolve an ID to an account without ever
+       //   exposing the full users collection.
+       match /short_ids/{shortId} {
+         allow read: if false;
+         allow write: if false;
+       }
+       //   user_pins/{uid} -> { saltHex, hashHex, updatedAt } — deliberately
+       //   its own collection rather than a field on users/{uid}, because
+       //   users/{uid} is readable by any signed-in visitor (see above, for
+       //   the Points leaderboard/roster attribution) and a PIN only has
+       //   4-6 digits worth of possibilities — a hash sitting somewhere
+       //   client-readable would be crackable offline in well under a
+       //   second regardless of the hash algorithm, so it has to live
+       //   somewhere no client can read at all.
+       match /user_pins/{uid} {
+         allow read: if false;
+         allow write: if false;
+       }
+       //   signin_attempts/{5-digit id} -> { count, windowStart } — rate-limit
+       //   bookkeeping for signInWithIdAndPin (throttles repeated PIN
+       //   guesses against one short ID).
+       match /signin_attempts/{shortId} {
          allow read: if false;
          allow write: if false;
        }
@@ -9890,12 +9942,13 @@ document.querySelectorAll('.line-select-btn').forEach(btn=>{
   });
 });
 
-async function completeSignIn(name, email, uid, photoURL){
+async function completeSignIn(name, email, uid, photoURL, shortId){
   state.signedIn = true;
   state.userName = name;
   state.userEmail = email || '';
   state.uid = uid || null;
   state.photoURL = photoURL || '';
+  state.shortId = shortId || null;
 
   if(firebaseReady && uid){
     try{
@@ -9923,6 +9976,7 @@ async function completeSignIn(name, email, uid, photoURL){
     : name.charAt(0).toUpperCase();
   document.getElementById('userChip').title = name + (state.isModerator ? ' \u00b7 Mod' : (state.isTrustedMember ? ' \u00b7 Trusted Member' : ''));
   document.getElementById('accountNameInput').value = name;
+  renderAccountShortId();
   document.getElementById('menuAccountSection').style.display = 'block';
   document.getElementById('membersMenuLink').style.display = state.isModerator ? 'flex' : 'none';
   document.getElementById('modNotifsMenuLink').style.display = (state.isModerator || state.isTrustedMember) ? 'flex' : 'none';
@@ -9946,6 +10000,7 @@ function resetSignedOutUI(){
   state.isModerator = false;
   state.isTrustedMember = false;
   state.photoURL = '';
+  state.shortId = null;
   document.getElementById('userChip').textContent = 'G';
   document.getElementById('googleBtnWrap').style.display = '';
   document.getElementById('signedInBar').style.display = 'none';
@@ -10008,6 +10063,7 @@ if(firebaseReady){
       const uid = user.uid;
       const userRef = fbDb.collection('users').doc(uid);
       let displayName = user.displayName || user.email || 'Signed in';
+      let shortId = null;
       try{
         const snap = await userRef.get();
         if(snap.exists && snap.data().displayName){
@@ -10015,10 +10071,11 @@ if(firebaseReady){
         }else{
           await userRef.set({ displayName, email: user.email || '', createdAt: Date.now() }, { merge:true });
         }
+        if(snap.exists) shortId = snap.data().shortId || null;
       }catch(e){
         console.error('Could not read/create user profile in Firestore:', e);
       }
-      completeSignIn(displayName, user.email || '', uid, user.photoURL || '');
+      completeSignIn(displayName, user.email || '', uid, user.photoURL || '', shortId);
     }else{
       if(state.signedIn) resetSignedOutUI();
       resolveGatedPageIfPending();
@@ -10052,9 +10109,130 @@ async function attemptSignIn(){
 
 document.getElementById('googleSignInBtn').addEventListener('click', attemptSignIn);
 
+/* ---------------- Sign-in with ID ----------------
+   Everyone gets a permanent 5-digit ID the moment their account is first
+   created (assignShortIdOnUserCreate in functions/index.js), shown/settable
+   from the account menu below. Pairing it with a PIN (also set from that
+   menu) opens a second way back in — idSignInBtn/showIdSignInModal here —
+   that skips the Google popup entirely, calling signInWithIdAndPin and
+   exchanging the custom token it returns for a real session via
+   signInWithCustomToken(), same as PAIR_HISTORY_ENDPOINT's plain fetch()
+   approach rather than the Firebase SDK's callable-function wrapper. */
+const SIGNIN_FUNCTIONS_BASE = 'https://us-central1-green-o.cloudfunctions.net';
+
+function renderAccountShortId(){
+  const el = document.getElementById('accountShortIdValue');
+  if(!el) return;
+  el.textContent = state.shortId ? state.shortId : 'Assigning… reopen this menu in a moment';
+}
+
+// The short ID doesn't exist until assignShortIdOnUserCreate's Firestore
+// trigger runs, a beat after the users/{uid} doc itself is created — so on
+// someone's very first sign-in there's a brief window where it's not there
+// yet. Re-checked every time the account menu opens (see menuBtn's click
+// listener below) so it fills in the moment it's ready, with no reload
+// needed. No-ops immediately once state.shortId is set, so this is cheap
+// to call on every menu open thereafter.
+async function refreshAccountShortId(){
+  if(!firebaseReady || !state.uid || state.shortId) return;
+  try{
+    const snap = await fbDb.collection('users').doc(state.uid).get();
+    if(snap.exists && snap.data().shortId){
+      state.shortId = snap.data().shortId;
+      renderAccountShortId();
+    }
+  }catch(e){ console.error(e); }
+}
+
+document.getElementById('setPinBtn').addEventListener('click', async ()=>{
+  const input = document.getElementById('accountPinInput');
+  const note = document.getElementById('accountPinNote');
+  const pin = input.value.trim();
+  note.textContent = '';
+  note.classList.remove('error');
+  if(!/^\d{4,6}$/.test(pin)){
+    note.textContent = 'PIN must be 4-6 digits.';
+    note.classList.add('error');
+    return;
+  }
+  if(!firebaseReady || !fbAuth.currentUser){
+    note.textContent = 'Sign in with Google first, then set a PIN.';
+    note.classList.add('error');
+    return;
+  }
+  try{
+    const idToken = await fbAuth.currentUser.getIdToken();
+    const res = await fetch(`${SIGNIN_FUNCTIONS_BASE}/setAccountPin`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+      body: JSON.stringify({ pin })
+    });
+    const data = await res.json().catch(()=>({}));
+    if(!res.ok) throw new Error(data.error || 'Could not save PIN');
+    input.value = '';
+    note.textContent = 'PIN saved — you can now sign in with your ID + this PIN elsewhere.';
+  }catch(e){
+    console.error(e);
+    note.textContent = e.message || 'Could not save PIN — try again.';
+    note.classList.add('error');
+  }
+});
+
+// Reuses the same shared modal every other "not really about one specific
+// car" screen uses (alerts/notifications, etc.) — see clearStaleModalSticky
+// Info's own comment for why that call has to come first.
+function showIdSignInModal(){
+  clearStaleModalStickyInfo();
+  document.getElementById('carModalTitle').textContent = 'Sign in with ID';
+  document.getElementById('carModalBody').innerHTML = `
+    <div class="modal-row" style="flex-direction:column; align-items:flex-start; gap:8px;">
+      <span class="menu-note" style="margin-left:0;">Only works if you've already signed in with Google once and set a PIN from the account menu.</span>
+      <input type="text" inputmode="numeric" pattern="[0-9]*" id="idSignInIdInput" class="account-input" placeholder="5-digit ID" maxlength="5" style="width:100%;">
+      <input type="password" inputmode="numeric" pattern="[0-9]*" id="idSignInPinInput" class="account-input" placeholder="PIN" maxlength="6" style="width:100%;">
+      <button id="idSignInSubmitBtn" class="account-btn" style="width:100%;">Sign in</button>
+      <div class="menu-note" id="idSignInNote"></div>
+    </div>`;
+  document.getElementById('carModalOverlay').classList.add('show');
+
+  document.getElementById('idSignInSubmitBtn').addEventListener('click', async ()=>{
+    const shortId = document.getElementById('idSignInIdInput').value.trim();
+    const pin = document.getElementById('idSignInPinInput').value.trim();
+    const note = document.getElementById('idSignInNote');
+    note.textContent = '';
+    note.classList.remove('error');
+    if(!/^\d{5}$/.test(shortId) || !/^\d{4,6}$/.test(pin)){
+      note.textContent = 'Enter your 5-digit ID and PIN.';
+      note.classList.add('error');
+      return;
+    }
+    try{
+      const res = await fetch(`${SIGNIN_FUNCTIONS_BASE}/signInWithIdAndPin`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shortId, pin })
+      });
+      const data = await res.json().catch(()=>({}));
+      if(!res.ok) throw new Error(data.error || 'Sign-in failed');
+      // Not a first-time account (they already had to set a PIN via a prior
+      // Google sign-in), so skip the new-account welcome screen.
+      freshSignInInProgress = false;
+      await fbAuth.signInWithCustomToken(data.token);
+      document.getElementById('carModalOverlay').classList.remove('show');
+      // onAuthStateChanged above handles the rest.
+    }catch(e){
+      console.error(e);
+      note.textContent = e.message || 'Sign-in failed — try again.';
+      note.classList.add('error');
+    }
+  });
+}
+
+document.getElementById('idSignInBtn').addEventListener('click', showIdSignInModal);
+
 document.getElementById('menuBtn').addEventListener('click', (e)=>{
   e.stopPropagation();
   document.getElementById('menuDropdown').classList.toggle('show');
+  if(state.signedIn) refreshAccountShortId();
 });
 document.addEventListener('click', (e)=>{
   const wrap = document.querySelector('.menu-wrap');
