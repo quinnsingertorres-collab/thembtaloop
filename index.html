@@ -1541,7 +1541,7 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
     <div class="roster-row" id="diversionListRow">
       <div class="roster-row-head"><span class="roster-car-chip">Upcoming Diversions</span></div>
       <div class="roster-edited-by">Every diversion/closure currently posted, across every line &mdash; not just the one selected above. Moderators can edit or remove any of these; trusted members can remove their own.</div>
-      <div id="diversionListBody"><div class="empty-state">Loading&hellip;</div></div>
+      <div id="diversionListBody"><div class="train-loading-scene"><div class="train-loading-track"><div class="train-loading-rail r1"></div><div class="train-loading-rail r2"></div><img class="train-loading-img" src="/type8-loading.png" alt=""></div><div class="train-loading-caption">Loading<span class="train-loading-dot">.</span><span class="train-loading-dot">.</span><span class="train-loading-dot">.</span></div></div></div>
     </div>
 
     <div class="roster-row" id="disruptionModeRow">
@@ -2860,6 +2860,18 @@ let state = { vehicles: [], vehiclesEverLoaded: false, currentPage: 'B', lastMai
 // #vehicleList in the body) — reused here so the animated loading scene
 // also reappears while switching lines, not just on first page load.
 const TRAIN_LOADING_SCENE_HTML = '<div class="train-loading-scene"><div class="train-loading-track"><div class="train-loading-rail r1"></div><div class="train-loading-rail r2"></div><img class="train-loading-img" src="/type8-loading.png" alt=""></div><div class="train-loading-caption">Loading trains<span class="train-loading-dot">.</span><span class="train-loading-dot">.</span><span class="train-loading-dot">.</span></div></div>';
+
+// Same scene, generic caption — every other spot in the app that used to
+// show plain "Loading…" text (car detail/schedule/alerts modals, the
+// Fleet Roster admin list, Points leaderboard, Upcoming Diversions list,
+// etc.) now shows this instead, via this helper, so the animation isn't
+// something only the trains-panel gets. Caption defaults to "Loading" —
+// pass something more specific ("Loading users", "Loading schedule"...)
+// where it's helpful.
+function loadingSceneHtml(caption){
+  const text = caption || 'Loading';
+  return `<div class="train-loading-scene"><div class="train-loading-track"><div class="train-loading-rail r1"></div><div class="train-loading-rail r2"></div><img class="train-loading-img" src="/type8-loading.png" alt=""></div><div class="train-loading-caption">${text}<span class="train-loading-dot">.</span><span class="train-loading-dot">.</span><span class="train-loading-dot">.</span></div></div>`;
+}
 let layout = null; // computed pixel layout for the current ladder
 
 // Tracks, per vehicle id, when it was first observed STOPPED_AT its current
@@ -4831,7 +4843,7 @@ async function showCarModal(v){
     // modal wasn't already showing something) — a refresh of already-open
     // content (auto-refresh, or right after saving an edit) swaps content
     // in once ready instead of blanking the panel first.
-    document.getElementById('carModalBody').innerHTML = `<div class="modal-row"><span>Loading&hellip;</span><strong></strong></div>`;
+    document.getElementById('carModalBody').innerHTML = loadingSceneHtml();
   }
   document.getElementById('carModalOverlay').classList.add('show');
 
@@ -6181,7 +6193,7 @@ async function showTerminusSchedule(branchKey, stopName, directionId){
   const alreadyOpen = document.getElementById('carModalOverlay').classList.contains('show');
   document.getElementById('carModalTitle').textContent = `${displayName(stopName)} \u2014 Scheduled Departures`;
   if(!alreadyOpen){
-    document.getElementById('carModalBody').innerHTML = '<div class="modal-row"><span>Loading schedule&hellip;</span><strong></strong></div>';
+    document.getElementById('carModalBody').innerHTML = loadingSceneHtml('Loading schedule');
   }
   document.getElementById('carModalOverlay').classList.add('show');
 
@@ -6487,7 +6499,7 @@ async function showStationModal(pageKey, idx, stopName, side){
 
   const alreadyOpen = document.getElementById('carModalOverlay').classList.contains('show');
   if(!alreadyOpen){
-    document.getElementById('carModalBody').innerHTML = '<div class="modal-row"><span>Loading&hellip;</span><strong></strong></div>';
+    document.getElementById('carModalBody').innerHTML = loadingSceneHtml();
   }
   document.getElementById('carModalOverlay').classList.add('show');
 
@@ -6567,7 +6579,7 @@ async function showStationDeparturesByName(stopName){
   document.getElementById('carModalTitle').textContent = displayName(stopName);
   const alreadyOpen = document.getElementById('carModalOverlay').classList.contains('show');
   if(!alreadyOpen){
-    document.getElementById('carModalBody').innerHTML = '<div class="modal-row"><span>Loading&hellip;</span><strong></strong></div>';
+    document.getElementById('carModalBody').innerHTML = loadingSceneHtml();
   }
   document.getElementById('carModalOverlay').classList.add('show');
 
@@ -6776,7 +6788,7 @@ async function showAlertsModal(){
   const lineTitle = state.activeLine === 'green' ? 'Green Line & Mattapan'
     : `${lineDisplayName(state.activeLine)} Line`;
   document.getElementById('carModalTitle').textContent = `Service Alerts \u2014 ${lineTitle}`;
-  document.getElementById('carModalBody').innerHTML = '<div class="modal-row"><span>Loading&hellip;</span><strong></strong></div>';
+  document.getElementById('carModalBody').innerHTML = loadingSceneHtml();
   document.getElementById('carModalOverlay').classList.add('show');
 
   let mbtaAlerts = [];
@@ -6921,7 +6933,7 @@ async function loadAllModItems(){
 async function showNotificationsPanel(){
   clearStaleModalStickyInfo();
   document.getElementById('carModalTitle').textContent = 'Notifications';
-  document.getElementById('carModalBody').innerHTML = '<div class="modal-row"><span>Loading&hellip;</span><strong></strong></div>';
+  document.getElementById('carModalBody').innerHTML = loadingSceneHtml();
   document.getElementById('carModalOverlay').classList.add('show');
 
   if(!firebaseReady){
@@ -9065,7 +9077,7 @@ async function buildEditLogsPanel(){
   const body = document.getElementById('editLogsBody');
   const filterSelect = document.getElementById('editLogsUserFilter');
   const previousSelection = filterSelect.value || 'ALL';
-  body.innerHTML = '<div class="signin-note">Loading edit history\u2026</div>';
+  body.innerHTML = loadingSceneHtml('Loading edit history');
   editLogsCache = await loadAllEditLogs();
 
   const uniqueNames = Array.from(new Set(editLogsCache.map(e => e.editorName))).sort((a,b) => a.localeCompare(b));
@@ -9104,7 +9116,7 @@ async function buildMembersPanel(){
     return;
   }
 
-  body.innerHTML = '<div class="empty-state">Loading users&hellip;</div>';
+  body.innerHTML = loadingSceneHtml('Loading users');
 
   let usersSnap, rosterSnap, gltpsSnap, trustedSnap;
   try{
@@ -9290,7 +9302,7 @@ async function buildPointsPanel(){
     return;
   }
 
-  body.innerHTML = '<div class="empty-state">Loading&hellip;</div>';
+  body.innerHTML = loadingSceneHtml();
 
   let usersSnap;
   try{
@@ -10155,7 +10167,7 @@ async function loadDiversionsList(){
   const body = document.getElementById('diversionListBody');
   if(!body) return;
   if(!firebaseReady){ body.innerHTML = '<div class="empty-state">Firebase not configured.</div>'; return; }
-  body.innerHTML = '<div class="empty-state">Loading&hellip;</div>';
+  body.innerHTML = loadingSceneHtml();
   try{
     const snap = await fbDb.collection('community_alerts').get();
     const now = Date.now();
