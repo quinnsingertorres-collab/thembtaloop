@@ -1705,6 +1705,21 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
    </div>
   </div>
 
+  <div class="panel full-bleed" id="signinPanel" style="display:none;">
+   <div class="full-bleed-inner">
+    <div class="panel-head">
+      <h2>Sign In</h2>
+      <span class="note">&mdash;</span>
+    </div>
+    <div class="back-link" id="signinBackBtn">&lsaquo; Back</div>
+    <div class="empty-state" style="text-align:left; padding:10px 4px;">
+      Sign in to report train info, set diversions, earn points, and more.
+    </div>
+    <button class="account-btn" id="signinGoogleBtn" style="width:100%; margin-top:14px;">Sign in with Google</button>
+    <button class="account-btn" id="signinIdBtn" style="width:100%; margin-top:10px; background:#374151;">Sign in with ID + PIN</button>
+   </div>
+  </div>
+
   <div class="panel full-bleed" id="carDetailPanel" style="display:none;">
    <div class="full-bleed-inner">
     <!-- No panel-head here on purpose: the outer header above already shows
@@ -2105,6 +2120,9 @@ const PAGES = {
   },
   SETTINGS: {
     hex:'#374151', label:'Settings', isSettings:true
+  },
+  SIGNIN: {
+    hex:'#1F2937', label:'Sign In', isSignin:true
   },
   CARDETAIL: {
     // No fixed label/hex — this page's identity (which car, which line) is
@@ -2977,6 +2995,42 @@ let stopArrivalTracker = {};
        match /admins/{uid} {
          allow read: if request.auth != null;
          allow write: if false; // add moderators manually in the Firebase console
+       }
+       // Same shape/trust model as admins/{uid} above (readable by any
+       // signed-in visitor — completeSignIn checks their own doc, the
+       // Members admin page lists the whole collection — writable only by
+       // moderators), except trusted members CAN be added/removed from the
+       // app itself (Members page), unlike admins.
+       match /trusted_members/{uid} {
+         allow read: if request.auth != null;
+         allow write: if request.auth != null
+           && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+       }
+       // Moderator-pushed alerts/notifications (Publish Alerts & Diversions
+       // page) — trigger a real push via sendPushOnModAlert/
+       // sendPushOnModNotification in functions/index.js the instant one is
+       // created, so write access is deliberately narrower than community_
+       // alerts below: only moderators or trusted members (both allowed to
+       // reach that page in the UI) can create one, not "if true". Read is
+       // open since every visitor's Alerts & Notifications modal loads
+       // these directly. Expired docs get opportunistically deleted by
+       // whichever visitor's client happens to load the list next
+       // (loadModAlerts/loadModNotifications) — that delete silently no-ops
+       // for a non-moderator visitor since it falls under this same write
+       // rule, which is fine, it's just best-effort tidying.
+       match /mod_alerts/{alertId} {
+         allow read: if true;
+         allow write: if request.auth != null && (
+           exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+           exists(/databases/$(database)/documents/trusted_members/$(request.auth.uid))
+         );
+       }
+       match /mod_notifications/{notifId} {
+         allow read: if true;
+         allow write: if request.auth != null && (
+           exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+           exists(/databases/$(database)/documents/trusted_members/$(request.auth.uid))
+         );
        }
        // pair_history used to live here — it's been moved to a Google Sheet
        // (see functions/index.js's commitPairChanges/getPairHistory) to cut
@@ -3893,7 +3947,7 @@ function switchPage(key){
   updateUrlForPage(state.activeLine, key);
   updateDocumentTitle(state.activeLine, key);
   const page = PAGES[key];
-  if(!page.isRoster && !page.isMembers && !page.isModNotifs && !page.isEditLogs && !page.isSettings && !page.isPoints && !page.isBugs && !page.isInspectors && !page.isCarDetail) state.lastMainPage = key;
+  if(!page.isRoster && !page.isMembers && !page.isModNotifs && !page.isEditLogs && !page.isSettings && !page.isPoints && !page.isBugs && !page.isInspectors && !page.isCarDetail && !page.isSignin) state.lastMainPage = key;
   // Car detail pages don't have a fixed label like every other page — the
   // header shows "Car <number>" built from whichever car is currently
   // being viewed (see state.viewingCarNumber, set just before this runs).
@@ -3929,6 +3983,7 @@ function switchPage(key){
   const inspectorsPanel = document.getElementById('inspectorsPanel');
   const settingsPanel = document.getElementById('settingsPanel');
   const carDetailPanel = document.getElementById('carDetailPanel');
+  const signinPanel = document.getElementById('signinPanel');
 
   mainGrid.style.display = 'none';
   const trainsPanelToggleBtn = document.getElementById('trainsPanelToggle');
@@ -3942,6 +3997,7 @@ function switchPage(key){
   inspectorsPanel.style.display = 'none';
   settingsPanel.style.display = 'none';
   carDetailPanel.style.display = 'none';
+  signinPanel.style.display = 'none';
   // Any live Leaflet map instance is tied to a DOM node inside carDetailBody;
   // hiding the panel above doesn't tear it down, so explicitly destroy it on
   // every navigation. Harmless no-op if nothing's been created yet, and
@@ -3971,7 +4027,7 @@ function switchPage(key){
   // scheduleModalRefresh) — without this, a modal open when you navigate
   // away would silently reopen itself up to 15s later, on top of whatever
   // page you'd since moved to.
-  if(page.isRoster || page.isMembers || page.isModNotifs || page.isEditLogs || page.isPoints || page.isBugs || page.isInspectors || page.isSettings || page.isCarDetail){
+  if(page.isRoster || page.isMembers || page.isModNotifs || page.isEditLogs || page.isPoints || page.isBugs || page.isInspectors || page.isSettings || page.isCarDetail || page.isSignin){
     document.getElementById('carModalOverlay').classList.remove('show');
     modalRefreshToken++;
   }
@@ -4008,6 +4064,10 @@ function switchPage(key){
   }
   if(page.isBugs){
     bugsPanel.style.display = 'block';
+    return;
+  }
+  if(page.isSignin){
+    signinPanel.style.display = 'block';
     return;
   }
   if(page.isInspectors){
@@ -9697,11 +9757,12 @@ const FLAT_ROUTE_TO_PAGE = {
   'points': 'POINTS',
   'moderation': 'MEMBERS',
   'pushalerts': 'MODNOTIFS',
-  'editlog': 'EDITLOGS'
+  'editlog': 'EDITLOGS',
+  'signin': 'SIGNIN'
 };
 const PAGE_TO_FLAT_ROUTE = {
   SETTINGS:'setting', BUGS:'bugs', INSPECTORS:'greenlineinspectors', POINTS:'points',
-  MEMBERS:'moderation', MODNOTIFS:'pushalerts', EDITLOGS:'editlog'
+  MEMBERS:'moderation', MODNOTIFS:'pushalerts', EDITLOGS:'editlog', SIGNIN:'signin'
 };
 function isTrackablePage(key){
   return Object.values(LINE_PAGE_KEYS).some(keys => keys.includes(key));
@@ -9977,6 +10038,7 @@ async function completeSignIn(name, email, uid, photoURL, shortId){
   document.getElementById('userChip').title = name + (state.isModerator ? ' \u00b7 Mod' : (state.isTrustedMember ? ' \u00b7 Trusted Member' : ''));
   document.getElementById('accountNameInput').value = name;
   renderAccountShortId();
+  if(!state.shortId) pollForShortId();
   document.getElementById('menuAccountSection').style.display = 'block';
   document.getElementById('membersMenuLink').style.display = state.isModerator ? 'flex' : 'none';
   document.getElementById('modNotifsMenuLink').style.display = (state.isModerator || state.isTrustedMember) ? 'flex' : 'none';
@@ -9988,6 +10050,13 @@ async function completeSignIn(name, email, uid, photoURL, shortId){
   if(freshSignInInProgress){
     freshSignInInProgress = false;
     showWelcomeScreen(name);
+  }
+  // Signing in from the dedicated Sign In page (see googleSignInBtn's click
+  // handler above) leaves state.currentPage sitting on SIGNIN once this
+  // resolves — that page's two buttons no longer make sense once the person
+  // is actually signed in, so bounce back to wherever they were before.
+  if(state.currentPage === 'SIGNIN'){
+    switchPage(state.lastMainPage || LINE_DEFAULT_PAGE[state.activeLine] || 'B');
   }
   resolveGatedPageIfPending();
 }
@@ -10107,7 +10176,13 @@ async function attemptSignIn(){
   completeSignIn(name.trim(), '', null);
 }
 
-document.getElementById('googleSignInBtn').addEventListener('click', attemptSignIn);
+// Signed out, the person icon used to launch the Google popup directly —
+// now it opens a dedicated Sign In page (see the SIGNIN page/panel above)
+// offering a real choice between Google and ID+PIN instead of assuming
+// Google is what everyone wants. That page's own two buttons (wired below,
+// right after showIdSignInModal is defined) call attemptSignIn/
+// showIdSignInModal exactly like this button used to.
+document.getElementById('googleSignInBtn').addEventListener('click', ()=> switchPage('SIGNIN'));
 
 /* ---------------- Sign-in with ID ----------------
    Everyone gets a permanent 5-digit ID the moment their account is first
@@ -10132,7 +10207,12 @@ function renderAccountShortId(){
 // yet. Re-checked every time the account menu opens (see menuBtn's click
 // listener below) so it fills in the moment it's ready, with no reload
 // needed. No-ops immediately once state.shortId is set, so this is cheap
-// to call on every menu open thereafter.
+// to call on every menu open thereafter. Also polled automatically right
+// after a fresh sign-in (see pollForShortId below) — relying on someone
+// happening to close and reopen the account menu was the whole reason
+// short ID assignment felt like it "took forever": the value was usually
+// ready within a second or two, but nothing ever re-checked it until the
+// person manually reopened the menu.
 async function refreshAccountShortId(){
   if(!firebaseReady || !state.uid || state.shortId) return;
   try{
@@ -10142,6 +10222,25 @@ async function refreshAccountShortId(){
       renderAccountShortId();
     }
   }catch(e){ console.error(e); }
+}
+
+// Called once from completeSignIn() whenever a session starts without a
+// shortId already known — retries refreshAccountShortId a handful of times
+// a couple seconds apart (the Firestore trigger that assigns it usually
+// finishes within a second or two) so the ID shows up in the account menu
+// on its own, instead of only ever updating if the person happens to close
+// and reopen that menu. Self-cancels the moment it succeeds or after
+// SHORT_ID_POLL_MAX_ATTEMPTS tries, whichever comes first — cheap either
+// way since refreshAccountShortId is already a no-op once state.shortId is set.
+const SHORT_ID_POLL_MAX_ATTEMPTS = 10;
+const SHORT_ID_POLL_INTERVAL_MS = 1500;
+function pollForShortId(){
+  let attempts = 0;
+  const timer = setInterval(async ()=>{
+    attempts++;
+    await refreshAccountShortId();
+    if(state.shortId || attempts >= SHORT_ID_POLL_MAX_ATTEMPTS) clearInterval(timer);
+  }, SHORT_ID_POLL_INTERVAL_MS);
 }
 
 document.getElementById('setPinBtn').addEventListener('click', async ()=>{
@@ -10228,6 +10327,14 @@ function showIdSignInModal(){
 }
 
 document.getElementById('idSignInBtn').addEventListener('click', showIdSignInModal);
+
+// The dedicated Sign In page's own two buttons — same handlers as the old
+// direct-to-Google icon and the small "ID" link, just offered side by side
+// on their own page now instead of one being the default and the other a
+// tiny secondary link.
+document.getElementById('signinGoogleBtn').addEventListener('click', attemptSignIn);
+document.getElementById('signinIdBtn').addEventListener('click', showIdSignInModal);
+document.getElementById('signinBackBtn').addEventListener('click', ()=> switchPage(state.lastMainPage || 'B'));
 
 document.getElementById('menuBtn').addEventListener('click', (e)=>{
   e.stopPropagation();
@@ -11556,7 +11663,7 @@ if(headerEl && trackMapPanel){
 function isOnLiveTrackPage(){
   const page = PAGES[state.currentPage];
   if(!page) return false;
-  return !(page.isRoster || page.isMembers || page.isModNotifs || page.isEditLogs || page.isPoints || page.isBugs || page.isInspectors || page.isSettings);
+  return !(page.isRoster || page.isMembers || page.isModNotifs || page.isEditLogs || page.isPoints || page.isBugs || page.isInspectors || page.isSettings || page.isSignin);
 }
 // Runs fn() once immediately (same as before), then re-runs it on the given
 // interval ONLY while the tab is actually visible and (if scoped) the user
