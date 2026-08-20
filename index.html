@@ -2280,10 +2280,20 @@ function buildRangeClosure(pageKeys, fromStop, toStop, extra, opts){
     const fromIdx = stops.indexOf(fromStop);
     const toIdx = stops.indexOf(toStop);
     if(fromIdx === -1 || toIdx === -1) return; // this page doesn't include these stops
-    let lo = Math.min(fromIdx, toIdx), hi = Math.max(fromIdx, toIdx);
-    if(excludeFrom){ if(fromIdx === lo) lo++; else hi--; }
-    if(excludeTo){ if(toIdx === lo) lo++; else hi--; }
-    for(let i = lo; i <= hi; i++){
+    const lo = Math.min(fromIdx, toIdx), hi = Math.max(fromIdx, toIdx);
+    let adjLo = lo, adjHi = hi;
+    if(excludeFrom){ if(fromIdx === adjLo) adjLo++; else adjHi--; }
+    if(excludeTo){ if(toIdx === adjLo) adjLo++; else adjHi--; }
+    // Safety net: two directly ADJACENT endpoints (no station in between at
+    // all) with both excluded would otherwise leave nothing in range —
+    // silently rendering a real, valid diversion completely invisible on
+    // the map instead of just "not excluding an endpoint that should stay
+    // open." There's no middle station to represent "the segment between
+    // these two is out" when they're next-door to each other, so fall back
+    // to keeping both endpoints closed rather than showing nothing.
+    const useExclusions = adjLo <= adjHi;
+    const rangeLo = useExclusions ? adjLo : lo, rangeHi = useExclusions ? adjHi : hi;
+    for(let i = rangeLo; i <= rangeHi; i++){
       entries.push(Object.assign({ pages:[pageKey], stop: stops[i] }, extra));
     }
   });
