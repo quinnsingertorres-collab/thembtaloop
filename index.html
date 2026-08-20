@@ -4041,7 +4041,16 @@ function applyLadderZoom(newZoom, anchorViewportY){
   const offsetInLadder = (anchorY + window.scrollY) - ladderTopDocY;
   const newOffsetInLadder = offsetInLadder * (newRowH / oldRowH);
   state.ladderZoom = clamped;
-  buildLadder();
+  // relayoutLadderSmoothly() (not buildLadder() directly) — buildLadder()
+  // alone wipes and recreates the whole #ladder innerHTML, including every
+  // live train-bubble/leader-line element, with nothing that puts them
+  // back. relayoutLadderSmoothly() is the existing wrapper (already used by
+  // the resize/orientation-change handlers below) that detaches those
+  // elements first, calls buildLadder(), then reattaches and repositions
+  // them via renderTrainDots() — without it, every train visibly vanished
+  // the moment you zoomed and didn't come back until the next full page
+  // navigation rebuilt the ladder from scratch.
+  relayoutLadderSmoothly();
   window.scrollTo(0, ladderTopDocY + newOffsetInLadder - anchorY);
 }
 
