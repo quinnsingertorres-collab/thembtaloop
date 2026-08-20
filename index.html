@@ -517,6 +517,20 @@ body.dark .discord-banner{background:#5865F2; border-color:#5865F2; color:#fff;}
 .panel-head{display:flex; flex-direction:column; align-items:center; text-align:center; gap:4px; margin-bottom:12px;}
 .panel-head h2{font-family:'Space Grotesk', sans-serif; font-size:14px; letter-spacing:0.02em; margin:0; color:var(--text);}
 .panel-head .note{font-size:11px; color:var(--text-faint); font-family:'IBM Plex Mono', monospace;}
+/* Track Map zoom buttons — a quick, discoverable alternative to the pinch/
+   ctrl+scroll gesture handling (see setupLadderZoom in JS) for anyone
+   without a trackpad or touchscreen handy. Small and out of the way since
+   this isn't the primary way most people will use the feature. */
+.ladder-zoom-controls{display:flex; gap:6px; margin-top:2px;}
+.ladder-zoom-btn{
+  width:26px; height:26px; border-radius:7px;
+  background:var(--panel-alt, rgba(255,255,255,0.05)); border:1px solid var(--border);
+  color:var(--text-dim); font-size:15px; line-height:1; font-weight:600;
+  display:flex; align-items:center; justify-content:center;
+  cursor:pointer; padding:0; transition:background 0.15s ease, color 0.15s ease;
+}
+.ladder-zoom-btn:hover{background:var(--accent); color:#fff;}
+.ladder-zoom-btn:active{transform:scale(0.95);}
 
 .track-col-labels{
   display:flex; justify-content:space-between;
@@ -525,7 +539,13 @@ body.dark .discord-banner{background:#5865F2; border-color:#5865F2; color:#fff;}
 }
 
 /* ---------- Ladder diagram (absolute-positioned) ---------- */
-.ladder{position:relative; width:100%;}
+/* pan-y (not the default "auto") keeps native single-finger vertical page
+   scroll working over the ladder, but tells the browser NOT to handle
+   pinch-zoom/horizontal-pan gestures itself here — that's deliberately left
+   for setupLadderZoom's own touch handling (see JS) so a two-finger pinch
+   changes station spacing instead of (or in a fight with) the browser's own
+   page zoom. */
+.ladder{position:relative; width:100%; touch-action:pan-y;}
 
 /* Last thing in the Track Map panel — sits right below the ladder itself,
    so it's "at the bottom" of the map rather than floating fixed on top of
@@ -1012,6 +1032,7 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
 .account-btn:hover{filter:brightness(1.12);}
 .account-btn:active{transform:scale(0.98);}
 .roster-submit-note{display:block; font-size:11px; color:var(--text-faint); margin-top:4px;}
+.roster-submit-note a{color:var(--accent); text-decoration:underline;}
 .account-btn.signout{background:#D64545;}
 .signin-note{font-size:12px; color:var(--text-faint); padding:6px 0;}
 .menu-divider{border-top:1px solid var(--border); margin:10px 0;}
@@ -1374,6 +1395,10 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
       <div class="panel-head">
         <h2>Track Map</h2>
         <span class="note" id="mapMeta">&mdash;</span>
+        <div class="ladder-zoom-controls" id="ladderZoomControls">
+          <button class="ladder-zoom-btn" id="ladderZoomOutBtn" title="Zoom out (shrink spacing between stations)" aria-label="Zoom out">&minus;</button>
+          <button class="ladder-zoom-btn" id="ladderZoomInBtn" title="Zoom in (spread out stations)" aria-label="Zoom in">+</button>
+        </div>
       </div>
       <div class="track-col-labels"><span id="westColLabel">Westbound</span><span id="eastColLabel">Eastbound</span></div>
       <div class="ladder" id="ladder"></div>
@@ -1492,9 +1517,23 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
         <option value="72">3 days</option>
         <option value="168">7 days</option>
         <option value="0">Never (manual removal only)</option>
+        <option value="custom">Custom&hellip;</option>
       </select>
+      <div id="diversionExpiryCustomRow" style="display:none;">
+        <div class="roster-field-label">Custom end time</div>
+        <input type="datetime-local" class="roster-input" id="diversionExpiryCustom">
+        <div class="roster-edited-by" style="margin-top:4px;">Or enter an exact number of hours from now instead:</div>
+        <input type="number" class="roster-input" id="diversionExpiryCustomHours" min="0" step="0.5" placeholder="e.g. 50" style="margin-top:4px;">
+      </div>
       <button class="account-btn" id="diversionSendBtn" style="margin-top:8px;">Confirm &amp; post diversion</button>
+      <span class="roster-submit-note" id="diversionEditingNote" style="display:none;">Editing an existing diversion. <a href="#" id="diversionCancelEditLink">Cancel edit</a></span>
       <span class="roster-submit-note" id="diversionNote"></span>
+    </div>
+
+    <div class="roster-row" id="diversionListRow">
+      <div class="roster-row-head"><span class="roster-car-chip">Upcoming Diversions</span></div>
+      <div class="roster-edited-by">Every diversion/closure currently posted, across every line &mdash; not just the one selected above. Moderators can edit or remove any of these; trusted members can remove their own.</div>
+      <div id="diversionListBody"><div class="empty-state">Loading&hellip;</div></div>
     </div>
 
     <div class="roster-row" id="disruptionModeRow">
@@ -2086,7 +2125,13 @@ const ABBREVIATIONS = {
 };
 
 const UNKNOWN_HEX = '#6B7280';
-const ROW_H = 48;
+// Base per-stop row height on the track map ladder, before the zoom
+// multiplier (state.ladderZoom, default 1) is applied — see buildLadder,
+// which reads the actual per-build ROW_H locally, and setupLadderZoom
+// (defined near the other gesture handlers further down) for how zoom
+// gestures/buttons change state.ladderZoom and trigger a rebuild.
+const ROW_H_BASE = 48;
+const LADDER_ZOOM_MIN = 0.6, LADDER_ZOOM_MAX = 2.5;
 
 // width/length/electrical added from the MBTA Vehicle Inventory doc
 // (07/28/26 version) — seats/builder/year left exactly as they were
@@ -2206,7 +2251,16 @@ const BYPASSED_STOPS = [
     { excludeFrom:true, excludeTo:true }),
   ...buildRangeClosure(['SUBWAY'], 'North Station', 'Kenmore',
     { reason:'No Green Line service through the central subway between North Station and Kenmore. This is to allow for trackwork.', from:'2026-08-08', until:'2026-08-16' },
-    { excludeFrom:true, excludeTo:true })
+    { excludeFrom:true, excludeTo:true }),
+  // Aug 20-30: no Orange Line service anywhere between Back Bay and Oak
+  // Grove (per MBTA's own T-Alerts digest — "no Orange Line service between
+  // Back Bay and Oak Grove"), not just a partial segment, so both endpoints
+  // stay in the closed range (no excludeFrom/excludeTo). Shuttle buses only
+  // cover the Oak Grove-North Station portion of that; Green Line offers a
+  // walking-connection alternative between North Station and Copley for the
+  // rest, but doesn't restore actual Orange Line train service there.
+  ...buildRangeClosure(['ORANGE'], 'Back Bay', 'Oak Grove',
+    { reason:'No Orange Line service between Back Bay and Oak Grove. Shuttle buses replace service between Oak Grove and North Station; Haverhill Commuter Rail is fare-free from Oak Grove, Malden Center, and North Station as an alternate route.', from:'2026-08-20', until:'2026-08-30' })
 ];
 
 // liveDiversionBypassStops is the dynamic counterpart to the hardcoded
@@ -2788,7 +2842,7 @@ function rosterBuildYearFor(line, type, car){
   return rosterCarInfoFor(line, type).year;
 }
 
-let state = { vehicles: [], vehiclesEverLoaded: false, currentPage: 'B', lastMainPage: 'B', live: null, abbreviate: false, staggerBunchedTrains: false, signedIn: false, userName: '', photoURL: '', isModerator: false, isTrustedMember: false, filterDirection: 'ALL', filterType: 'ALL', rosterSearch: '', rosterTypeFilter: 'ALL', notifMaster: true, notifDoubleType8: false, notifPride: false, notifType9: false, notifCarBackInService: false, activeLine: 'green', otherBranchesVisible: { B:false, C:false, D:false, E:false, ashmont:false, braintree:false }, statusChipShowDate: true, statusChipShowWeather: true, clockShowSeconds: true, clock24Hour: false, statusChipPosition: 'below', viewingCarKey: null, viewingCarNumber: null };
+let state = { vehicles: [], vehiclesEverLoaded: false, currentPage: 'B', lastMainPage: 'B', live: null, abbreviate: false, staggerBunchedTrains: false, signedIn: false, userName: '', photoURL: '', isModerator: false, isTrustedMember: false, filterDirection: 'ALL', filterType: 'ALL', rosterSearch: '', rosterTypeFilter: 'ALL', notifMaster: true, notifDoubleType8: false, notifPride: false, notifType9: false, notifCarBackInService: false, activeLine: 'green', otherBranchesVisible: { B:false, C:false, D:false, E:false, ashmont:false, braintree:false }, statusChipShowDate: true, statusChipShowWeather: true, clockShowSeconds: true, clock24Hour: false, statusChipPosition: 'below', viewingCarKey: null, viewingCarNumber: null, ladderZoom: 1 };
 
 // Same markup as the static placeholder in the vehicle-list HTML (see
 // #vehicleList in the body) — reused here so the animated loading scene
@@ -3865,6 +3919,7 @@ function buildLadder(){
   ladder.innerHTML = '';
 
   const W = ladder.clientWidth || 600;
+  const ROW_H = ROW_H_BASE * (state.ladderZoom || 1);
   const height = page.stops.length * ROW_H + 20;
   ladder.style.height = height + 'px';
 
@@ -3960,6 +4015,82 @@ function buildLadder(){
 
   document.getElementById('mapMeta').textContent = page.stops.length + ' stops';
 }
+
+/* ---------------- Track map zoom (pinch / ctrl+wheel / +- buttons) ---------------- */
+// Changes state.ladderZoom and rebuilds — buildLadder() is safe to call
+// repeatedly, same as every other place that redraws it after a data
+// change. Keeps whatever was under the gesture/click visually anchored in
+// place by adjusting window.scrollY afterward: the whole page is the real
+// scroll container here (see the body.track-map-page comment near
+// .top-bar's CSS — there's no separate scrollable wrapper around #ladder),
+// so that's what needs adjusting, not some inner element's scrollTop.
+function applyLadderZoom(newZoom, anchorViewportY){
+  const clamped = Math.min(LADDER_ZOOM_MAX, Math.max(LADDER_ZOOM_MIN, newZoom));
+  if(Math.abs(clamped - state.ladderZoom) < 0.001) return;
+  const ladderEl = document.getElementById('ladder');
+  if(!ladderEl) return;
+  const oldRowH = ROW_H_BASE * state.ladderZoom;
+  const newRowH = ROW_H_BASE * clamped;
+  const rect = ladderEl.getBoundingClientRect();
+  const anchorY = anchorViewportY == null ? (rect.top + rect.height / 2) : anchorViewportY;
+  const ladderTopDocY = rect.top + window.scrollY;
+  const offsetInLadder = (anchorY + window.scrollY) - ladderTopDocY;
+  const newOffsetInLadder = offsetInLadder * (newRowH / oldRowH);
+  state.ladderZoom = clamped;
+  buildLadder();
+  window.scrollTo(0, ladderTopDocY + newOffsetInLadder - anchorY);
+}
+
+(function setupLadderZoom(){
+  const ladderEl = document.getElementById('ladder');
+  const zoomInBtn = document.getElementById('ladderZoomInBtn');
+  const zoomOutBtn = document.getElementById('ladderZoomOutBtn');
+  if(!ladderEl || !zoomInBtn || !zoomOutBtn) return;
+
+  zoomInBtn.addEventListener('click', ()=> applyLadderZoom(state.ladderZoom + 0.25));
+  zoomOutBtn.addEventListener('click', ()=> applyLadderZoom(state.ladderZoom - 0.25));
+
+  let pinchStartDist = null;
+  let pinchStartZoom = 1;
+  let rebuildQueued = false;
+
+  const touchDist = (touches) => Math.hypot(touches[0].clientX - touches[1].clientX, touches[0].clientY - touches[1].clientY);
+  const touchMidY = (touches) => (touches[0].clientY + touches[1].clientY) / 2;
+
+  ladderEl.addEventListener('touchstart', (e)=>{
+    if(e.touches.length === 2){
+      pinchStartDist = touchDist(e.touches);
+      pinchStartZoom = state.ladderZoom;
+    }
+  }, { passive: true });
+
+  ladderEl.addEventListener('touchmove', (e)=>{
+    if(e.touches.length === 2 && pinchStartDist){
+      e.preventDefault(); // touch-action:pan-y on .ladder already tells the browser to leave this gesture alone; this is belt-and-suspenders
+      if(!rebuildQueued){
+        rebuildQueued = true;
+        const touches = e.touches;
+        requestAnimationFrame(()=>{
+          applyLadderZoom(pinchStartZoom * (touchDist(touches) / pinchStartDist), touchMidY(touches));
+          rebuildQueued = false;
+        });
+      }
+    }
+  }, { passive: false });
+
+  ladderEl.addEventListener('touchend', (e)=>{
+    if(e.touches.length < 2) pinchStartDist = null;
+  });
+
+  // Desktop trackpad pinch surfaces as a wheel event with ctrlKey set (the
+  // same signal a literal Ctrl+scroll-wheel sends too, so both work the
+  // same way) — negative deltaY means pinching/scrolling to zoom in.
+  ladderEl.addEventListener('wheel', (e)=>{
+    if(!e.ctrlKey) return;
+    e.preventDefault();
+    applyLadderZoom(state.ladderZoom - e.deltaY * 0.01, e.clientY);
+  }, { passive: false });
+})();
 
 /* Interpolates a train's y-position between its target stop and the
    previous stop, based on direction of travel and current_status, so
@@ -9924,19 +10055,167 @@ function populateDiversionStationSelects(){
   if(stops.length > 1) toSel.selectedIndex = 1; // default to a 2-stop range instead of the same station picked twice
 }
 
+// Reads the Expires in control — either one of the fixed-duration preset
+// options, or (value==='custom') whichever of the two custom inputs was
+// actually filled in: an exact end date/time takes priority over a raw
+// hour count if a moderator somehow fills in both. Returns a millisecond
+// epoch timestamp, or null for "never" (including "Custom" left empty,
+// which is treated the same as Never rather than silently failing).
+function computeDiversionExpiresAt(){
+  const expiryEl = document.getElementById('diversionExpiry');
+  if(expiryEl.value !== 'custom'){
+    const expiryHours = parseInt(expiryEl.value, 10);
+    return expiryHours > 0 ? Date.now() + expiryHours * 60 * 60 * 1000 : null;
+  }
+  const dtVal = document.getElementById('diversionExpiryCustom').value;
+  if(dtVal){
+    const t = new Date(dtVal).getTime(); // datetime-local parses as local time already, no timezone math needed
+    return isNaN(t) ? null : t;
+  }
+  const hours = parseFloat(document.getElementById('diversionExpiryCustomHours').value);
+  return (!isNaN(hours) && hours > 0) ? Date.now() + hours * 60 * 60 * 1000 : null;
+}
+document.getElementById('diversionExpiry').addEventListener('change', ()=>{
+  document.getElementById('diversionExpiryCustomRow').style.display =
+    document.getElementById('diversionExpiry').value === 'custom' ? '' : 'none';
+});
+
+// Set while the composer is being reused to edit an already-posted
+// diversion (see loadDiversionIntoComposerForEdit, triggered from the
+// Upcoming Diversions list below) rather than create a new one — null the
+// rest of the time. diversionSendBtn's handler branches on this.
+let editingDiversionId = null;
+
+function resetDiversionComposerToCreateMode(){
+  editingDiversionId = null;
+  document.getElementById('diversionSendBtn').textContent = 'Confirm & post diversion';
+  document.getElementById('diversionEditingNote').style.display = 'none';
+}
+
+function loadDiversionIntoComposerForEdit(d){
+  editingDiversionId = d.id;
+  document.getElementById('diversionRoute').value = d.route;
+  populateDiversionStationSelects();
+  if(d.fromStation) document.getElementById('diversionFrom').value = d.fromStation;
+  if(d.toStation) document.getElementById('diversionTo').value = d.toStation;
+  document.getElementById('diversionNotes').value = d.notes || '';
+  const expiryEl = document.getElementById('diversionExpiry');
+  const customRow = document.getElementById('diversionExpiryCustomRow');
+  const dtEl = document.getElementById('diversionExpiryCustom');
+  const hoursEl = document.getElementById('diversionExpiryCustomHours');
+  hoursEl.value = '';
+  if(d.expiresAt){
+    expiryEl.value = 'custom';
+    customRow.style.display = '';
+    // datetime-local wants "YYYY-MM-DDTHH:MM" in LOCAL time, not ISO/UTC.
+    const dt = new Date(d.expiresAt);
+    const pad = n => String(n).padStart(2, '0');
+    dtEl.value = `${dt.getFullYear()}-${pad(dt.getMonth()+1)}-${pad(dt.getDate())}T${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
+  }else{
+    expiryEl.value = '0';
+    customRow.style.display = 'none';
+    dtEl.value = '';
+  }
+  document.getElementById('diversionSendBtn').textContent = 'Confirm & update diversion';
+  document.getElementById('diversionEditingNote').style.display = '';
+  document.getElementById('diversionComposerRow').scrollIntoView({ behavior:'smooth', block:'start' });
+}
+
+document.getElementById('diversionCancelEditLink').addEventListener('click', (e)=>{
+  e.preventDefault();
+  resetDiversionComposerToCreateMode();
+});
+
+// Every currently-posted diversion/closure, across every line — not scoped
+// to the route selected in the composer above, since this page is the
+// single global place moderators/trusted members manage all of them from.
+// Same expired-doc-cleanup-on-read pattern as fetchCommunityAlerts.
+async function loadDiversionsList(){
+  const body = document.getElementById('diversionListBody');
+  if(!body) return;
+  if(!firebaseReady){ body.innerHTML = '<div class="empty-state">Firebase not configured.</div>'; return; }
+  body.innerHTML = '<div class="empty-state">Loading&hellip;</div>';
+  try{
+    const snap = await fbDb.collection('community_alerts').get();
+    const now = Date.now();
+    const rows = [];
+    const expiredDocs = [];
+    snap.forEach(doc=>{
+      const d = doc.data();
+      if(d.expiresAt && d.expiresAt < now) expiredDocs.push(doc.ref);
+      else rows.push({ id: doc.id, ...d });
+    });
+    expiredDocs.forEach(ref => ref.delete().catch(e => console.error(e)));
+    rows.sort((a,b) => (b.ts || 0) - (a.ts || 0));
+
+    if(rows.length === 0){
+      body.innerHTML = '<div class="empty-state">No diversions currently posted.</div>';
+      return;
+    }
+
+    body.innerHTML = rows.map(d=>{
+      const canEdit = state.isModerator;
+      const canRemove = state.isModerator || (d.postedByUid && d.postedByUid === state.uid);
+      const routeLine = (d.fromStation && d.toStation)
+        ? `${escapeHtml(d.fromStation)} → ${escapeHtml(d.toStation)}`
+        : escapeHtml(d.text || ''); // pre-migration docs (old free-text-only shape)
+      const expiryLabel = d.expiresAt ? `Ends ${new Date(d.expiresAt).toLocaleString()}` : 'No expiration set';
+      const notesHtml = d.notes ? `<div class="roster-edited-by">${escapeHtml(d.notes)}</div>` : '';
+      const btns = [
+        canEdit ? `<button class="modal-info-btn" data-edit-diversion="${d.id}">Edit</button>` : '',
+        canRemove ? `<button class="modal-info-btn" data-remove-diversion="${d.id}">Remove</button>` : ''
+      ].filter(Boolean).join(' ');
+      return `
+        <div class="roster-row" style="margin-bottom:8px;">
+          <div class="roster-row-head"><span class="roster-car-chip">${escapeHtml(ALERT_ROUTE_LABELS[d.route] || d.route || '?')}</span></div>
+          <div class="roster-edited-by"><strong>${routeLine}</strong></div>
+          ${notesHtml}
+          <div class="roster-edited-by">Reported by ${escapeHtml(d.postedBy || 'a member')} · ${timeSincePosted(new Date(d.ts).toISOString())} · ${expiryLabel}</div>
+          ${btns ? `<div style="margin-top:6px; display:flex; gap:8px;">${btns}</div>` : ''}
+        </div>`;
+    }).join('');
+
+    body.querySelectorAll('[data-edit-diversion]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const d = rows.find(r => r.id === btn.dataset.editDiversion);
+        if(d) loadDiversionIntoComposerForEdit(d);
+      });
+    });
+    body.querySelectorAll('[data-remove-diversion]').forEach(btn=>{
+      btn.addEventListener('click', async ()=>{
+        if(!window.confirm('Remove this diversion/closure report?')) return;
+        try{
+          await fbDb.collection('community_alerts').doc(btn.dataset.removeDiversion).delete();
+          if(editingDiversionId === btn.dataset.removeDiversion) resetDiversionComposerToCreateMode();
+          refreshLiveDiversionBypassCache();
+          loadDiversionsList();
+        }catch(e){ console.error(e); }
+      });
+    });
+  }catch(e){
+    console.error(e);
+    body.innerHTML = '<div class="empty-state">Could not load diversions — check Firestore rules.</div>';
+  }
+}
+
 // Called from switchPage() every time the Publish Alerts & Diversions page
 // is opened. Moderators see all four sections on this page (diversion
 // composer, Disruption Mode, blast-to-everyone Alert, blast-to-everyone
-// Notification); trusted members only see the diversion composer, since
-// that's the one section of this page they also have Firestore write access
-// to (see the trusted_members rule comment near the top of the script).
+// Notification); trusted members only see the diversion composer and the
+// diversions list, since that's the part of this page they also have
+// Firestore write access to (see the trusted_members rule comment near the
+// top of the script) — Edit buttons in the list are moderator-only, though,
+// since letting a trusted member silently rewrite another member's already-
+// posted diversion is a bigger step than posting their own new one.
 function buildModNotifsPanel(){
   ['disruptionModeRow', 'modAlertRow', 'modNotifRow'].forEach(id=>{
     const row = document.getElementById(id);
     if(row) row.style.display = state.isModerator ? '' : 'none';
   });
+  resetDiversionComposerToCreateMode();
   populateDiversionRouteSelect();
   populateDiversionStationSelects();
+  loadDiversionsList();
 }
 document.getElementById('diversionRoute').addEventListener('change', populateDiversionStationSelects);
 
@@ -9945,7 +10224,6 @@ document.getElementById('diversionSendBtn').addEventListener('click', async ()=>
   const fromEl = document.getElementById('diversionFrom');
   const toEl = document.getElementById('diversionTo');
   const notesEl = document.getElementById('diversionNotes');
-  const expiryEl = document.getElementById('diversionExpiry');
   const note = document.getElementById('diversionNote');
   const route = routeEl.value;
   const fromStation = fromEl.value;
@@ -9965,20 +10243,34 @@ document.getElementById('diversionSendBtn').addEventListener('click', async ()=>
     setTimeout(()=>{ note.textContent=''; }, 4000);
     return;
   }
-  if(!window.confirm(`Mark ${fromStation} to ${toStation} on ${ALERT_ROUTE_LABELS[route] || route} as diverted/closed, and notify subscribers?`)) return;
-  const expiryHours = parseInt(expiryEl.value, 10);
-  const expiresAt = expiryHours > 0 ? Date.now() + expiryHours * 60 * 60 * 1000 : null;
+  const isEdit = !!editingDiversionId;
+  const confirmMsg = isEdit
+    ? `Update this diversion to ${fromStation} → ${toStation} on ${ALERT_ROUTE_LABELS[route] || route}?`
+    : `Mark ${fromStation} to ${toStation} on ${ALERT_ROUTE_LABELS[route] || route} as diverted/closed, and notify subscribers?`;
+  if(!window.confirm(confirmMsg)) return;
+  const expiresAt = computeDiversionExpiresAt();
   try{
-    await fbDb.collection('community_alerts').add({
-      route, fromStation, toStation, notes: notes || null, ts: Date.now(),
-      postedBy: state.userName, postedByUid: state.uid || null, expiresAt
-    });
-    logEdit(state.userName, state.uid, `Reported diversion/closure on ${ALERT_ROUTE_LABELS[route] || route}: ${fromStation} to ${toStation}`);
+    if(isEdit){
+      await fbDb.collection('community_alerts').doc(editingDiversionId).update({
+        route, fromStation, toStation, notes: notes || null, expiresAt,
+        editedBy: state.userName, editedByUid: state.uid || null, editedAt: Date.now()
+      });
+      logEdit(state.userName, state.uid, `Edited diversion/closure on ${ALERT_ROUTE_LABELS[route] || route}: ${fromStation} to ${toStation}`);
+      note.textContent = 'Diversion updated.';
+      resetDiversionComposerToCreateMode();
+    }else{
+      await fbDb.collection('community_alerts').add({
+        route, fromStation, toStation, notes: notes || null, ts: Date.now(),
+        postedBy: state.userName, postedByUid: state.uid || null, expiresAt
+      });
+      logEdit(state.userName, state.uid, `Reported diversion/closure on ${ALERT_ROUTE_LABELS[route] || route}: ${fromStation} to ${toStation}`);
+      note.textContent = 'Diversion posted.';
+    }
     notesEl.value = '';
-    note.textContent = 'Diversion posted.';
     setTimeout(()=>{ note.textContent=''; }, 3000);
     refreshLiveDiversionBypassCache();
-  }catch(e){ console.error(e); note.textContent = 'Failed to post — check Firestore rules'; }
+    loadDiversionsList();
+  }catch(e){ console.error(e); note.textContent = 'Failed to save — check Firestore rules'; }
 });
 
 document.getElementById('modAlertSendBtn').addEventListener('click', async ()=>{
