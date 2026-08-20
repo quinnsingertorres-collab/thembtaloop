@@ -219,14 +219,6 @@ body{padding:16px 16px 96px;}
   cursor:pointer; box-shadow:0 1px 4px rgba(0,0,0,0.18); padding:0;
 }
 .google-btn-wrap{position:relative; display:inline-block;}
-/* Deliberately just small plain text under the main circle, not a second
-   full-size icon button — this is a secondary/rare path (see idSignInBtn's
-   title) and giving it equal visual weight to the primary Google button
-   would suggest they're two equally common choices. Only visible while
-   googleBtnWrap itself is (i.e. signed out) since both wrap in the same
-   parent and get hidden together by completeSignIn/resetSignedOutUI. */
-.id-signin-link{position:absolute; top:100%; left:50%; transform:translateX(-50%); margin-top:4px; background:none; border:none; padding:0; font-size:10px; font-family:'IBM Plex Mono', monospace; color:var(--text-faint); cursor:pointer; white-space:nowrap;}
-.id-signin-link:hover{color:var(--text);}
 .alert-btn{
   position:relative; display:flex; align-items:center; justify-content:center; width:38px; height:38px;
   background:var(--panel); border:1px solid var(--border); border-radius:50%; color:#B45309;
@@ -1377,7 +1369,6 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
     <button class="google-btn" id="googleSignInBtn" title="Sign in">
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none"><circle cx="12" cy="8" r="4" stroke="currentColor" stroke-width="2"/><path d="M4 20c0-4.4 3.6-7 8-7s8 2.6 8 7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
     </button>
-    <button class="id-signin-link" id="idSignInBtn" title="Sign in with your 5-digit ID + PIN instead">ID</button>
   </div>
   <div class="signed-in-bar" id="signedInBar"><span class="user-chip" id="userChip">G</span></div>
 
@@ -10198,8 +10189,9 @@ document.getElementById('googleSignInBtn').addEventListener('click', ()=> switch
    Everyone gets a permanent 5-digit ID the moment their account is first
    created (assignShortIdOnUserCreate in functions/index.js), shown/settable
    from the account menu below. Pairing it with a PIN (also set from that
-   menu) opens a second way back in — idSignInBtn/showIdSignInModal here —
-   that skips the Google popup entirely, calling signInWithIdAndPin and
+   menu) opens a second way back in — the Sign In page's "Sign in with ID +
+   PIN" button, wired to showIdSignInModal below — that skips the Google
+   popup entirely, calling signInWithIdAndPin and
    exchanging the custom token it returns for a real session via
    signInWithCustomToken(), same as PAIR_HISTORY_ENDPOINT's plain fetch()
    approach rather than the Firebase SDK's callable-function wrapper. */
@@ -10335,8 +10327,6 @@ function showIdSignInModal(){
     }
   });
 }
-
-document.getElementById('idSignInBtn').addEventListener('click', showIdSignInModal);
 
 // The dedicated Sign In page's own two buttons — same handlers as the old
 // direct-to-Google icon and the small "ID" link, just offered side by side
