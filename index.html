@@ -7024,12 +7024,19 @@ document.getElementById('notifBellBtn').addEventListener('click', showAlertsAndN
 // from and the fullscreen API experience is a desktop-browser thing;
 // "*" (reload) stays available everywhere since it's a harmless, useful
 // fallback everywhere, not just kiosk-style full-screen setups.
-// "+"/"-" mirror the on-screen ladder zoom buttons for desktop users who'd
-// rather not reach for the mouse — same desktop-width gate as "f" since
-// mobile already has pinch-to-zoom for this. Both the top-row "+"/"-" keys
-// (which need Shift on most layouts, so e.key arrives as "+"/"-" already)
-// and their unshifted/numpad counterparts ("=" and "_") are accepted so it
-// works regardless of whether Shift happened to be held.
+// "+"/"-" mirror the on-screen ladder zoom buttons for keyboard users who'd
+// rather not reach for the mouse. Unlike "f" below, these are NOT gated to
+// desktop widths — that gate exists for "f" because narrow/mobile browsers
+// generally lack the fullscreen API, a real capability gap. There's no
+// equivalent reason to gate zoom: a narrower (but not touch-only) browser
+// window still has a keyboard attached, and applyLadderZoom() is already a
+// no-op if #ladder isn't on the page, so an unnecessary width gate here
+// would just silently eat the shortcut on anyone whose window happens to
+// be under 900px — which is exactly what shipped broken before this fix.
+// Both the top-row "+"/"-" keys (which need Shift on most layouts, so
+// e.key arrives as "+"/"-" already) and their unshifted/numpad
+// counterparts ("=" and "_") are accepted so it works regardless of
+// whether Shift happened to be held.
 function toggleFullscreen(){
   if(!document.fullscreenElement){
     document.documentElement.requestFullscreen().catch(e => console.error('Fullscreen request failed:', e));
@@ -7046,9 +7053,9 @@ document.addEventListener('keydown', (e)=>{
     location.reload();
   }else if((e.key === 'f' || e.key === 'F') && window.innerWidth >= 900 && (document.fullscreenEnabled || document.documentElement.requestFullscreen)){
     toggleFullscreen();
-  }else if((e.key === '+' || e.key === '=') && window.innerWidth >= 900){
+  }else if(e.key === '+' || e.key === '='){
     applyLadderZoom(state.ladderZoom + 0.25);
-  }else if((e.key === '-' || e.key === '_') && window.innerWidth >= 900){
+  }else if(e.key === '-' || e.key === '_'){
     applyLadderZoom(state.ladderZoom - 0.25);
   }
 });
