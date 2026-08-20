@@ -10234,6 +10234,15 @@ async function refreshAccountShortId(){
 // and reopen that menu. Self-cancels the moment it succeeds or after
 // SHORT_ID_POLL_MAX_ATTEMPTS tries, whichever comes first — cheap either
 // way since refreshAccountShortId is already a no-op once state.shortId is set.
+//
+// If every attempt comes up empty, that almost always means this account
+// was created before assignShortIdOnUserCreate existed — that Cloud
+// Function is a Firestore create-trigger, so it only ever fires the instant
+// a users/{uid} doc is first written, and never retroactively for accounts
+// that already existed. No amount of polling can fix that, so once attempts
+// are exhausted this falls back to calling the ensureShortId endpoint
+// (functions/index.js), which backfills a shortId for the caller's own
+// account on demand.
 const SHORT_ID_POLL_MAX_ATTEMPTS = 10;
 const SHORT_ID_POLL_INTERVAL_MS = 1500;
 function pollForShortId(){
@@ -10241,8 +10250,47 @@ function pollForShortId(){
   const timer = setInterval(async ()=>{
     attempts++;
     await refreshAccountShortId();
-    if(state.shortId || attempts >= SHORT_ID_POLL_MAX_ATTEMPTS) clearInterval(timer);
+    if(state.shortId || attempts >= SHORT_ID_POLL_MAX_ATTEMPTS){
+      clearInterval(timer);
+      if(!state.shortId) ensureShortIdFallbackOnce();
+    }
   }, SHORT_ID_POLL_INTERVAL_MS);
+}
+
+// Thin guard around ensureShortIdFallback so a person reopening the account
+// menu repeatedly (each triggering the menuBtn listener's own fallback
+// check below) doesn't fire an ensureShortId request every single time —
+// one attempt per session is enough, since a real failure there isn't going
+// to start succeeding just because the menu got reopened again.
+let shortIdFallbackAttempted = false;
+function ensureShortIdFallbackOnce(){
+  if(shortIdFallbackAttempted) return;
+  shortIdFallbackAttempted = true;
+  ensureShortIdFallback();
+}
+
+// Asks the server to backfill a shortId for the signed-in account (see the
+// comment on pollForShortId above for why this is needed at all). Safe to
+// call even if a shortId exists already; the endpoint just returns it
+// unchanged.
+async function ensureShortIdFallback(){
+  if(!firebaseReady || !fbAuth.currentUser) return;
+  try{
+    const idToken = await fbAuth.currentUser.getIdToken();
+    const res = await fetch(`${SIGNIN_FUNCTIONS_BASE}/ensureShortId`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` }
+    });
+    const data = await res.json().catch(()=>({}));
+    if(res.ok && data.shortId){
+      state.shortId = data.shortId;
+      renderAccountShortId();
+    }else{
+      console.error('ensureShortId failed:', data.error);
+    }
+  }catch(e){
+    console.error('ensureShortId request failed:', e);
+  }
 }
 
 document.getElementById('setPinBtn').addEventListener('click', async ()=>{
@@ -10336,10 +10384,18 @@ document.getElementById('signinGoogleBtn').addEventListener('click', attemptSign
 document.getElementById('signinIdBtn').addEventListener('click', showIdSignInModal);
 document.getElementById('signinBackBtn').addEventListener('click', ()=> switchPage(state.lastMainPage || 'B'));
 
-document.getElementById('menuBtn').addEventListener('click', (e)=>{
+document.getElementById('menuBtn').addEventListener('click', async (e)=>{
   e.stopPropagation();
   document.getElementById('menuDropdown').classList.toggle('show');
-  if(state.signedIn) refreshAccountShortId();
+  if(state.signedIn){
+    await refreshAccountShortId();
+    // Covers accounts that predate assignShortIdOnUserCreate entirely (see
+    // pollForShortId's comment above) and so were never going to get a
+    // shortId from refreshAccountShortId no matter how many times this menu
+    // gets reopened — ensureShortIdFallbackOnce backfills it once per
+    // session the first time that's discovered to be the case.
+    if(!state.shortId) ensureShortIdFallbackOnce();
+  }
 });
 document.addEventListener('click', (e)=>{
   const wrap = document.querySelector('.menu-wrap');

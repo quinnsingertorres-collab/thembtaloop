@@ -199,44 +199,94 @@ const SHORT_ID_MAX_ATTEMPTS = 20;
 const SIGNIN_RATE_LIMIT_MAX = 8;
 const SIGNIN_RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
 
+// Shared by assignShortIdOnUserCreate below and the ensureShortId endpoint
+// further down — picks a random 5-digit candidate and, inside a transaction
+// against short_ids/{candidate}, only commits it if that slot is still free.
+// Collisions get a fresh random retry rather than counting up sequentially,
+// so short IDs don't leak signup order the way an incrementing counter
+// would. 20 retries against a 100,000-slot space is astronomically more
+// than this app will ever need. Returns the assigned candidate, or null if
+// every attempt collided (essentially never in practice).
+async function assignShortIdToUid(uid){
+  let assigned = null;
+  for(let attempt = 0; attempt < SHORT_ID_MAX_ATTEMPTS && !assigned; attempt++){
+    const candidate = randomShortId();
+    const shortIdRef = db.collection('short_ids').doc(candidate);
+    const userRef = db.collection('users').doc(uid);
+    try{
+      await db.runTransaction(async (tx) => {
+        const shortSnap = await tx.get(shortIdRef);
+        if(shortSnap.exists) throw new Error('COLLISION');
+        tx.set(shortIdRef, { uid, createdAt: Date.now() });
+        tx.set(userRef, { shortId: candidate }, { merge: true });
+      });
+      assigned = candidate;
+    }catch(e){
+      if(e.message !== 'COLLISION') console.error('Short ID assignment attempt failed:', e);
+      // otherwise just loop and try another random candidate
+    }
+  }
+  if(!assigned){
+    console.error(`Could not assign a unique short ID to ${uid} after ${SHORT_ID_MAX_ATTEMPTS} attempts.`);
+  }
+  return assigned;
+}
+
 // Fires once per account, the instant its users/{uid} doc is first created
 // (index.html's onAuthStateChanged creates that doc on someone's very
-// first sign-in, Google or otherwise). Picks a random 5-digit candidate
-// and, inside a transaction against short_ids/{candidate}, only commits it
-// if that slot is still free — collisions get a fresh random retry rather
-// than counting up sequentially, so short IDs don't leak signup order the
-// way an incrementing counter would. 20 retries against a 100,000-slot
-// space is astronomically more than this app will ever need.
+// first sign-in, Google or otherwise). NOTE: this only fires at document
+// CREATION time — it never retroactively runs for accounts that already
+// existed before this function was deployed. Those accounts are instead
+// backfilled on demand by the ensureShortId endpoint further down, called
+// client-side (pollForShortId in index.html) if a signed-in user still has
+// no shortId after a few seconds.
 exports.assignShortIdOnUserCreate = onDocumentCreated(
   'users/{uid}',
   async (event) => {
     const uid = event.params.uid;
     const existing = event.data.data();
     if(existing && existing.shortId) return; // already has one — don't clobber
-
-    let assigned = null;
-    for(let attempt = 0; attempt < SHORT_ID_MAX_ATTEMPTS && !assigned; attempt++){
-      const candidate = randomShortId();
-      const shortIdRef = db.collection('short_ids').doc(candidate);
-      const userRef = db.collection('users').doc(uid);
-      try{
-        await db.runTransaction(async (tx) => {
-          const shortSnap = await tx.get(shortIdRef);
-          if(shortSnap.exists) throw new Error('COLLISION');
-          tx.set(shortIdRef, { uid, createdAt: Date.now() });
-          tx.set(userRef, { shortId: candidate }, { merge: true });
-        });
-        assigned = candidate;
-      }catch(e){
-        if(e.message !== 'COLLISION') console.error('Short ID assignment attempt failed:', e);
-        // otherwise just loop and try another random candidate
-      }
-    }
-    if(!assigned){
-      console.error(`Could not assign a unique short ID to ${uid} after ${SHORT_ID_MAX_ATTEMPTS} attempts.`);
-    }
+    await assignShortIdToUid(uid);
   }
 );
+
+// Self-service backfill for accounts created before assignShortIdOnUserCreate
+// existed (its create-trigger genuinely never fired for them, so nothing
+// server-side would ever assign a shortId otherwise). Any signed-in user can
+// call this for their own account; it's a no-op (returns the existing value)
+// if they already have one, so it's safe to call speculatively/repeatedly.
+exports.ensureShortId = onRequest(async (req, res) => {
+  applyCorsPost(res);
+  if(req.method === 'OPTIONS'){ res.status(204).send(''); return; }
+  if(req.method !== 'POST'){ res.status(405).json({ error: 'POST only' }); return; }
+
+  const authHeader = req.get('Authorization') || '';
+  const idToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+  if(!idToken){ res.status(401).json({ error: 'Missing Authorization header' }); return; }
+
+  let uid;
+  try{
+    const decoded = await admin.auth().verifyIdToken(idToken);
+    uid = decoded.uid;
+  }catch(e){
+    res.status(401).json({ error: 'Your session expired — sign in again and retry' });
+    return;
+  }
+
+  try{
+    const userRef = db.collection('users').doc(uid);
+    const snap = await userRef.get();
+    const existing = snap.exists ? snap.data().shortId : null;
+    if(existing){ res.status(200).json({ shortId: existing }); return; }
+
+    const assigned = await assignShortIdToUid(uid);
+    if(!assigned){ res.status(500).json({ error: 'Could not assign a short ID — try again' }); return; }
+    res.status(200).json({ shortId: assigned });
+  }catch(e){
+    console.error('ensureShortId failed:', e);
+    res.status(500).json({ error: 'Could not assign a short ID — try again' });
+  }
+});
 
 // Lets an already-signed-in user set or change the PIN paired with their
 // short ID. Requires a real Firebase ID token in the Authorization header
