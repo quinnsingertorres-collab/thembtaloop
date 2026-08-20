@@ -71,7 +71,19 @@ body.dark{
 }
 
 *{box-sizing:border-box;}
-html,body{margin:0; padding:0; background:var(--bg); color:var(--text); font-family:'IBM Plex Sans', sans-serif; transition:background 0.2s, color 0.2s; overflow-x:hidden; scrollbar-width:none; -ms-overflow-style:none;}
+html,body{margin:0; padding:0; background:var(--bg); color:var(--text); font-family:'IBM Plex Sans', sans-serif; transition:background 0.2s, color 0.2s; scrollbar-width:none; -ms-overflow-style:none;}
+/* overflow-x:hidden lives on html ONLY (not body) — it's what clips the
+   .full-bleed panels' 100vw/-50vw breakout technique, and html is enough
+   for that on its own. Having it on body TOO (as it used to) forces body's
+   own overflow-y to compute to auto per the overflow-x/-y coupling rule —
+   exactly the "root-scroller reporting quirk" described near .top-bar's
+   CSS below — which on some iOS Safari builds makes body itself register
+   as an independent scrolling box. On a long enough page (tall admin
+   panels especially) that's what let .bottom-nav, despite being
+   position:fixed, visibly scroll along with the page instead of staying
+   pinned to the viewport — it was being laid out against body's own
+   scrolling box in that scenario, not the true viewport. */
+html{overflow-x:hidden;}
 html::-webkit-scrollbar, body::-webkit-scrollbar{display:none;}
 
 /* ---------- Sign-in gate / line-select overlay screens ---------- */
