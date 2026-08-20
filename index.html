@@ -1559,12 +1559,16 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
 
     <div class="roster-row" id="diversionComposerRow">
       <div class="roster-row-head"><span class="roster-car-chip">Report a Diversion/Closure</span></div>
-      <div class="roster-edited-by">Marks every station between the two you pick as closed on the track map (same red &times; used for planned trackwork), and pushes to anyone subscribed to Diversions or to this line/branch's T-Alerts.</div>
+      <div class="roster-edited-by">Marks every station strictly between the two you pick as closed on the track map (same red &times; used for planned trackwork) — the From/To stations themselves stay open unless one is the actual end of the line, since trains can usually still short-turn there. Pushes to anyone subscribed to Diversions or to this line/branch's T-Alerts.</div>
       <div class="roster-field-label">Line/branch</div>
       <select class="roster-input" id="diversionRoute"></select>
       <div class="roster-field-label">From station</div>
       <select class="roster-input" id="diversionFrom"></select>
-      <div class="roster-field-label">To station</div>
+      <label style="display:flex; align-items:center; gap:6px; margin:6px 0 2px; font-size:13px; color:var(--text-dim);">
+        <input type="checkbox" id="diversionSingleStation" style="width:auto;">
+        Just this one station is closed (not a range)
+      </label>
+      <div class="roster-field-label" id="diversionToLabel">To station</div>
       <select class="roster-input" id="diversionTo"></select>
       <div class="roster-field-label">Notes (optional)</div>
       <textarea class="roster-textarea" id="diversionNotes" placeholder="e.g. Shuttle buses replacing service, boarding at the Copley busway..."></textarea>
@@ -2284,6 +2288,37 @@ function buildRangeClosure(pageKeys, fromStop, toStop, extra, opts){
     }
   });
   return entries;
+}
+
+// A range closure's endpoints default to being excluded from the closed
+// list (see buildRangeClosure's own excludeFrom/excludeTo doc above) unless
+// that endpoint is a genuine terminus of the branch — the actual end of the
+// line has nowhere further to short-turn a shuttle trip to/from, so it's
+// just as unreachable as everything strictly between the two picked
+// stations. Checks every page a closure could apply to (matters for Red,
+// whose "line" is stitched from 3 separate PAGES entries — see
+// ALERT_ROUTE_TO_PAGE_KEYS) and treats a stop as a terminus if it's the
+// first or last stop on ANY of them.
+function isTerminusStop(pageKeys, stopName){
+  return pageKeys.some(pageKey=>{
+    const stops = (PAGES[pageKey] || {}).stops || [];
+    return stops.length > 0 && (stops[0] === stopName || stops[stops.length - 1] === stopName);
+  });
+}
+
+// Shared by the diversion composer (submit-time validation) and
+// refreshLiveDiversionBypassCache (the actual render) so both apply the
+// exact same exclusion rule a posted diversion will actually get. Picking
+// the SAME station for both From and To (what the composer's "Just this
+// one station" checkbox does) means "close exactly this station" — that's
+// never excluded regardless of terminus status, since excluding it would
+// leave nothing closed at all.
+function diversionExcludeOpts(pageKeys, fromStop, toStop){
+  if(fromStop === toStop) return { excludeFrom:false, excludeTo:false };
+  return {
+    excludeFrom: !isTerminusStop(pageKeys, fromStop),
+    excludeTo: !isTerminusStop(pageKeys, toStop)
+  };
 }
 
 const BYPASSED_STOPS = [
@@ -6850,7 +6885,8 @@ async function refreshLiveDiversionBypassCache(){
       if(!pageKeys.length) return;
       const notesHtml = d.notes ? `: ${escapeHtml(d.notes)}` : '';
       const reason = `Diversion reported by ${escapeHtml(d.postedBy || 'a member')}${notesHtml}.`;
-      entries.push(...buildRangeClosure(pageKeys, d.fromStation, d.toStation, { reason, communityDiversionId: doc.id }));
+      entries.push(...buildRangeClosure(pageKeys, d.fromStation, d.toStation, { reason, communityDiversionId: doc.id },
+        diversionExcludeOpts(pageKeys, d.fromStation, d.toStation)));
     });
     liveDiversionBypassStops = entries;
   }catch(e){ console.error(e); }
@@ -7064,9 +7100,11 @@ async function showAlertsAndNotificationsModal(){
     const removeBtn = canRemove
       ? `<button class="modal-info-btn" data-remove-community-alert="${a.id}" style="margin-top:6px;">Remove</button>`
       : '';
-    const routeLine = a.fromStation && a.toStation
-      ? `${linkifyStationNames(a.fromStation)} → ${linkifyStationNames(a.toStation)}`
-      : linkifyStationNames(a.text || ''); // pre-migration docs (old free-text-only shape)
+    const routeLine = !(a.fromStation && a.toStation)
+      ? linkifyStationNames(a.text || '') // pre-migration docs (old free-text-only shape)
+      : a.fromStation === a.toStation
+        ? `${linkifyStationNames(a.fromStation)} (station closed)`
+        : `${linkifyStationNames(a.fromStation)} → ${linkifyStationNames(a.toStation)}`;
     const notesHtml = a.notes ? `<div class="alert-desc">${linkifyStationNames(a.notes)}</div>` : '';
     return `
       <div class="modal-section" style="border-left:3px solid var(--accent);">
@@ -10497,8 +10535,40 @@ function populateDiversionStationSelects(){
   const optionsHtml = stops.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('');
   fromSel.innerHTML = optionsHtml;
   toSel.innerHTML = optionsHtml;
-  if(stops.length > 1) toSel.selectedIndex = 1; // default to a 2-stop range instead of the same station picked twice
+  if(isDiversionSingleStationMode()){
+    toSel.value = fromSel.value; // stay in sync with From while single-station mode is on
+  }else if(stops.length > 1){
+    toSel.selectedIndex = 1; // default to a 2-stop range instead of the same station picked twice
+  }
 }
+
+// Whether the "Just this one station" checkbox is checked — pulled out to
+// its own tiny helper since populateDiversionStationSelects, the From
+// select's own change handler, and the checkbox's change handler below all
+// need the same read.
+function isDiversionSingleStationMode(){
+  const el = document.getElementById('diversionSingleStation');
+  return !!(el && el.checked);
+}
+
+// Keeps the To select (hidden but still the actual source of truth read at
+// submit time) locked to whatever From is set to, and toggles the To
+// row's visibility — single-station mode means "close exactly this one
+// station," which is just a range closure where From and To are the same
+// stop (see diversionExcludeOpts above for why that's never excluded).
+function syncDiversionSingleStationUI(){
+  const single = isDiversionSingleStationMode();
+  const toSel = document.getElementById('diversionTo');
+  const toLabel = document.getElementById('diversionToLabel');
+  if(!toSel || !toLabel) return;
+  toSel.style.display = single ? 'none' : '';
+  toLabel.style.display = single ? 'none' : '';
+  if(single) toSel.value = document.getElementById('diversionFrom').value;
+}
+document.getElementById('diversionSingleStation').addEventListener('change', syncDiversionSingleStationUI);
+document.getElementById('diversionFrom').addEventListener('change', ()=>{
+  if(isDiversionSingleStationMode()) syncDiversionSingleStationUI();
+});
 
 // Reads the Expires in control — either one of the fixed-duration preset
 // options, or (value==='custom') whichever of the two custom inputs was
@@ -10535,14 +10605,18 @@ function resetDiversionComposerToCreateMode(){
   editingDiversionId = null;
   document.getElementById('diversionSendBtn').textContent = 'Confirm & post diversion';
   document.getElementById('diversionEditingNote').style.display = 'none';
+  document.getElementById('diversionSingleStation').checked = false;
+  syncDiversionSingleStationUI();
 }
 
 function loadDiversionIntoComposerForEdit(d){
   editingDiversionId = d.id;
   document.getElementById('diversionRoute').value = d.route;
+  document.getElementById('diversionSingleStation').checked = !!(d.fromStation && d.toStation && d.fromStation === d.toStation);
   populateDiversionStationSelects();
   if(d.fromStation) document.getElementById('diversionFrom').value = d.fromStation;
   if(d.toStation) document.getElementById('diversionTo').value = d.toStation;
+  syncDiversionSingleStationUI();
   document.getElementById('diversionNotes').value = d.notes || '';
   const expiryEl = document.getElementById('diversionExpiry');
   const customRow = document.getElementById('diversionExpiryCustomRow');
@@ -10601,9 +10675,11 @@ async function loadDiversionsList(){
     body.innerHTML = rows.map(d=>{
       const canEdit = state.isModerator;
       const canRemove = state.isModerator || (d.postedByUid && d.postedByUid === state.uid);
-      const routeLine = (d.fromStation && d.toStation)
-        ? `${escapeHtml(d.fromStation)} → ${escapeHtml(d.toStation)}`
-        : escapeHtml(d.text || ''); // pre-migration docs (old free-text-only shape)
+      const routeLine = !(d.fromStation && d.toStation)
+        ? escapeHtml(d.text || '') // pre-migration docs (old free-text-only shape)
+        : d.fromStation === d.toStation
+          ? `${escapeHtml(d.fromStation)} (station closed)`
+          : `${escapeHtml(d.fromStation)} → ${escapeHtml(d.toStation)}`;
       const expiryLabel = d.expiresAt ? `Ends ${new Date(d.expiresAt).toLocaleString()}` : 'No expiration set';
       const notesHtml = d.notes ? `<div class="roster-edited-by">${escapeHtml(d.notes)}</div>` : '';
       const btns = [
@@ -10672,9 +10748,17 @@ document.getElementById('diversionSendBtn').addEventListener('click', async ()=>
   const note = document.getElementById('diversionNote');
   const route = routeEl.value;
   const fromStation = fromEl.value;
-  const toStation = toEl.value;
+  // Single-station mode hides the To select and keeps it synced to From via
+  // syncDiversionSingleStationUI — reading isDiversionSingleStationMode()
+  // here too, rather than trusting toEl.value alone, means a single-station
+  // diversion is still correct even if that sync somehow missed a step.
+  const toStation = isDiversionSingleStationMode() ? fromStation : toEl.value;
   const notes = notesEl.value.trim();
-  if(!route || !fromStation || !toStation){ note.textContent = 'Pick a line/branch and both stations first.'; setTimeout(()=>{ note.textContent=''; }, 2500); return; }
+  if(!route || !fromStation || !toStation){
+    note.textContent = isDiversionSingleStationMode() ? 'Pick a line/branch and a station first.' : 'Pick a line/branch and both stations first.';
+    setTimeout(()=>{ note.textContent=''; }, 2500);
+    return;
+  }
   if(!firebaseReady){ note.textContent = 'Firebase not configured'; return; }
   // Same range lookup buildRangeClosure will do for real once posted — run
   // it here first as a dry validation so a from/to pair spanning two
@@ -10682,16 +10766,18 @@ document.getElementById('diversionSendBtn').addEventListener('click', async ()=>
   // is caught with a clear message instead of silently posting a diversion
   // that renders no red-X anywhere.
   const pageKeys = ALERT_ROUTE_TO_PAGE_KEYS[route] || [];
-  const testClosure = buildRangeClosure(pageKeys, fromStation, toStation, {});
+  const testClosure = buildRangeClosure(pageKeys, fromStation, toStation, {}, diversionExcludeOpts(pageKeys, fromStation, toStation));
   if(testClosure.length === 0){
     note.textContent = "Those two stations don't share a line/branch segment — pick two on the same branch.";
     setTimeout(()=>{ note.textContent=''; }, 4000);
     return;
   }
   const isEdit = !!editingDiversionId;
+  const single = fromStation === toStation;
+  const rangeDescription = single ? fromStation : `${fromStation} to ${toStation}`;
   const confirmMsg = isEdit
-    ? `Update this diversion to ${fromStation} → ${toStation} on ${ALERT_ROUTE_LABELS[route] || route}?`
-    : `Mark ${fromStation} to ${toStation} on ${ALERT_ROUTE_LABELS[route] || route} as diverted/closed, and notify subscribers?`;
+    ? `Update this diversion to ${single ? fromStation : `${fromStation} → ${toStation}`} on ${ALERT_ROUTE_LABELS[route] || route}?`
+    : `Mark ${rangeDescription} on ${ALERT_ROUTE_LABELS[route] || route} as ${single ? 'closed' : 'diverted/closed'}, and notify subscribers?`;
   if(!window.confirm(confirmMsg)) return;
   const expiresAt = computeDiversionExpiresAt();
   try{
@@ -10700,7 +10786,7 @@ document.getElementById('diversionSendBtn').addEventListener('click', async ()=>
         route, fromStation, toStation, notes: notes || null, expiresAt,
         editedBy: state.userName, editedByUid: state.uid || null, editedAt: Date.now()
       });
-      logEdit(state.userName, state.uid, `Edited diversion/closure on ${ALERT_ROUTE_LABELS[route] || route}: ${fromStation} to ${toStation}`);
+      logEdit(state.userName, state.uid, `Edited diversion/closure on ${ALERT_ROUTE_LABELS[route] || route}: ${rangeDescription}`);
       note.textContent = 'Diversion updated.';
       resetDiversionComposerToCreateMode();
     }else{
@@ -10708,7 +10794,7 @@ document.getElementById('diversionSendBtn').addEventListener('click', async ()=>
         route, fromStation, toStation, notes: notes || null, ts: Date.now(),
         postedBy: state.userName, postedByUid: state.uid || null, expiresAt
       });
-      logEdit(state.userName, state.uid, `Reported diversion/closure on ${ALERT_ROUTE_LABELS[route] || route}: ${fromStation} to ${toStation}`);
+      logEdit(state.userName, state.uid, `Reported diversion/closure on ${ALERT_ROUTE_LABELS[route] || route}: ${rangeDescription}`);
       note.textContent = 'Diversion posted.';
     }
     notesEl.value = '';
