@@ -1326,7 +1326,7 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
         <span class="menu-link-arrow">&rsaquo;</span>
       </div>
       <div class="menu-link" data-navto="MODNOTIFS" id="modNotifsMenuLink" style="display:none;">
-        <span>Alerts and Notifications</span>
+        <span>Publish Alerts &amp; Diversions</span>
         <span class="menu-link-arrow">&rsaquo;</span>
       </div>
       <div class="menu-link" data-navto="EDITLOGS" id="editLogsMenuLink" style="display:none;">
@@ -1467,19 +1467,44 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
   <div class="panel full-bleed" id="modNotifsPanel" style="display:none;">
    <div class="full-bleed-inner">
     <div class="panel-head">
-      <h2>Alerts and Notifications</h2>
+      <h2>Publish Alerts &amp; Diversions</h2>
       <span class="note">&mdash;</span>
     </div>
     <div class="back-link" id="modNotifsBackBtn">&lsaquo; Back</div>
 
-    <div class="roster-row">
+    <div class="roster-row" id="diversionComposerRow">
+      <div class="roster-row-head"><span class="roster-car-chip">Report a Diversion/Closure</span></div>
+      <div class="roster-edited-by">Marks every station between the two you pick as closed on the track map (same red &times; used for planned trackwork), and pushes to anyone subscribed to Diversions or to this line/branch's T-Alerts.</div>
+      <div class="roster-field-label">Line/branch</div>
+      <select class="roster-input" id="diversionRoute"></select>
+      <div class="roster-field-label">From station</div>
+      <select class="roster-input" id="diversionFrom"></select>
+      <div class="roster-field-label">To station</div>
+      <select class="roster-input" id="diversionTo"></select>
+      <div class="roster-field-label">Notes (optional)</div>
+      <textarea class="roster-textarea" id="diversionNotes" placeholder="e.g. Shuttle buses replacing service, boarding at the Copley busway..."></textarea>
+      <div class="roster-field-label">Expires in</div>
+      <select class="roster-input" id="diversionExpiry">
+        <option value="1">1 hour</option>
+        <option value="4">4 hours</option>
+        <option value="12">12 hours</option>
+        <option value="24" selected>24 hours</option>
+        <option value="72">3 days</option>
+        <option value="168">7 days</option>
+        <option value="0">Never (manual removal only)</option>
+      </select>
+      <button class="account-btn" id="diversionSendBtn" style="margin-top:8px;">Confirm &amp; post diversion</button>
+      <span class="roster-submit-note" id="diversionNote"></span>
+    </div>
+
+    <div class="roster-row" id="disruptionModeRow">
       <div class="roster-row-head"><span class="roster-car-chip">Disruption Mode</span></div>
       <div class="roster-edited-by">During major disruptions (shuttle buses, single-tracking, etc.), trains can legitimately drop out of MBTA's live feed for longer stretches. Enabling this extends how long a train stays visible at its last known position after going quiet &mdash; from 10 minutes up to 25 &mdash; for everyone using the app.</div>
       <button class="account-btn" id="disruptionModeToggleBtn" style="margin-top:8px;">Enable Disruption Mode</button>
       <span class="roster-submit-note" id="disruptionModeNote"></span>
     </div>
 
-    <div class="roster-row">
+    <div class="roster-row" id="modAlertRow">
       <div class="roster-row-head"><span class="roster-car-chip">Push an Alert</span></div>
       <div class="roster-edited-by">Sent to all users immediately when confirmed.</div>
       <div class="roster-field-label">Alert text</div>
@@ -1498,7 +1523,7 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
       <span class="roster-submit-note" id="modAlertNote"></span>
     </div>
 
-    <div class="roster-row">
+    <div class="roster-row" id="modNotifRow">
       <div class="roster-row-head"><span class="roster-car-chip">Push a Notification</span></div>
       <div class="roster-edited-by">Sent to all users immediately when confirmed.</div>
       <div class="roster-field-label">Subject</div>
@@ -1752,6 +1777,14 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
           </div>
           <div class="menu-divider"></div>
           <div class="menu-row">
+            <span>Diversions (any line)<span class="menu-note">(push only)</span></span>
+            <div class="switch" id="notifDiversionsSwitch"><div class="knob"></div></div>
+          </div>
+          <div class="menu-row" style="flex-direction:column; align-items:flex-start; gap:2px;">
+            <span class="menu-note" style="margin-left:0;">Fires for any diversion or closure &mdash; whether MBTA posts it or a moderator/trusted member reports it &mdash; regardless of which line-specific toggle below is on.</span>
+          </div>
+          <div class="menu-divider"></div>
+          <div class="menu-row">
             <span>Green Line B<span class="menu-note">(push only)</span></span>
             <div class="switch" id="notifAlertsGreenBSwitch"><div class="knob"></div></div>
           </div>
@@ -1947,7 +1980,7 @@ const PAGES = {
     hex:'#7C2D12', label:'Moderation', isMembers:true
   },
   MODNOTIFS: {
-    hex:'#9D174D', label:'Alerts and Notifications', isModNotifs:true
+    hex:'#9D174D', label:'Publish Alerts & Diversions', isModNotifs:true
   },
   EDITLOGS: {
     hex:'#334155', label:'Edit Logs', isEditLogs:true
@@ -2176,9 +2209,19 @@ const BYPASSED_STOPS = [
     { excludeFrom:true, excludeTo:true })
 ];
 
+// liveDiversionBypassStops is the dynamic counterpart to the hardcoded
+// BYPASSED_STOPS list above — entries generated from moderator/trusted-
+// member-reported community diversions (see refreshLiveDiversionBypassCache,
+// defined further down near the T-Alerts helpers once ALERT_ROUTE_TO_PAGE_KEYS
+// exists). Declared here (rather than right next to that function) so
+// getBypassInfo below can close over it regardless of source order — by the
+// time getBypassInfo actually runs (during ladder builds), the whole script
+// has finished executing top to bottom and this has its real value.
+let liveDiversionBypassStops = [];
+
 function getBypassInfo(pageKey, stopName, side){
   const today = todayDateString();
-  const match = BYPASSED_STOPS.find(entry=>{
+  const matchIn = (list) => list.find(entry=>{
     if(!entry.pages.includes(pageKey)) return false;
     if(entry.stop !== stopName) return false;
     if(entry.from && today < entry.from) return false;
@@ -2186,7 +2229,7 @@ function getBypassInfo(pageKey, stopName, side){
     if(entry.directionOnly !== undefined && entry.directionOnly !== side) return false;
     return true;
   });
-  return match || null;
+  return matchIn(BYPASSED_STOPS) || matchIn(liveDiversionBypassStops) || null;
 }
 const RED_BRANCH_TEXT_COLORS = { ashmont:'#FFFFFE', braintree:'#C83C2B' };
 const RED_ASHMONT_ONLY_STOPS = ["Savin Hill","Fields Corner","Shawmut","Ashmont"];
@@ -3390,6 +3433,7 @@ async function savePrefs(){
       notifPushOutOfService: state.notifPushOutOfService,
       notifLongGapReturn: state.notifLongGapReturn,
       longGapThresholdDays: state.longGapThresholdDays,
+      notifDiversions: state.notifDiversions,
       notifAlertsGreenB: state.notifAlertsGreenB,
       notifAlertsGreenC: state.notifAlertsGreenC,
       notifAlertsGreenD: state.notifAlertsGreenD,
@@ -3668,7 +3712,7 @@ function renderOtherBranchesToggles(){
 function switchPage(key){
   const p = PAGES[key];
   if(p.isMembers && !state.isModerator) key = 'B'; // safety: never land on Admin without moderator rights
-  if(p.isModNotifs && !state.isModerator) key = 'B'; // safety: never land on Alerts and Notifications without moderator rights
+  if(p.isModNotifs && !state.isModerator && !state.isTrustedMember) key = 'B'; // safety: never land on Publish Alerts & Diversions without moderator or trusted-member rights
   if(p.isEditLogs && !state.isModerator) key = 'B'; // safety: never land on Edit Logs without moderator rights
   state.currentPage = key;
   try{ localStorage.setItem(LAST_PAGE_KEY, key); }catch(e){ /* ignore */ }
@@ -3775,6 +3819,7 @@ function switchPage(key){
   }
   if(page.isModNotifs){
     modNotifsPanel.style.display = 'block';
+    buildModNotifsPanel();
     return;
   }
   if(page.isEditLogs){
@@ -6433,10 +6478,74 @@ const ALERT_ROUTE_LABELS = {
   'Mattapan':'Mattapan Line', 'Red':'Red Line', 'Orange':'Orange Line', 'Blue':'Blue Line'
 };
 
+// Which PAGES key(s) each of the 8 alert route ids maps to, for the
+// diversion composer's From/To station pickers and for turning a posted
+// diversion into red-X bypass entries via buildRangeClosure. Red maps to all
+// three Red Line page variants (trunk-only, +Ashmont, +Braintree) — see
+// stopsForRoute below for how that's flattened into one combined dropdown.
+const ALERT_ROUTE_TO_PAGE_KEYS = {
+  'Green-B':['B'], 'Green-C':['C'], 'Green-D':['D'], 'Green-E':['E'],
+  'Mattapan':['MATTAPAN'], 'Red':['REDTRUNK','REDASHMONT','REDBRAINTREE'], 'Orange':['ORANGE'], 'Blue':['BLUE']
+};
+
+// The ordered list of station names to offer in the composer's From/To
+// dropdowns for a given route. Everything except Red is a single PAGES
+// entry's own stop list; Red is stitched together from the shared trunk
+// plus each branch's own tail (RED_ASHMONT_ONLY_STOPS/RED_BRAINTREE_ONLY_STOPS,
+// defined above) so a single dropdown covers the whole line without asking
+// the moderator to pick a branch first. buildRangeClosure below still does
+// its own per-page index lookup when actually building the closure, so
+// picking two stations on different branches (e.g. one Ashmont-only, one
+// Braintree-only) naturally yields no matching page and is caught as an error.
+function stopsForRoute(route){
+  if(route === 'Red') return [...(PAGES.REDTRUNK.stops || []), ...RED_ASHMONT_ONLY_STOPS, ...RED_BRAINTREE_ONLY_STOPS];
+  const keys = ALERT_ROUTE_TO_PAGE_KEYS[route] || [];
+  return (PAGES[keys[0]] || {}).stops || [];
+}
+
+// Mirrors destinationOverrideCache's pattern (see refreshDestinationOverrideCache)
+// — a plain module-scoped array, fully rebuilt (not incrementally merged) on
+// every refresh. Fed into getBypassInfo above alongside the hardcoded
+// BYPASSED_STOPS list, so a moderator/trusted member's posted diversion shows
+// the same red-X treatment on the track map as a planned closure, without a
+// page reload — the next ladder rebuild (trains repoll every 10s) just picks
+// up whatever's in this array.
+async function refreshLiveDiversionBypassCache(){
+  if(!firebaseReady) return;
+  try{
+    const snap = await fbDb.collection('community_alerts').get();
+    const now = Date.now();
+    const entries = [];
+    snap.forEach(doc=>{
+      const d = doc.data();
+      if(d.expiresAt && d.expiresAt < now) return; // expired — fetchCommunityAlerts() handles actually deleting these
+      if(!d.fromStation || !d.toStation) return; // pre-migration docs (old free-text-only shape) — nothing to render
+      const pageKeys = ALERT_ROUTE_TO_PAGE_KEYS[d.route] || [];
+      if(!pageKeys.length) return;
+      const notesHtml = d.notes ? `: ${escapeHtml(d.notes)}` : '';
+      const reason = `Diversion reported by ${escapeHtml(d.postedBy || 'a member')}${notesHtml}.`;
+      entries.push(...buildRangeClosure(pageKeys, d.fromStation, d.toStation, { reason, communityDiversionId: doc.id }));
+    });
+    liveDiversionBypassStops = entries;
+  }catch(e){ console.error(e); }
+}
+
 function allKnownStopNames(){
   const names = new Set();
   DEPARTURE_LOOKUP_PAGES.forEach(key => PAGES[key].stops.forEach(s => names.add(s)));
   return Array.from(names).sort((a,b) => b.length - a.length);
+}
+
+// Generic HTML-escaping for user-submitted text that's about to land in an
+// innerHTML string (e.g. a community diversion's notes/postedBy, rendered
+// via showBypassNotice — see the comment there). BYPASSED_STOPS' own reason
+// strings never needed this since they're hardcoded by the developer, never
+// user input; community diversions are the first case where genuinely
+// user-authored text reaches that same unescaped-innerHTML code path.
+function escapeHtml(str){
+  return String(str == null ? '' : str)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
 function linkifyStationNames(text){
@@ -6500,33 +6609,6 @@ async function fetchCommunityAlerts(){
   }catch(e){ console.error(e); return []; }
 }
 
-// Rendered inline inside the Service Alerts modal, only for moderators/
-// trusted members (see showAlertsModal) — scoped to whichever routes are
-// actually relevant to the line currently being viewed, same set
-// getAlertRouteIds() already uses for the MBTA-sourced half of this modal.
-function communityAlertComposerHtml(){
-  const routeOptions = getAlertRouteIds().map(r => `<option value="${r}">${ALERT_ROUTE_LABELS[r] || r}</option>`).join('');
-  return `
-    <div class="modal-section" id="communityAlertComposer" style="display:none;">
-      <div class="roster-field-label">Line/branch</div>
-      <select class="roster-input" id="communityAlertRoute">${routeOptions}</select>
-      <div class="roster-field-label">Diversion / closure details</div>
-      <textarea class="roster-textarea" id="communityAlertText" placeholder="e.g. Shuttle buses replacing service between Sullivan Square and Wellington..."></textarea>
-      <div class="roster-field-label">Expires in</div>
-      <select class="roster-input" id="communityAlertExpiry">
-        <option value="1">1 hour</option>
-        <option value="4">4 hours</option>
-        <option value="12">12 hours</option>
-        <option value="24" selected>24 hours</option>
-        <option value="72">3 days</option>
-        <option value="168">7 days</option>
-        <option value="0">Never (manual removal only)</option>
-      </select>
-      <button class="account-btn" id="communityAlertSendBtn" style="margin-top:8px;">Post diversion/closure</button>
-      <span class="roster-submit-note" id="communityAlertNote"></span>
-    </div>`;
-}
-
 function timeSincePosted(iso){
   if(!iso) return '';
   const minutes = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60000));
@@ -6545,8 +6627,6 @@ async function showAlertsModal(){
   document.getElementById('carModalBody').innerHTML = '<div class="modal-row"><span>Loading&hellip;</span><strong></strong></div>';
   document.getElementById('carModalOverlay').classList.add('show');
 
-  const canPostAlerts = state.isModerator || state.isTrustedMember;
-
   let mbtaAlerts = [];
   let mbtaFailed = false;
   try{
@@ -6561,20 +6641,26 @@ async function showAlertsModal(){
   // Community-reported diversions/closures are shown first \u2014 they're
   // usually the more immediately actionable, locally-sourced ones (a
   // shuttle bus detail MBTA's own feed hasn't caught up to posting yet),
-  // ahead of MBTA's own official alerts below them.
-  const addBtnHtml = canPostAlerts
-    ? `<button class="modal-info-btn" id="communityAlertToggleBtn" style="margin:0 0 10px;">+ Report a diversion/closure</button>`
+  // ahead of MBTA's own official alerts below them. Posting one now happens
+  // on the Publish Alerts & Diversions page (moderators/trusted members
+  // only) rather than inline here \u2014 this modal is view/remove only.
+  const addBtnHtml = (state.isModerator || state.isTrustedMember)
+    ? `<div class="modal-row"><span class="menu-note" style="margin-left:0;">Moderators and trusted members can post a diversion from Publish Alerts &amp; Diversions in the menu.</span><strong></strong></div>`
     : '';
-  const composerHtml = canPostAlerts ? communityAlertComposerHtml() : '';
 
   const communityHtml = communityAlerts.map(a=>{
     const canRemove = state.isModerator || (a.postedByUid && a.postedByUid === state.uid);
     const removeBtn = canRemove
       ? `<button class="modal-info-btn" data-remove-community-alert="${a.id}" style="margin-top:6px;">Remove</button>`
       : '';
+    const routeLine = a.fromStation && a.toStation
+      ? `${linkifyStationNames(a.fromStation)} \u2192 ${linkifyStationNames(a.toStation)}`
+      : linkifyStationNames(a.text || ''); // pre-migration docs (old free-text-only shape)
+    const notesHtml = a.notes ? `<div class="alert-desc">${linkifyStationNames(a.notes)}</div>` : '';
     return `
       <div class="modal-section" style="border-left:3px solid var(--accent);">
-        <div class="alert-header">${linkifyStationNames(a.text)}</div>
+        <div class="alert-header">${routeLine}</div>
+        ${notesHtml}
         <div class="alert-posted">${ALERT_ROUTE_LABELS[a.route] || a.route} \u00b7 Reported by ${a.postedBy || 'a member'} \u00b7 ${timeSincePosted(new Date(a.ts).toISOString())}</div>
         ${removeBtn}
       </div>`;
@@ -6596,7 +6682,7 @@ async function showAlertsModal(){
     ? `<div class="modal-row"><span>${mbtaFailed ? 'Could not load T-Alerts right now.' : 'No alerts from the last 4 hours.'}</span><strong></strong></div>`
     : '';
 
-  document.getElementById('carModalBody').innerHTML = addBtnHtml + composerHtml + communityHtml + mbtaHtml + emptyHtml;
+  document.getElementById('carModalBody').innerHTML = addBtnHtml + communityHtml + mbtaHtml + emptyHtml;
 
   document.getElementById('carModalBody').querySelectorAll('.alert-station').forEach(el=>{
     el.addEventListener('click', (e)=>{
@@ -6605,38 +6691,12 @@ async function showAlertsModal(){
     });
   });
 
-  const toggleBtn = document.getElementById('communityAlertToggleBtn');
-  if(toggleBtn) toggleBtn.addEventListener('click', ()=>{
-    const composer = document.getElementById('communityAlertComposer');
-    if(composer) composer.style.display = composer.style.display === 'none' ? '' : 'none';
-  });
-
-  const sendBtn = document.getElementById('communityAlertSendBtn');
-  if(sendBtn) sendBtn.addEventListener('click', async ()=>{
-    const textEl = document.getElementById('communityAlertText');
-    const routeEl = document.getElementById('communityAlertRoute');
-    const expiryEl = document.getElementById('communityAlertExpiry');
-    const note = document.getElementById('communityAlertNote');
-    const text = textEl.value.trim();
-    if(!text){ note.textContent = 'Enter details first.'; setTimeout(()=>{ note.textContent=''; }, 2000); return; }
-    if(!firebaseReady){ note.textContent = 'Firebase not configured'; return; }
-    const expiryHours = parseInt(expiryEl.value, 10);
-    const expiresAt = expiryHours > 0 ? Date.now() + expiryHours * 60 * 60 * 1000 : null;
-    try{
-      await fbDb.collection('community_alerts').add({
-        route: routeEl.value, text, ts: Date.now(),
-        postedBy: state.userName, postedByUid: state.uid || null, expiresAt
-      });
-      logEdit(state.userName, state.uid, `Reported diversion/closure on ${ALERT_ROUTE_LABELS[routeEl.value] || routeEl.value}: "${text.slice(0,60)}"`);
-      showAlertsModal(); // full refresh \u2014 simplest way to show it in the list immediately, same as it'll look on reopen
-    }catch(e){ console.error(e); note.textContent = 'Failed to post \u2014 check Firestore rules'; }
-  });
-
   document.getElementById('carModalBody').querySelectorAll('[data-remove-community-alert]').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
       if(!window.confirm('Remove this diversion/closure report?')) return;
       try{
         await fbDb.collection('community_alerts').doc(btn.dataset.removeCommunityAlert).delete();
+        refreshLiveDiversionBypassCache();
         showAlertsModal();
       }catch(e){ console.error(e); }
     });
@@ -6883,6 +6943,10 @@ async function syncPushPreferences(){
       // reads in functions/index.js's "car back after a long gap" block.
       notifyLongGapReturn: !!state.notifLongGapReturn,
       longGapThresholdDays: state.longGapThresholdDays || 14,
+      // Must match the field name sendPushOnCommunityAlert and the T-Alerts
+      // block in functions/index.js both check in addition to (not instead
+      // of) the per-line notifyAlertsXxx fields below.
+      notifyDiversions: !!state.notifDiversions,
       // Field names below must match ALERT_ROUTE_PREF_FIELDS in
       // functions/index.js exactly — that's what syncLastSeenCars filters
       // push_subscriptions by when a new T-Alert comes in for each branch.
@@ -9648,7 +9712,7 @@ async function completeSignIn(name, email, uid, photoURL){
   document.getElementById('accountNameInput').value = name;
   document.getElementById('menuAccountSection').style.display = 'block';
   document.getElementById('membersMenuLink').style.display = state.isModerator ? 'flex' : 'none';
-  document.getElementById('modNotifsMenuLink').style.display = state.isModerator ? 'flex' : 'none';
+  document.getElementById('modNotifsMenuLink').style.display = (state.isModerator || state.isTrustedMember) ? 'flex' : 'none';
   document.getElementById('editLogsMenuLink').style.display = state.isModerator ? 'flex' : 'none';
   buildNav();
   if(state.currentPage === 'ROSTER') buildRosterPanel();
@@ -9840,6 +9904,83 @@ document.getElementById('disruptionModeToggleBtn').addEventListener('click', asy
   await setDisruptionMode(turningOn);
 });
 
+/* ---------------- Publish Alerts & Diversions page: diversion composer ---------------- */
+
+function populateDiversionRouteSelect(){
+  const sel = document.getElementById('diversionRoute');
+  if(!sel || sel.options.length > 0) return; // only needs populating once — options don't change
+  sel.innerHTML = Object.keys(ALERT_ROUTE_LABELS).map(r => `<option value="${r}">${ALERT_ROUTE_LABELS[r]}</option>`).join('');
+}
+
+function populateDiversionStationSelects(){
+  const routeSel = document.getElementById('diversionRoute');
+  const fromSel = document.getElementById('diversionFrom');
+  const toSel = document.getElementById('diversionTo');
+  if(!routeSel || !fromSel || !toSel) return;
+  const stops = stopsForRoute(routeSel.value);
+  const optionsHtml = stops.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('');
+  fromSel.innerHTML = optionsHtml;
+  toSel.innerHTML = optionsHtml;
+  if(stops.length > 1) toSel.selectedIndex = 1; // default to a 2-stop range instead of the same station picked twice
+}
+
+// Called from switchPage() every time the Publish Alerts & Diversions page
+// is opened. Moderators see all four sections on this page (diversion
+// composer, Disruption Mode, blast-to-everyone Alert, blast-to-everyone
+// Notification); trusted members only see the diversion composer, since
+// that's the one section of this page they also have Firestore write access
+// to (see the trusted_members rule comment near the top of the script).
+function buildModNotifsPanel(){
+  ['disruptionModeRow', 'modAlertRow', 'modNotifRow'].forEach(id=>{
+    const row = document.getElementById(id);
+    if(row) row.style.display = state.isModerator ? '' : 'none';
+  });
+  populateDiversionRouteSelect();
+  populateDiversionStationSelects();
+}
+document.getElementById('diversionRoute').addEventListener('change', populateDiversionStationSelects);
+
+document.getElementById('diversionSendBtn').addEventListener('click', async ()=>{
+  const routeEl = document.getElementById('diversionRoute');
+  const fromEl = document.getElementById('diversionFrom');
+  const toEl = document.getElementById('diversionTo');
+  const notesEl = document.getElementById('diversionNotes');
+  const expiryEl = document.getElementById('diversionExpiry');
+  const note = document.getElementById('diversionNote');
+  const route = routeEl.value;
+  const fromStation = fromEl.value;
+  const toStation = toEl.value;
+  const notes = notesEl.value.trim();
+  if(!route || !fromStation || !toStation){ note.textContent = 'Pick a line/branch and both stations first.'; setTimeout(()=>{ note.textContent=''; }, 2500); return; }
+  if(!firebaseReady){ note.textContent = 'Firebase not configured'; return; }
+  // Same range lookup buildRangeClosure will do for real once posted — run
+  // it here first as a dry validation so a from/to pair spanning two
+  // branches (e.g. an Ashmont-only stop paired with a Braintree-only stop)
+  // is caught with a clear message instead of silently posting a diversion
+  // that renders no red-X anywhere.
+  const pageKeys = ALERT_ROUTE_TO_PAGE_KEYS[route] || [];
+  const testClosure = buildRangeClosure(pageKeys, fromStation, toStation, {});
+  if(testClosure.length === 0){
+    note.textContent = "Those two stations don't share a line/branch segment — pick two on the same branch.";
+    setTimeout(()=>{ note.textContent=''; }, 4000);
+    return;
+  }
+  if(!window.confirm(`Mark ${fromStation} to ${toStation} on ${ALERT_ROUTE_LABELS[route] || route} as diverted/closed, and notify subscribers?`)) return;
+  const expiryHours = parseInt(expiryEl.value, 10);
+  const expiresAt = expiryHours > 0 ? Date.now() + expiryHours * 60 * 60 * 1000 : null;
+  try{
+    await fbDb.collection('community_alerts').add({
+      route, fromStation, toStation, notes: notes || null, ts: Date.now(),
+      postedBy: state.userName, postedByUid: state.uid || null, expiresAt
+    });
+    logEdit(state.userName, state.uid, `Reported diversion/closure on ${ALERT_ROUTE_LABELS[route] || route}: ${fromStation} to ${toStation}`);
+    notesEl.value = '';
+    note.textContent = 'Diversion posted.';
+    setTimeout(()=>{ note.textContent=''; }, 3000);
+    refreshLiveDiversionBypassCache();
+  }catch(e){ console.error(e); note.textContent = 'Failed to post — check Firestore rules'; }
+});
+
 document.getElementById('modAlertSendBtn').addEventListener('click', async ()=>{
   const textEl = document.getElementById('modAlertText');
   const expiryEl = document.getElementById('modAlertExpiry');
@@ -9942,7 +10083,7 @@ document.querySelectorAll('.section-toggle').forEach(toggle=>{
 // push_subscriptions doc (if it has one) needs to be kept in sync, on top
 // of the usual local savePrefs().
 const PUSH_SYNCED_NOTIF_KEYS = ['notifDoubleType8', 'notifPride', 'notifPushDestinationChange', 'notifPushLineChange', 'notifPushOutOfService', 'notifLongGapReturn',
-  'notifAlertsGreenB', 'notifAlertsGreenC', 'notifAlertsGreenD', 'notifAlertsGreenE', 'notifAlertsMattapan', 'notifAlertsRed', 'notifAlertsOrange', 'notifAlertsBlue'];
+  'notifDiversions', 'notifAlertsGreenB', 'notifAlertsGreenC', 'notifAlertsGreenD', 'notifAlertsGreenE', 'notifAlertsMattapan', 'notifAlertsRed', 'notifAlertsOrange', 'notifAlertsBlue'];
 function wireNotifToggle(id, stateKey){
   document.getElementById(id).addEventListener('click', ()=>{
     state[stateKey] = !state[stateKey];
@@ -9963,6 +10104,7 @@ wireNotifToggle('notifPushDestChangeSwitch', 'notifPushDestinationChange');
 wireNotifToggle('notifPushLineChangeSwitch', 'notifPushLineChange');
 wireNotifToggle('notifPushOOSSwitch', 'notifPushOutOfService');
 wireNotifToggle('notifLongGapReturnSwitch', 'notifLongGapReturn');
+wireNotifToggle('notifDiversionsSwitch', 'notifDiversions');
 // The threshold row is meaningless while the toggle above it is off, same
 // "gray it out, don't let it do anything" treatment as the time/weather
 // chip's own sub-rows (see updateStatusChipSubRowsDisabled).
@@ -10893,6 +11035,7 @@ async function init(){
   state.notifPushOutOfService = !!prefs.notifPushOutOfService;
   state.notifLongGapReturn = !!prefs.notifLongGapReturn;
   state.longGapThresholdDays = Object.prototype.hasOwnProperty.call(prefs, 'longGapThresholdDays') ? prefs.longGapThresholdDays : 14;
+  state.notifDiversions = !!prefs.notifDiversions;
   // T-Alerts per line/branch — also push-only, same opt-in-by-default
   // convention, actual delivery handled server-side by syncLastSeenCars'
   // T-Alerts block in functions/index.js.
@@ -10915,6 +11058,7 @@ async function init(){
   document.getElementById('notifLongGapReturnSwitch').classList.toggle('on', state.notifLongGapReturn);
   document.getElementById('longGapThresholdSelect').value = String(state.longGapThresholdDays);
   updateLongGapThresholdRowDisabled();
+  document.getElementById('notifDiversionsSwitch').classList.toggle('on', state.notifDiversions);
   document.getElementById('notifAlertsGreenBSwitch').classList.toggle('on', state.notifAlertsGreenB);
   document.getElementById('notifAlertsGreenCSwitch').classList.toggle('on', state.notifAlertsGreenC);
   document.getElementById('notifAlertsGreenDSwitch').classList.toggle('on', state.notifAlertsGreenD);
@@ -11005,6 +11149,7 @@ async function init(){
   startGatedPoll(refreshDroppedTripsCache, 60000);
   startGatedPoll(refreshHiddenTrainsCache, 60000);
   startGatedPoll(refreshOperatorSearchCache, 60000);
+  startGatedPoll(refreshLiveDiversionBypassCache, 60000);
 
   // Matches the edge cache's s-maxage=10 on /api/enhanced-vehicle-positions
   // (see that file) — polling any faster wouldn't get fresher data than

@@ -208,6 +208,21 @@ async function sendToFilteredSubscribers(prefField, payload){
   await deliverToSubscriptionSnapshot(snap, payload);
 }
 
+// Same idea as sendToFilteredSubscribers, but for events that qualify a
+// subscriber under any ONE of several boolean fields (e.g. a diversion post
+// should reach both this line's T-Alerts subscribers and the standalone
+// "Diversions (any line)" subscribers) — Firestore can't OR two equality
+// filters together in one query, so this runs one query per field and
+// dedupes by document id before delivering, so someone opted into both
+// fields still only gets a single push.
+async function sendToFilteredSubscribersMulti(prefFields, payload){
+  const snaps = await Promise.all(prefFields.map(f => db.collection('push_subscriptions').where(f, '==', true).get()));
+  const byId = new Map();
+  snaps.forEach(snap => snap.docs.forEach(doc => byId.set(doc.id, doc)));
+  if(byId.size === 0) return;
+  await deliverToSubscriptionSnapshot({ empty: false, docs: Array.from(byId.values()) }, payload);
+}
+
 // Same opt-in-boolean pattern as sendToFilteredSubscribers, plus a
 // per-subscriber NUMERIC threshold (Firestore can't combine an equality
 // filter on one field with a range comparison against a per-document value
@@ -380,6 +395,15 @@ const ALERT_ROUTE_LABELS = {
   'Mattapan': 'Mattapan Line', 'Red': 'Red Line', 'Orange': 'Orange Line', 'Blue': 'Blue Line'
 };
 
+// MBTA "effect" values that describe an actual diversion/closure (as opposed
+// to e.g. DELAY, ELEVATOR_CLOSURE, or a plain SERVICE_CHANGE with no service
+// impact) — an MBTA-sourced alert with one of these effects qualifies for
+// the standalone "Diversions (any line)" push category the same way a
+// moderator/trusted-member-posted community diversion does (see
+// sendPushOnCommunityAlert). fetchServiceAlertsForPush already pulls the
+// effect field for every alert; this is just what actually gets checked.
+const DIVERSION_EFFECTS = new Set(['DETOUR', 'SHUTTLE', 'STOP_CLOSURE', 'STATION_CLOSURE', 'SUSPENSION']);
+
 // Same activity/datetime filtering as index.html's own fetchAlerts (only
 // currently-active alerts relevant to boarding/riding, not every historical
 // alert MBTA has on file) but across all 8 routes in one call instead of
@@ -408,23 +432,30 @@ async function fetchServiceAlertsForPush(){
 const SERVICE_ALERTS_STATE_REF = () => db.collection('bot_state').doc('service_alerts');
 
 // A moderator/trusted member posting a diversion or closure (see
-// index.html's showAlertsModal composer) pushes to the SAME per-branch
-// subscriber set as an official MBTA T-Alert for that route — reusing
-// ALERT_ROUTE_PREF_FIELDS rather than the unconditional sendToAllSubscribers
-// every mod_alerts post uses, since this is meant to be a targeted,
-// line-specific report, not a site-wide announcement.
+// index.html's Publish Alerts & Diversions composer) pushes to the SAME
+// per-branch subscriber set as an official MBTA T-Alert for that route
+// (ALERT_ROUTE_PREF_FIELDS), PLUS everyone opted into the standalone
+// "Diversions (any line)" toggle (notifyDiversions) regardless of which
+// line they've subscribed to — that field is meant to catch every diversion
+// across the whole system, community-reported or MBTA's own (see the
+// DIVERSION_EFFECTS check further down in syncLastSeenCars' T-Alerts block).
+// fromStation/toStation/notes is the current doc shape; data.text is the
+// older free-text-only shape from before the from/to restructure — still
+// handled here so any doc written in the brief window before this deployed
+// still pushes something reasonable instead of silently no-op'ing.
 exports.sendPushOnCommunityAlert = onDocumentCreated(
   { document: 'community_alerts/{alertId}', secrets: [VAPID_PRIVATE_KEY] },
   async (event) => {
     const data = event.data.data();
-    if(!data || !data.text || !data.route) return;
+    if(!data || !data.route) return;
+    const body = (data.fromStation && data.toStation)
+      ? `${data.fromStation} to ${data.toStation}${data.notes ? ': ' + data.notes.slice(0, 120) : ''}`
+      : (data.text || '').slice(0, 180);
+    if(!body) return;
+    const title = `${ALERT_ROUTE_LABELS[data.route] || data.route} diversion/closure`;
     const prefField = ALERT_ROUTE_PREF_FIELDS[data.route];
-    if(!prefField) return;
-    await sendToFilteredSubscribers(prefField, {
-      title: `${ALERT_ROUTE_LABELS[data.route] || data.route} diversion/closure`,
-      body: data.text.slice(0, 180),
-      url: './'
-    });
+    const prefFields = prefField ? ['notifyDiversions', prefField] : ['notifyDiversions'];
+    await sendToFilteredSubscribersMulti(prefFields, { title, body, url: './' });
   }
 );
 
@@ -996,18 +1027,25 @@ exports.syncLastSeenCars = onSchedule({ schedule: 'every 1 minutes', secrets: [V
     serviceAlerts.forEach(alert => {
       if(Object.prototype.hasOwnProperty.call(priorSeen, alert.id)) return; // already pushed about this one, ever
       nextSeen[alert.id] = now;
-      // One push per distinct branch this alert touches, not per route id
-      // blindly repeated — an alert naming both Green-B and Green-C, for
-      // example, still only sends one push to a Green-B-only subscriber and
-      // one to a Green-C-only subscriber, not two of each.
+      // One push per alert, to the union of everyone who qualifies under any
+      // of its prefFields — an alert naming both Green-B and Green-C reaches
+      // a Green-B-only subscriber once and a Green-C-only subscriber once,
+      // and someone subscribed to several of these fields at once (or also
+      // to the standalone notifyDiversions field below) still only gets a
+      // single push, via sendToFilteredSubscribersMulti's dedup.
       const prefFields = new Set(alert.routes.map(r => ALERT_ROUTE_PREF_FIELDS[r]).filter(Boolean));
-      prefFields.forEach(prefField => {
-        alertPushes.push(sendToFilteredSubscribers(prefField, {
+      // MBTA-sourced alerts whose effect is diversion-like also qualify for
+      // the standalone "Diversions (any line)" category — same treatment a
+      // moderator/trusted-member-posted community diversion gets (see
+      // sendPushOnCommunityAlert above).
+      if(DIVERSION_EFFECTS.has(alert.effect)) prefFields.add('notifyDiversions');
+      if(prefFields.size){
+        alertPushes.push(sendToFilteredSubscribersMulti(Array.from(prefFields), {
           title: 'T-Alert',
           body: alert.header.slice(0, 180),
           url: './'
         }));
-      });
+      }
     });
 
     if(alertPushes.length) await Promise.all(alertPushes);
