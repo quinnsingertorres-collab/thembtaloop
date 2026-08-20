@@ -745,15 +745,19 @@ body.dark .stop-dot{background:var(--bg);}
    in lockstep with zero risk of drifting out of sync the way two
    independently-animated images could. The source art has ~20px/~17px of
    transparent margin on its left/right edges (room for the coupler
-   knuckle's shadow), so a 0px gap still leaves visible daylight between
-   the two coupler tips — this negative gap cancels that margin out so the
-   knuckles actually meet. Runs right-to-left: the image's own "front"
-   (the cab end with the destination sign) is drawn on ITS left edge, so
-   with the whole consist traveling leftward, the FIRST img in the row
-   leads front-first — the correct way for a train to drive, rather than
-   appearing to reverse across the screen. */
-.train-loading-consist{position:absolute; top:16px; display:flex; align-items:flex-start; gap:-13px; animation:trainDriveAcross 5.3s linear infinite;}
+   knuckle's shadow), so butting the two <img> boxes flush still leaves
+   visible daylight between the two coupler tips. CSS `gap` can't go
+   negative to cancel that out (negative values are invalid and get
+   dropped, silently falling back to 0 — this is what shipped broken
+   before), so the pull-together instead lives on the second image's own
+   margin-left, which negative values ARE allowed on. Runs right-to-left:
+   the image's own "front" (the cab end with the destination sign) is
+   drawn on ITS left edge, so with the whole consist traveling leftward,
+   the FIRST img in the row leads front-first — the correct way for a
+   train to drive, rather than appearing to reverse across the screen. */
+.train-loading-consist{position:absolute; top:16px; display:flex; align-items:flex-start; animation:trainDriveAcross 5.3s linear infinite;}
 .train-loading-img{height:64px; width:auto; display:block;}
+.train-loading-img + .train-loading-img{margin-left:-13px;}
 .train-loading-caption{text-align:center; margin-top:8px; color:var(--text-faint); font-family:'IBM Plex Mono', monospace; font-size:12.5px;}
 .train-loading-dot{display:inline-block; color:var(--accent); animation:trainLoadingDotPop 1.4s ease-in-out infinite; opacity:0.25;}
 .train-loading-dot:nth-child(1){animation-delay:0s;}
