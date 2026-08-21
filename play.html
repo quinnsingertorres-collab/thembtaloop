@@ -28,6 +28,7 @@
   --rare:#60A5FA;
   --ultra:#C084FC;
   --legendary:#FFD34D;
+  --catchbar-h:76px;
 }
 *{box-sizing:border-box;}
 html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:'IBM Plex Sans',sans-serif;-webkit-font-smoothing:antialiased;overscroll-behavior-y:none;}
@@ -57,6 +58,7 @@ a{color:inherit;}
 .tab-count{opacity:0.75;font-weight:500;margin-left:3px;}
 
 .page{max-width:640px;margin:0 auto;padding:0 16px;}
+.tabs-wrap{max-width:640px;margin:0 auto;}
 
 /* ---------- intro / gate ---------- */
 .intro-card{margin:18px 0;background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:20px;}
@@ -69,12 +71,13 @@ a{color:inherit;}
 
 /* ---------- status banner ---------- */
 .status-banner{display:flex;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:11px 13px;margin:14px 0 4px;font-size:13px;color:var(--text-dim);}
+.status-banner.compact{margin:0;padding:9px 12px;font-size:12px;background:rgba(16,29,47,0.92);backdrop-filter:blur(6px);box-shadow:0 2px 10px rgba(0,0,0,0.35);}
 .status-dot{width:8px;height:8px;border-radius:50%;background:var(--text-faint);flex-shrink:0;}
 .status-dot.live{background:#34D399;box-shadow:0 0 8px rgba(52,211,153,0.7);}
 .status-banner b{color:var(--text);}
 
 /* ---------- focus card ---------- */
-.focus-card{margin:14px 0 0;background:linear-gradient(160deg, var(--fc-tint,#1c2a3d), var(--panel) 55%);border:1px solid var(--border);border-radius:16px;padding:14px 15px;}
+.focus-card{margin:0;background:linear-gradient(160deg, var(--fc-tint,#1c2a3d), var(--panel) 92%);border:1px solid var(--border);border-radius:16px;padding:14px 15px;box-shadow:0 4px 18px rgba(0,0,0,0.4);}
 .focus-empty{text-align:center;padding:26px 16px;color:var(--text-faint);font-size:13px;}
 .focus-top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;}
 .focus-line-pill{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:700;font-family:'Space Grotesk',sans-serif;color:#fff;padding:3px 9px;border-radius:20px;text-transform:uppercase;letter-spacing:0.02em;}
@@ -93,8 +96,8 @@ a{color:inherit;}
 .car-chip .dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;}
 .car-chip .caught-mark{font-size:10px;}
 
-/* ---------- map ---------- */
-.map-wrap{position:relative;height:320px;border-radius:16px;overflow:hidden;margin:14px 0;border:1px solid var(--border);background:#0B1420;}
+/* ---------- map (full-bleed, fills most of the screen) ---------- */
+.map-wrap{position:relative;width:100%;height:calc(100dvh - 122px - var(--catchbar-h));min-height:340px;overflow:hidden;background:#0B1420;border-top:1px solid var(--border);border-bottom:1px solid var(--border);margin-top:14px;}
 #leafletMap{width:100%;height:100%;}
 .map-recenter-btn{position:absolute;right:10px;bottom:10px;width:38px;height:38px;border-radius:50%;background:rgba(16,29,47,0.92);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;color:var(--text);z-index:500;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,0.4);font-size:16px;}
 .train-marker-inner{position:relative;width:100%;height:100%;}
@@ -103,10 +106,26 @@ a{color:inherit;}
 .train-dot-badge{position:absolute;top:-6px;right:-8px;background:#0B1420;color:#fff;font-size:9px;font-weight:700;border-radius:8px;padding:1px 4px;border:1px solid rgba(255,255,255,0.45);}
 .user-dot{width:14px;height:14px;border-radius:50%;background:#4F9CFF;border:3px solid #fff;box-shadow:0 0 0 6px rgba(79,156,255,0.22);}
 
-.nearby-label{font-size:11px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:0.05em;margin:16px 2px 8px;}
+/* status + focus card float on top of the map, like a HUD */
+.map-overlay-top{position:absolute;top:12px;left:12px;right:12px;max-width:380px;z-index:450;display:flex;flex-direction:column;gap:8px;pointer-events:none;}
+.map-overlay-top > *{pointer-events:auto;}
+
+/* ---------- nearby collapsible sheet — floats over the map's bottom
+   edge, right above the fixed Catch bar, like Lightning Stripes' Nearby
+   toolbar. Fixed positioning (not normal flow) so the expanded list can
+   never end up hidden underneath the fixed Catch bar. ---------- */
+.nearby-sheet{position:fixed;left:0;right:0;bottom:var(--catchbar-h);z-index:600;padding:0 16px;box-sizing:border-box;pointer-events:none;}
+.nearby-inner{max-width:640px;margin:0 auto;pointer-events:auto;}
+.nearby-toggle{display:flex;align-items:center;justify-content:space-between;width:100%;background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:12px 14px;color:var(--text);font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13.5px;cursor:pointer;box-shadow:0 4px 18px rgba(0,0,0,0.4);}
+.nearby-count{color:var(--text-faint);font-weight:500;margin-left:4px;}
+.nearby-toggle .chevron{color:var(--text-faint);transition:transform 0.2s ease;font-size:12px;}
+.nearby-sheet.expanded .nearby-toggle{border-radius:0 0 12px 12px;border-top:none;}
+.nearby-sheet.expanded .chevron{transform:rotate(180deg);}
+.nearby-scroll{max-height:0;overflow:hidden;transition:max-height 0.25s ease;border:1px solid transparent;border-radius:12px 12px 0 0;}
+.nearby-sheet.expanded .nearby-scroll{max-height:min(50vh, calc(100dvh - 260px));overflow-y:auto;border-color:var(--border);border-bottom:none;background:rgba(11,20,32,0.97);backdrop-filter:blur(8px);box-shadow:0 -4px 18px rgba(0,0,0,0.35);}
 
 /* ---------- nearby list ---------- */
-.spot-list{display:flex;flex-direction:column;gap:8px;margin:0 0 20px;}
+.spot-list{display:flex;flex-direction:column;gap:8px;margin:0;padding:10px;}
 .spot-card{display:flex;align-items:center;gap:11px;background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:10px 12px;cursor:pointer;}
 .spot-card.focused{border-color:rgba(255,255,255,0.4);}
 .spot-card.in-range{box-shadow:0 0 0 1px rgba(52,211,153,0.25) inset;}
@@ -187,7 +206,6 @@ a{color:inherit;}
 </div>
 
 <div class="page">
-
   <!-- Signed-out intro -->
   <div id="introGate" class="intro-card hidden">
     <h2>Catch real MBTA vehicles</h2>
@@ -203,53 +221,66 @@ a{color:inherit;}
     </button>
     <div class="intro-tip" id="introTip">📡 GPS is weakest underground — capturing works best above ground, at outdoor stations, or on the surface branches (Green B/C/D/E, Mattapan, and the outdoor ends of Red/Orange/Blue).</div>
   </div>
+</div>
 
-  <!-- Signed-in app -->
-  <div id="appRoot" class="hidden">
+<!-- Signed-in app -->
+<div id="appRoot" class="hidden">
 
+  <div class="tabs-wrap">
     <div class="tabs">
       <button class="tab-btn active" id="spotTabBtn" data-tab="spot">Spot</button>
       <button class="tab-btn" id="collectionTabBtn" data-tab="collection">Collection <span class="tab-count" id="collectionCount"></span></button>
     </div>
-
-    <!-- SPOT TAB -->
-    <div id="spotTab">
-      <div class="status-banner" id="locBanner">
-        <div class="status-dot" id="locDot"></div>
-        <div id="locBannerText">Requesting location…</div>
-      </div>
-      <div class="status-banner hidden" id="locDeniedBanner">
-        <div class="status-dot"></div>
-        <div style="flex:1;">Location access is off, so distances can't be shown. <span style="text-decoration:underline;cursor:pointer;" id="retryLocBtn">Try again</span></div>
-      </div>
-
-      <div id="focusCard" class="focus-card"><div class="focus-empty">Loading live vehicles…</div></div>
-
-      <div class="map-wrap">
-        <div id="leafletMap"></div>
-        <button class="map-recenter-btn" id="mapRecenterBtn" title="Recenter on me">⦿</button>
-      </div>
-
-      <div class="nearby-label">Nearby</div>
-      <div id="spotList" class="spot-list"></div>
-    </div>
-
-    <!-- COLLECTION TAB -->
-    <div id="collectionTab" class="hidden">
-      <div class="dex-strip" id="dexStrip"></div>
-      <div class="collection-stats">
-        <div class="stat-box"><div class="num" id="statCars">0</div><div class="lbl">cars caught</div></div>
-        <div class="stat-box"><div class="num" id="statSpecies">0/14</div><div class="lbl">species</div></div>
-        <div class="stat-box"><div class="num" id="statCatches">0</div><div class="lbl">total catches</div></div>
-      </div>
-      <div id="collectionEmpty" class="empty-state hidden">
-        <span class="big">🃏</span>
-        No cards yet — head to the Spot tab and get close to a real MBTA vehicle.
-      </div>
-      <div class="card-grid" id="cardGrid"></div>
-    </div>
-
   </div>
+
+  <!-- SPOT TAB — map is full-bleed and fills most of the screen; status +
+       focus card float over it, the nearby list is a collapsible sheet
+       below so the map stays dominant. -->
+  <div id="spotTab">
+    <div class="map-wrap" id="mapWrap">
+      <div id="leafletMap"></div>
+
+      <div class="map-overlay-top">
+        <div class="status-banner compact" id="locBanner">
+          <div class="status-dot" id="locDot"></div>
+          <div id="locBannerText">Requesting location…</div>
+        </div>
+        <div class="status-banner compact hidden" id="locDeniedBanner">
+          <div class="status-dot"></div>
+          <div style="flex:1;">Location access is off. <span style="text-decoration:underline;cursor:pointer;" id="retryLocBtn">Try again</span></div>
+        </div>
+        <div id="focusCard" class="focus-card"><div class="focus-empty">Loading live vehicles…</div></div>
+      </div>
+
+      <button class="map-recenter-btn" id="mapRecenterBtn" title="Recenter on me">⦿</button>
+    </div>
+
+    <div class="nearby-sheet" id="nearbySheet">
+      <div class="nearby-inner">
+        <div class="nearby-scroll"><div id="spotList" class="spot-list"></div></div>
+        <button class="nearby-toggle" id="nearbyToggle">
+          <span>Nearby<span class="nearby-count" id="nearbyCount"></span></span>
+          <span class="chevron">&#9662;</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- COLLECTION TAB -->
+  <div id="collectionTab" class="page hidden">
+    <div class="dex-strip" id="dexStrip"></div>
+    <div class="collection-stats">
+      <div class="stat-box"><div class="num" id="statCars">0</div><div class="lbl">cars caught</div></div>
+      <div class="stat-box"><div class="num" id="statSpecies">0/17</div><div class="lbl">species</div></div>
+      <div class="stat-box"><div class="num" id="statCatches">0</div><div class="lbl">total catches</div></div>
+    </div>
+    <div id="collectionEmpty" class="empty-state hidden">
+      <span class="big">🃏</span>
+      No cards yet — head to the Spot tab and get close to a real MBTA vehicle.
+    </div>
+    <div class="card-grid" id="cardGrid"></div>
+  </div>
+
 </div>
 
 <div class="catch-bar" id="catchBar">
@@ -330,13 +361,57 @@ function getBlueCarType(label){
   if(n >= 700 && n <= 799) return 'Siemens';
   return 'Unknown';
 }
-// Buses aren't identifiable by model from the live feed, so this is a
-// route-based guess: Silver Line routes (SL1–SL5) mostly run articulated
-// 60-ft buses, every other bus route is treated as a standard 40-ft bus.
+// Route-based fallback for the rare bus number that isn't in BUS_MODEL_RANGES
+// below (leased/retired/unusual fleet numbers): Silver Line routes (SL1–SL5)
+// mostly run articulated 60-ft buses, every other bus route is treated as a
+// standard 40-ft bus.
 function isSilverLineRoute(routeShortName, routeLongName){
   const s = String(routeShortName || '');
   const l = String(routeLongName || '');
   return /^SL\d/i.test(s) || /silver line/i.test(l);
+}
+
+// Real MBTA bus fleet roster — fleet number ranges mapped to their actual
+// New Flyer model and delivery year, sourced from the MBTA's published
+// vehicle roster (per Wikipedia's "MBTA bus" fleet table, current as of
+// 2026). A bus's fleet number IS its model year/type, same idea as the
+// Green Line car-number ranges above. Numbers outside these ranges (rare —
+// leased coaches, numbers not yet delivered, etc.) fall back to the
+// Silver-Line-route guess in fetchBuses().
+const BUS_MODEL_RANGES = [
+  { start:756,  end:910,  model:'D40LF',   year:'2008' },
+  { start:1200, end:1224, model:'DE60LFR', year:'2010' },
+  { start:1250, end:1293, model:'XDE60',   year:'2016–2017' },
+  { start:1294, end:1294, model:'XDE60',   year:'2018' },
+  { start:1295, end:1299, model:'XE60',    year:'2019' },
+  { start:1300, end:1344, model:'XDE60',   year:'2022–2023' },
+  { start:1400, end:1459, model:'XDE40',   year:'2014–2015' },
+  { start:1600, end:1774, model:'XN40',    year:'2016–2017' },
+  { start:1775, end:1924, model:'XDE40',   year:'2016–2017' },
+  { start:1925, end:2118, model:'XDE40',   year:'2019–2020' },
+  { start:3000, end:3005, model:'XDE40',   year:'2016–2017' },
+  { start:3100, end:3159, model:'XDE40',   year:'2020' },
+  { start:3200, end:3359, model:'XDE40',   year:'2023' },
+  { start:4200, end:4231, model:'XE40',    year:'2024–2026' },
+  { start:4300, end:4387, model:'XE40',    year:'2025–2027' }
+];
+function getBusModelInfo(label){
+  const n = parseInt(String(label), 10);
+  if(Number.isNaN(n)) return null;
+  for(const r of BUS_MODEL_RANGES){
+    if(n >= r.start && n <= r.end) return { model:r.model, year:r.year };
+  }
+  return null;
+}
+// User-facing type text: buses show "2014 XDE40" (delivery year + real
+// model) when we know the specific fleet number's year; everything else
+// (trains, and buses we couldn't match to a fleet range) just shows carType.
+function displayCarType(idLine, c){
+  if(idLine === 'bus' && c.yearBuilt){
+    const firstYear = String(c.yearBuilt).split(/[–-]/)[0];
+    return `${firstYear} ${c.carType}`;
+  }
+  return c.carType;
 }
 
 const CAR_INFO = {
@@ -351,12 +426,22 @@ const CAR_INFO = {
   'Type 4': { builder:'CRRC', year:'2019–2027', seats:'32/38', length:'69\'06"', width:'120"' },
   'CRRC': { builder:'CRRC', year:'2018–2025', seats:'41/44', length:'65\'', width:'111"' },
   'Siemens': { builder:'Siemens', year:'2007–2009', seats:35, length:'48\'06"', width:'111"' },
-  // Bus dimensions/seats are typical specs for the fleet's dominant model
-  // (mostly New Flyer Xcelsior), not read from the live vehicle feed —
-  // MBTA's API doesn't expose a per-vehicle bus model, so this is an
-  // approximation rather than a confirmed reading for any specific bus.
+  // Real New Flyer bus models, matched by fleet number via BUS_MODEL_RANGES
+  // above. `year` here is a generic fallback — fetchBuses() attaches the
+  // specific delivery year for that exact fleet number as `yearBuilt`,
+  // since e.g. XDE40 alone spans six different year bands.
+  'D40LF':    { builder:'New Flyer', year:'2008',      seats:'~38', length:'40\'', width:'102"' },
+  'DE60LFR':  { builder:'New Flyer', year:'2010',      seats:'~57', length:'60\'', width:'102"' },
+  'XDE60':    { builder:'New Flyer', year:'2016–2023', seats:'~57', length:'60\'', width:'102"' },
+  'XE60':     { builder:'New Flyer', year:'2019',      seats:'~55', length:'60\'', width:'102"' },
+  'XDE40':    { builder:'New Flyer', year:'2014–2023', seats:'~39', length:'40\'', width:'102"' },
+  'XN40':     { builder:'New Flyer', year:'2016–2017', seats:'~39', length:'40\'', width:'102"' },
+  'XE40':     { builder:'New Flyer', year:'2024–2027', seats:'~37', length:'40\'', width:'102"' },
+  // Fallback for the rare bus fleet number outside BUS_MODEL_RANGES —
+  // MBTA's live feed doesn't expose a per-vehicle model, so this case is a
+  // route-based approximation rather than a confirmed reading.
   'Standard Bus': { builder:'New Flyer (approx.)', year:'Varies', seats:'~38', length:'40\'', width:'102"' },
-  'Articulated Bus': { builder:'New Flyer (approx.)', year:'Varies', seats:'~57', length:'60\'09"', width:'102"' },
+  'Articulated Bus': { builder:'New Flyer (approx.)', year:'Varies', seats:'~57', length:'60\'', width:'102"' },
   'Unknown': { builder:'Unknown', year:'Unknown', seats:null, length:null, width:null }
 };
 
@@ -382,9 +467,11 @@ const RARITY_META = {
 function getRarity(idLine, carType, isPride){
   if(isPride) return 'legendary';
   if(carType === 'PCC') return 'ultra';
+  if(carType === 'XE60') return 'legendary'; // only 5 ever built — the rarest bus in the fleet
   if((idLine === 'green' && carType === 'Type 10') || (idLine === 'red' && carType === 'Type 4')) return 'rare';
+  if(carType === 'D40LF' || carType === 'DE60LFR' || carType === 'XE40') return 'rare';
   if((idLine === 'green' && carType === 'Type 7') || (idLine === 'red' && carType === 'Type 1')) return 'uncommon';
-  if(idLine === 'bus' && carType === 'Articulated Bus') return 'uncommon';
+  if(carType === 'XDE60' || carType === 'Articulated Bus') return 'uncommon';
   return 'common';
 }
 
@@ -401,8 +488,13 @@ const DEX = [
   { key:'red-Type 4',    idLine:'red',    carType:'Type 4',  name:'Red Type 4',      pride:false },
   { key:'orange-CRRC',   idLine:'orange', carType:'CRRC',    name:'Orange CRRC',     pride:false },
   { key:'blue-Siemens',  idLine:'blue',   carType:'Siemens', name:'Blue Siemens',    pride:false },
-  { key:'bus-Standard',  idLine:'bus',    carType:'Standard Bus',    name:'Standard Bus',    pride:false },
-  { key:'bus-Articulated', idLine:'bus',  carType:'Articulated Bus', name:'Articulated Bus', pride:false }
+  { key:'bus-D40LF',     idLine:'bus',    carType:'D40LF',    name:'New Flyer D40LF',   pride:false },
+  { key:'bus-DE60LFR',   idLine:'bus',    carType:'DE60LFR',  name:'New Flyer DE60LFR', pride:false },
+  { key:'bus-XDE60',     idLine:'bus',    carType:'XDE60',    name:'New Flyer XDE60',   pride:false },
+  { key:'bus-XE60',      idLine:'bus',    carType:'XE60',     name:'New Flyer XE60',    pride:false },
+  { key:'bus-XDE40',     idLine:'bus',    carType:'XDE40',    name:'New Flyer XDE40',   pride:false },
+  { key:'bus-XN40',      idLine:'bus',    carType:'XN40',     name:'New Flyer XN40',    pride:false },
+  { key:'bus-XE40',      idLine:'bus',    carType:'XE40',     name:'New Flyer XE40',    pride:false }
 ];
 
 /* ============================================================
@@ -571,7 +663,10 @@ let leafletMap = null, userMarker = null, radiusCircle = null;
 let trainMarkers = {};
 function ensureMap(){
   if(!leafletMap){
-    leafletMap = L.map('leafletMap', { zoomControl:true }).setView([42.3601, -71.0589], 12);
+    // zoomControl sits top-right — the status banner + focus card float
+    // top-left over the map, so keep the two apart.
+    leafletMap = L.map('leafletMap', { zoomControl:false }).setView([42.3601, -71.0589], 12);
+    L.control.zoom({ position:'topright' }).addTo(leafletMap);
     L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
       subdomains: 'abcd',
       maxZoom: 20,
@@ -580,6 +675,19 @@ function ensureMap(){
   }
   setTimeout(() => { if(leafletMap) leafletMap.invalidateSize(); }, 60);
 }
+document.getElementById('nearbyToggle').addEventListener('click', () => {
+  document.getElementById('nearbySheet').classList.toggle('expanded');
+});
+// The map is sized off the viewport (calc(100dvh - ...)), so a window
+// resize (rotating a phone, resizing a browser window) needs to tell
+// Leaflet its container changed size, or markers drift out of place —
+// same class of bug as the earlier position fix, just from a resize
+// instead of a CSS specificity clash.
+let mapResizeTimer = null;
+window.addEventListener('resize', () => {
+  clearTimeout(mapResizeTimer);
+  mapResizeTimer = setTimeout(() => { if(leafletMap) leafletMap.invalidateSize(); }, 150);
+});
 document.getElementById('mapRecenterBtn').addEventListener('click', () => {
   if(leafletMap && state.position) leafletMap.setView([state.position.lat, state.position.lon], 15);
 });
@@ -697,8 +805,10 @@ async function fetchBuses(){
     const stopName = stopRel ? (included['stop:' + stopRel.id] || {}).name : null;
     const label = String(v.attributes.label || v.id);
     const silverLine = isSilverLineRoute(routeInfo.short_name, routeInfo.long_name);
-    const carType = silverLine ? 'Articulated Bus' : 'Standard Bus';
-    const cars = [{ label, carType, isPride:false, rarity: getRarity('bus', carType, false) }];
+    const modelInfo = getBusModelInfo(label);
+    const carType = modelInfo ? modelInfo.model : (silverLine ? 'Articulated Bus' : 'Standard Bus');
+    const yearBuilt = modelInfo ? modelInfo.year : null;
+    const cars = [{ label, carType, yearBuilt, isPride:false, rarity: getRarity('bus', carType, false) }];
     return {
       id: v.id,
       idLine: 'bus', displayLine: silverLine ? 'silverline' : 'bus', branch: null,
@@ -821,7 +931,7 @@ function renderFocusCard(t){
       ${alreadyCaught ? '<span class="focus-caught-tag">In collection</span>' : '<span class="focus-new-tag">NEW</span>'}
     </div>
     <div class="focus-title">${car.isPride ? '🌈 ' : ''}Car ${car.label}</div>
-    <div class="focus-subtitle">${car.carType} · <span class="rarity-pill" style="color:${rarity.color};background:color-mix(in srgb, ${rarity.color} 16%, transparent);">${rarity.label}</span></div>
+    <div class="focus-subtitle">${displayCarType(t.idLine, car)} · <span class="rarity-pill" style="color:${rarity.color};background:color-mix(in srgb, ${rarity.color} 16%, transparent);">${rarity.label}</span></div>
     <div class="focus-meta-row">
       <span class="focus-dist ${inRange ? 'close' : ''}">${state.position ? formatDistance(t.dist) : '—'} away</span>
       <span class="focus-status">${(STATUS_LABELS[t.status] || 'Near')}${t.stopName ? ' ' + t.stopName : ''}</span>
@@ -839,6 +949,7 @@ function renderFocusCard(t){
 
 function renderNearbyList(withDist){
   const list = document.getElementById('spotList');
+  document.getElementById('nearbyCount').textContent = withDist.length ? ` (${withDist.length})` : '';
   if(!withDist.length){
     list.innerHTML = `<div class="empty-state"><span class="big">🚇</span>No live vehicles right now.</div>`;
     return;
@@ -868,6 +979,15 @@ function renderNearbyList(withDist){
   });
 }
 
+// Minimum gap between two catches of the same physical vehicle — stops
+// someone from tapping Catch repeatedly on a bus that's just sitting there.
+const RECAPTURE_COOLDOWN_MS = 10 * 60 * 1000; // 10 minutes
+function msUntilRecapturable(cardId){
+  const existing = state.cards[cardId];
+  if(!existing || !existing.lastCapturedAt || typeof existing.lastCapturedAt.toMillis !== 'function') return 0;
+  const elapsed = Date.now() - existing.lastCapturedAt.toMillis();
+  return Math.max(0, RECAPTURE_COOLDOWN_MS - elapsed);
+}
 function renderCatchBar(t, car){
   const btn = document.getElementById('catchBtn');
   if(!t || !car){
@@ -884,6 +1004,14 @@ function renderCatchBar(t, car){
     btn.onclick = null;
     return;
   }
+  const cooldownMs = msUntilRecapturable(cardId);
+  if(cooldownMs > 0){
+    btn.disabled = true;
+    const minsLeft = Math.ceil(cooldownMs / 60000);
+    btn.textContent = `Caught — try again in ${minsLeft}m`;
+    btn.onclick = null;
+    return;
+  }
   if(!inRange){
     btn.disabled = true;
     btn.textContent = state.position ? `Get closer — ${formatDistance(t.dist)} away` : 'Waiting for your location…';
@@ -891,7 +1019,7 @@ function renderCatchBar(t, car){
     return;
   }
   btn.disabled = false;
-  btn.textContent = state.cards[cardId] ? `Catch car ${car.label} again` : `Catch car ${car.label}`;
+  btn.textContent = `Catch ${car.label}`;
   btn.onclick = () => captureCarNow(t, car);
 }
 
@@ -902,6 +1030,10 @@ async function captureCarNow(t, car){
   if(!state.user || !firebaseReady) return;
   const cardId = cardIdFor(t.idLine, car.label);
   if(state.capturing[cardId]) return;
+  if(msUntilRecapturable(cardId) > 0){
+    showToast('⏳', `${car.label} was just caught — give it a few minutes`);
+    return;
+  }
   state.capturing[cardId] = true;
   renderCatchBar(t, car);
   try{
@@ -914,6 +1046,7 @@ async function captureCarNow(t, car){
       branch: t.branch,
       label: car.label,
       carType: car.carType,
+      yearBuilt: car.yearBuilt || null,
       isPride: car.isPride,
       rarity: car.rarity,
       lastCapturedAt: nowFieldValue,
@@ -935,7 +1068,7 @@ async function captureCarNow(t, car){
         captureCount: 1
       }));
       const rarity = RARITY_META[car.rarity];
-      showToast('🎉', `New card! ${car.carType} car ${car.label} — ${rarity.label}`);
+      showToast('🎉', `New card! ${displayCarType(t.idLine, car)} car ${car.label} — ${rarity.label}`);
     }
     await loadCollection();
   } catch(e){
@@ -1020,7 +1153,7 @@ function renderCollection(){
           </div>
           <span class="rarity-pill" style="color:${rarity.color};background:color-mix(in srgb, ${rarity.color} 16%, transparent);">${rarity.label}</span>
         </div>
-        <div class="tcard-type">${c.isPride ? '🌈 Pride Train · ' : ''}${c.carType}</div>
+        <div class="tcard-type">${c.isPride ? '🌈 Pride Train · ' : ''}${displayCarType(c.idLine, c)}</div>
         <div class="tcard-foot">
           <span>${c.captureCount || 1}&times; seen</span>
           <span>${c.lastStopName ? 'near ' + c.lastStopName : ''}</span>
@@ -1046,11 +1179,11 @@ function openCardModal(id){
       <div class="modal-sheet">
         <span class="modal-rarity-badge" style="color:${rarity.color};background:color-mix(in srgb, ${rarity.color} 16%, transparent);">${rarity.label}</span>
         <h2 style="font-size:24px;">${meta.label} — Car ${c.label}</h2>
-        <div style="color:var(--text-dim);font-size:13px;margin-top:3px;">${c.isPride ? '🌈 The Pride Train' : c.carType}</div>
+        <div style="color:var(--text-dim);font-size:13px;margin-top:3px;">${c.isPride ? '🌈 The Pride Train' : displayCarType(c.idLine, c)}</div>
         <div style="margin-top:14px;">
           <div class="detail-row"><span class="k">Car type</span><span class="v">${c.carType}</span></div>
           <div class="detail-row"><span class="k">Builder</span><span class="v">${info.builder}</span></div>
-          <div class="detail-row"><span class="k">Built</span><span class="v">${info.year}</span></div>
+          <div class="detail-row"><span class="k">Built</span><span class="v">${c.yearBuilt || info.year}</span></div>
           <div class="detail-row"><span class="k">Length</span><span class="v">${info.length ?? '—'}</span></div>
           <div class="detail-row"><span class="k">Width</span><span class="v">${info.width ?? '—'}</span></div>
           <div class="detail-row"><span class="k">Seats</span><span class="v">${info.seats ?? '—'}</span></div>
