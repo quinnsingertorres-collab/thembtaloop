@@ -1414,6 +1414,10 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
     </button>
     <div class="menu-dropdown" id="menuDropdown">
+      <a class="menu-link" href="/play" style="text-decoration:none;color:inherit;">
+        <span>Play &mdash; catch trains</span>
+        <span class="menu-link-arrow">&rsaquo;</span>
+      </a>
       <div class="menu-link" data-navto="SETTINGS">
         <span>Settings</span>
         <span class="menu-link-arrow">&rsaquo;</span>
@@ -3069,6 +3073,17 @@ let stopArrivalTracker = {};
          allow read: if request.auth != null;
          allow write: if request.auth.uid == uid
            || exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+       }
+       // Play (the /play train-catching game) — each signed-in user's
+       // captured-vehicle card collection. Kept private to its owner (unlike
+       // users/{uid} above, which is readable by any signed-in visitor for
+       // the Points leaderboard) since there's no trading/leaderboard for
+       // cards yet. cardId is `${idLine}_${carLabel}` (e.g. "green_3706"),
+       // so recapturing the same physical car updates the existing doc
+       // (captureCount increments) instead of creating a duplicate.
+       match /users/{uid}/cards/{cardId} {
+         allow read: if request.auth != null && request.auth.uid == uid;
+         allow write: if request.auth != null && request.auth.uid == uid;
        }
        match /admins/{uid} {
          allow read: if request.auth != null;

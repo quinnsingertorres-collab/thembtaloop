@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Play — In the Loop</title>
+<meta name="description" content="Spot real MBTA vehicles near you and collect them as cards. A companion game to In the Loop, the MBTA subway tracker.">
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+<meta name="theme-color" content="#0B1420">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Play — In the Loop">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+
+:root{
+  --bg:#0B1420;
+  --panel:#101D2F;
+  --panel-2:#152540;
+  --text:#F0F4F2;
+  --text-dim:#A9BAB2;
+  --text-faint:#6E8177;
+  --accent:#146C43;
+  --border:rgba(255,255,255,0.08);
+  --common:#94A3B8;
+  --uncommon:#34D399;
+  --rare:#60A5FA;
+  --ultra:#C084FC;
+  --legendary:#FFD34D;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:'IBM Plex Sans',sans-serif;-webkit-font-smoothing:antialiased;overscroll-behavior-y:none;}
+body{min-height:100vh;padding-bottom:36px;}
+h1,h2,h3{font-family:'Space Grotesk',sans-serif;margin:0;}
+button{font-family:inherit;}
+a{color:inherit;}
+
+/* ---------- header ---------- */
+.topbar{position:sticky;top:0;z-index:20;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 16px;background:rgba(11,20,32,0.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--border);}
+.topbar-left{display:flex;align-items:center;gap:10px;min-width:0;}
+.back-link{display:flex;align-items:center;gap:5px;color:var(--text-dim);text-decoration:none;font-size:13px;font-family:'Space Grotesk',sans-serif;font-weight:600;flex-shrink:0;padding:6px 8px;margin:-6px -8px;border-radius:8px;}
+.back-link:active{background:var(--panel-2);}
+.topbar-title{font-size:17px;font-weight:700;letter-spacing:-0.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.topbar-title .emoji{margin-right:5px;}
+.auth-area{display:flex;align-items:center;gap:8px;flex-shrink:0;}
+.google-btn{display:flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:50%;border:1px solid var(--border);background:var(--panel);color:var(--text-dim);cursor:pointer;}
+.user-chip{display:flex;align-items:center;gap:7px;background:var(--panel);border:1px solid var(--border);border-radius:20px;padding:4px 10px 4px 4px;cursor:pointer;font-size:12.5px;color:var(--text-dim);}
+.user-chip img{width:22px;height:22px;border-radius:50%;display:block;}
+.user-chip-fallback{width:22px;height:22px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;}
+
+/* ---------- tabs ---------- */
+.tabs{display:flex;gap:6px;padding:12px 16px 0;}
+.tab-btn{flex:1;padding:10px 8px;border-radius:12px;border:1px solid var(--border);background:var(--panel);color:var(--text-dim);font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13.5px;cursor:pointer;text-align:center;}
+.tab-btn.active{background:var(--accent);color:#fff;border-color:var(--accent);}
+.tab-count{opacity:0.75;font-weight:500;margin-left:3px;}
+
+.page{max-width:640px;margin:0 auto;padding:0 16px;}
+
+/* ---------- intro / gate ---------- */
+.intro-card{margin:18px 0;background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:20px;}
+.intro-card h2{font-size:19px;margin-bottom:8px;}
+.intro-card p{color:var(--text-dim);font-size:14px;line-height:1.55;margin:0 0 10px;}
+.intro-card ul{margin:10px 0 14px;padding-left:20px;color:var(--text-dim);font-size:13.5px;line-height:1.6;}
+.intro-tip{display:flex;gap:9px;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:10px;padding:10px 12px;font-size:12.5px;color:var(--text-faint);line-height:1.5;margin-top:12px;}
+.primary-btn{display:flex;align-items:center;justify-content:center;gap:9px;width:100%;padding:13px;border-radius:12px;border:none;background:var(--accent);color:#fff;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:14.5px;cursor:pointer;margin-top:4px;}
+.primary-btn:disabled{opacity:0.55;}
+.ghost-btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:11px;border-radius:12px;border:1px solid var(--border);background:transparent;color:var(--text-dim);font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:13.5px;cursor:pointer;margin-top:8px;}
+
+/* ---------- status banner ---------- */
+.status-banner{display:flex;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:11px 13px;margin:14px 0 4px;font-size:13px;color:var(--text-dim);}
+.status-dot{width:8px;height:8px;border-radius:50%;background:var(--text-faint);flex-shrink:0;}
+.status-dot.live{background:#34D399;box-shadow:0 0 8px rgba(52,211,153,0.7);}
+.status-banner b{color:var(--text);}
+
+/* ---------- spot list ---------- */
+.spot-list{display:flex;flex-direction:column;gap:10px;margin:14px 0 24px;}
+.spot-card{display:flex;align-items:center;gap:12px;background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:12px;}
+.spot-card.in-range{border-color:rgba(52,211,153,0.55);box-shadow:0 0 0 1px rgba(52,211,153,0.15) inset;}
+.spot-line-bar{width:5px;align-self:stretch;border-radius:4px;flex-shrink:0;}
+.spot-main{flex:1;min-width:0;}
+.spot-top{display:flex;align-items:baseline;gap:7px;flex-wrap:wrap;}
+.spot-carnum{font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:15px;}
+.spot-line-label{font-size:11.5px;color:var(--text-faint);}
+.spot-sub{font-size:12.5px;color:var(--text-dim);margin-top:2px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;}
+.rarity-pill{display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:700;font-family:'Space Grotesk',sans-serif;padding:2px 7px;border-radius:20px;letter-spacing:0.02em;text-transform:uppercase;}
+.spot-dist{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--text-faint);white-space:nowrap;}
+.spot-dist.close{color:#34D399;font-weight:600;}
+.capture-btn{flex-shrink:0;padding:9px 14px;border-radius:10px;border:none;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:12.5px;cursor:pointer;background:var(--accent);color:#fff;}
+.capture-btn:disabled{background:transparent;border:1px solid var(--border);color:var(--text-faint);cursor:default;}
+.capture-btn.caught{background:transparent;border:1px solid var(--border);color:var(--text-faint);}
+
+.empty-state{text-align:center;padding:36px 16px;color:var(--text-faint);font-size:13.5px;line-height:1.6;}
+.empty-state .big{font-size:30px;display:block;margin-bottom:8px;}
+
+/* ---------- collection ---------- */
+.dex-strip{display:flex;overflow-x:auto;gap:8px;padding:14px 0 6px;-ms-overflow-style:none;scrollbar-width:none;}
+.dex-strip::-webkit-scrollbar{display:none;}
+.dex-chip{flex-shrink:0;width:64px;text-align:center;}
+.dex-swatch{width:48px;height:48px;border-radius:12px;margin:0 auto 5px;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:800;font-family:'Space Grotesk',sans-serif;border:1.5px solid var(--border);color:var(--text-faint);background:var(--panel);}
+.dex-swatch.unlocked{color:#fff;}
+.dex-name{font-size:9.5px;color:var(--text-faint);line-height:1.25;}
+
+.collection-stats{display:flex;gap:10px;margin:8px 0 4px;}
+.stat-box{flex:1;background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:10px 12px;}
+.stat-box .num{font-family:'Space Grotesk',sans-serif;font-weight:800;font-size:19px;}
+.stat-box .lbl{font-size:11px;color:var(--text-faint);margin-top:1px;}
+
+.card-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin:16px 0 28px;}
+.tcard{position:relative;border-radius:16px;padding:1px;cursor:pointer;background:linear-gradient(160deg, var(--tint,#2a3444), transparent 60%);}
+.tcard-inner{background:var(--panel);border-radius:15px;padding:12px 12px 11px;height:100%;display:flex;flex-direction:column;gap:7px;}
+.tcard-head{display:flex;justify-content:space-between;align-items:flex-start;}
+.tcard-line{font-size:10px;color:var(--text-faint);font-weight:600;text-transform:uppercase;letter-spacing:0.03em;}
+.tcard-num{font-family:'IBM Plex Mono',monospace;font-weight:700;font-size:17px;margin-top:1px;}
+.tcard-type{font-size:12px;color:var(--text-dim);margin-top:3px;}
+.tcard-foot{display:flex;justify-content:space-between;align-items:center;margin-top:auto;padding-top:6px;border-top:1px solid var(--border);font-size:10.5px;color:var(--text-faint);}
+
+/* ---------- rarity color helpers, applied via inline style var --------- */
+.r-common{--rc:var(--common);}
+.r-uncommon{--rc:var(--uncommon);}
+.r-rare{--rc:var(--rare);}
+.r-ultra{--rc:var(--ultra);}
+.r-legendary{--rc:var(--legendary);}
+
+/* ---------- modal ---------- */
+.modal-backdrop{position:fixed;inset:0;background:rgba(4,8,13,0.72);display:flex;align-items:flex-end;justify-content:center;z-index:50;}
+.modal-sheet{width:100%;max-width:460px;background:var(--panel);border-radius:20px 20px 0 0;padding:22px 20px 28px;max-height:82vh;overflow-y:auto;}
+.modal-close{width:100%;text-align:center;color:var(--text-faint);font-size:12.5px;margin-top:16px;cursor:pointer;}
+.modal-rarity-badge{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;font-family:'Space Grotesk',sans-serif;padding:3px 10px;border-radius:20px;text-transform:uppercase;letter-spacing:0.03em;margin-bottom:10px;}
+.detail-row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px;}
+.detail-row:last-child{border-bottom:none;}
+.detail-row .k{color:var(--text-faint);}
+.detail-row .v{color:var(--text);font-weight:500;text-align:right;max-width:60%;}
+
+/* ---------- toast ---------- */
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--panel-2);border:1px solid var(--border);border-radius:14px;padding:12px 18px;display:flex;align-items:center;gap:10px;box-shadow:0 8px 30px rgba(0,0,0,0.4);z-index:60;font-size:13.5px;max-width:90vw;}
+.toast .big{font-size:20px;}
+.spinner{width:16px;height:16px;border-radius:50%;border:2px solid rgba(255,255,255,0.25);border-top-color:#fff;animation:spin 0.7s linear infinite;flex-shrink:0;}
+@keyframes spin{to{transform:rotate(360deg);}}
+
+.hidden{display:none !important;}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-left">
+    <a class="back-link" href="/">&lsaquo; In the Loop</a>
+  </div>
+  <div class="topbar-title"><span class="emoji">🚋</span>Play</div>
+  <div class="auth-area" id="authArea">
+    <button class="google-btn" id="signInBtn" title="Sign in with Google">
+      <svg viewBox="0 0 24 24" width="17" height="17" fill="none"><circle cx="12" cy="8" r="4" stroke="currentColor" stroke-width="2"/><path d="M4 20c0-4.4 3.6-7 8-7s8 2.6 8 7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    </button>
+    <div class="user-chip hidden" id="userChip"></div>
+  </div>
+</div>
+
+<div class="page">
+
+  <!-- Signed-out intro -->
+  <div id="introGate" class="intro-card hidden">
+    <h2>Catch real MBTA vehicles</h2>
+    <p>Play works like a field guide: get near a real Green, Red, Orange, or Blue Line train (or the Mattapan Line), and capture it as a card for your collection — real car number, real car type, real rarity.</p>
+    <ul>
+      <li>Sign in to save your collection across devices</li>
+      <li>Allow location — you have to actually be near a vehicle to catch it</li>
+      <li>Rarer, older, and one-of-a-kind cars are worth more</li>
+    </ul>
+    <button class="primary-btn" id="introSignInBtn">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none"><circle cx="12" cy="8" r="4" stroke="currentColor" stroke-width="2"/><path d="M4 20c0-4.4 3.6-7 8-7s8 2.6 8 7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      Sign in with Google to play
+    </button>
+    <div class="intro-tip">📡 GPS is weakest underground — capturing works best above ground, at outdoor stations, or on the surface branches (Green B/C/D/E, Mattapan, and the outdoor ends of Red/Orange/Blue).</div>
+  </div>
+
+  <!-- Signed-in app -->
+  <div id="appRoot" class="hidden">
+
+    <div class="tabs">
+      <button class="tab-btn active" id="spotTabBtn" data-tab="spot">Spot</button>
+      <button class="tab-btn" id="collectionTabBtn" data-tab="collection">Collection <span class="tab-count" id="collectionCount"></span></button>
+    </div>
+
+    <!-- SPOT TAB -->
+    <div id="spotTab">
+      <div class="status-banner" id="locBanner">
+        <div class="status-dot" id="locDot"></div>
+        <div id="locBannerText">Requesting location…</div>
+      </div>
+      <div class="status-banner hidden" id="locDeniedBanner">
+        <div class="status-dot"></div>
+        <div style="flex:1;">Location access is off, so distances can't be shown. <span style="text-decoration:underline;cursor:pointer;" id="retryLocBtn">Try again</span></div>
+      </div>
+
+      <div id="spotList" class="spot-list"></div>
+    </div>
+
+    <!-- COLLECTION TAB -->
+    <div id="collectionTab" class="hidden">
+      <div class="dex-strip" id="dexStrip"></div>
+      <div class="collection-stats">
+        <div class="stat-box"><div class="num" id="statCars">0</div><div class="lbl">cars caught</div></div>
+        <div class="stat-box"><div class="num" id="statSpecies">0/12</div><div class="lbl">species</div></div>
+        <div class="stat-box"><div class="num" id="statCatches">0</div><div class="lbl">total catches</div></div>
+      </div>
+      <div id="collectionEmpty" class="empty-state hidden">
+        <span class="big">🃏</span>
+        No cards yet — head to the Spot tab and get close to a real MBTA vehicle.
+      </div>
+      <div class="card-grid" id="cardGrid"></div>
+    </div>
+
+  </div>
+</div>
+
+<div id="modalRoot"></div>
+<div id="toastRoot"></div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+/* ============================================================
+   Firebase — same project as the main In the Loop app
+   ============================================================ */
+const FIREBASE_CONFIG = {
+  apiKey: 'AIzaSyANU0lbRMitHGm0_5D29KWqbR3RKYfW8Zk',
+  authDomain: 'auth.thembtaloop.com',
+  projectId: 'green-o',
+  storageBucket: 'green-o.firebasestorage.app',
+  messagingSenderId: '1017947498804'
+};
+let fbAuth = null, fbDb = null, firebaseReady = false;
+try{
+  firebase.initializeApp(FIREBASE_CONFIG);
+  fbAuth = firebase.auth();
+  fbDb = firebase.firestore();
+  firebaseReady = true;
+}catch(e){ console.warn('Firebase init failed', e); }
+
+/* ============================================================
+   MBTA vehicle fetching + car-type / rarity detection
+   (mirrors the logic in the main app's index.html so cards match
+   the same car numbers, types, and roster the tracker itself uses)
+   ============================================================ */
+const MBTA_API_KEY = '7171c5e6f11c447bb3591c1fc1f3b5a9';
+const MBTA_HEADERS = { 'Accept':'application/vnd.api+json' };
+function withMbtaKey(url){
+  return url + (url.includes('?') ? '&' : '?') + 'api_key=' + MBTA_API_KEY;
+}
+
+const CAR_TYPE_RANGES = [
+  { type:'Type 7', start:3600, end:3719 },
+  { type:'Type 8', start:3800, end:3899 },
+  { type:'Type 9', start:3900, end:3923 },
+  { type:'Type 10', start:4001, end:4102 }
+];
+const PCC_CAR_NUMBERS = new Set(['3087','3230','3234','3238','3254','3260','3262','3263','3265','3268']);
+const PRIDE_CAR_NUMBER = '3706';
+function getGreenCarType(labelStr){
+  const str = String(labelStr);
+  if(PCC_CAR_NUMBERS.has(str)) return 'PCC';
+  const n = parseInt(str, 10);
+  if(Number.isNaN(n)) return 'Unknown';
+  for(const r of CAR_TYPE_RANGES){ if(n >= r.start && n <= r.end) return r.type; }
+  return 'Unknown';
+}
+function getRedCarType(label){
+  const n = parseInt(String(label).split(/[^0-9]+/).filter(Boolean)[0], 10);
+  if(isNaN(n)) return 'Unknown';
+  if(n >= 1500 && n <= 1699) return 'Type 1';
+  if(n >= 1700 && n <= 1799) return 'Type 2';
+  if(n >= 1800 && n <= 1899) return 'Type 3';
+  if(n >= 1900 && n <= 1999) return 'Type 4';
+  return 'Unknown';
+}
+function getOrangeCarType(label){
+  const n = parseInt(String(label).split(/[^0-9]+/).filter(Boolean)[0], 10);
+  if(isNaN(n)) return 'Unknown';
+  if(n >= 1400 && n <= 1599) return 'CRRC';
+  return 'Unknown';
+}
+function getBlueCarType(label){
+  const n = parseInt(String(label).split(/[^0-9]+/).filter(Boolean)[0], 10);
+  if(isNaN(n)) return 'Unknown';
+  if(n >= 700 && n <= 799) return 'Siemens';
+  return 'Unknown';
+}
+
+const CAR_INFO = {
+  'Type 7': { builder:'Kinki Sharyo', year:'1986–1997', seats:46 },
+  'Type 8': { builder:'AnsaldoBreda', year:'1998–2007', seats:44 },
+  'Type 9': { builder:'CAF USA', year:'2018–2020', seats:44 },
+  'Type 10': { builder:'CAF USA', year:'2026–2031', seats:60 },
+  'PCC': { builder:'Pullman-Standard / St. Louis Car Co.', year:'1945–1946', seats:38 },
+  'Type 1': { builder:'Pullman-Standard', year:'1969–1970', seats:63 },
+  'Type 2': { builder:'UTDC', year:'1987–1989', seats:62 },
+  'Type 3': { builder:'Bombardier', year:'1993–1994', seats:50 },
+  'Type 4': { builder:'CRRC', year:'2019–2027', seats:'32/38' },
+  'CRRC': { builder:'CRRC', year:'2018–2025', seats:'41/44' },
+  'Siemens': { builder:'Siemens', year:'2007–2009', seats:35 },
+  'Unknown': { builder:'Unknown', year:'Unknown', seats:null }
+};
+
+const LINE_META = {
+  green:    { label:'Green Line',    color:'#00843D' },
+  mattapan: { label:'Mattapan Line', color:'#EA580C' },
+  red:      { label:'Red Line',      color:'#FA2D27' },
+  orange:   { label:'Orange Line',   color:'#ED8B00' },
+  blue:     { label:'Blue Line',     color:'#003DA5' }
+};
+const BRANCH_COLOR = { B:'#ED7093', C:'#7CE094', D:'#F9DE51', E:'#6FE9FC' };
+
+const RARITY_META = {
+  legendary: { label:'Legendary', order:4, color:'var(--legendary)' },
+  ultra:     { label:'Ultra Rare', order:3, color:'var(--ultra)' },
+  rare:      { label:'Rare',       order:2, color:'var(--rare)' },
+  uncommon:  { label:'Uncommon',   order:1, color:'var(--uncommon)' },
+  common:    { label:'Common',     order:0, color:'var(--common)' }
+};
+function getRarity(idLine, carType, isPride){
+  if(isPride) return 'legendary';
+  if(carType === 'PCC') return 'ultra';
+  if((idLine === 'green' && carType === 'Type 10') || (idLine === 'red' && carType === 'Type 4')) return 'rare';
+  if((idLine === 'green' && carType === 'Type 7') || (idLine === 'red' && carType === 'Type 1')) return 'uncommon';
+  return 'common';
+}
+
+const DEX = [
+  { key:'green-Type 7',  idLine:'green',  carType:'Type 7',  name:'Type 7 LRV',      pride:false },
+  { key:'green-Type 8',  idLine:'green',  carType:'Type 8',  name:'Type 8 LRV',      pride:false },
+  { key:'green-Type 9',  idLine:'green',  carType:'Type 9',  name:'Type 9 LRV',      pride:false },
+  { key:'green-Type 10', idLine:'green',  carType:'Type 10', name:'Type 10 LRV',     pride:false },
+  { key:'green-PCC',     idLine:'green',  carType:'PCC',     name:'PCC Streetcar',   pride:false },
+  { key:'green-Pride',   idLine:'green',  carType:'Type 7',  name:'Pride Train',     pride:true },
+  { key:'red-Type 1',    idLine:'red',    carType:'Type 1',  name:'Red Type 1',      pride:false },
+  { key:'red-Type 2',    idLine:'red',    carType:'Type 2',  name:'Red Type 2',      pride:false },
+  { key:'red-Type 3',    idLine:'red',    carType:'Type 3',  name:'Red Type 3',      pride:false },
+  { key:'red-Type 4',    idLine:'red',    carType:'Type 4',  name:'Red Type 4',      pride:false },
+  { key:'orange-CRRC',   idLine:'orange', carType:'CRRC',    name:'Orange CRRC',     pride:false },
+  { key:'blue-Siemens',  idLine:'blue',   carType:'Siemens', name:'Blue Siemens',    pride:false }
+];
+
+/* ============================================================
+   Distance
+   ============================================================ */
+function haversineMeters(lat1, lon1, lat2, lon2){
+  const R = 6371000;
+  const toRad = d => d * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+function formatDistance(m){
+  if(m == null) return '—';
+  if(m < 1000) return Math.round(m) + 'm';
+  return (m/1000).toFixed(1) + 'km';
+}
+const CAPTURE_RADIUS_M = 500;
+
+/* ============================================================
+   State
+   ============================================================ */
+const state = {
+  user: null,
+  position: null,
+  posError: null,
+  vehicles: [],
+  cards: {},           // cardId -> card doc data
+  cardsLoaded: false,
+  activeTab: 'spot',
+  capturing: {}         // cardId -> true while a capture write is in flight
+};
+
+/* ============================================================
+   Auth
+   ============================================================ */
+function beginSignIn(){
+  if(!firebaseReady) return;
+  const provider = new firebase.auth.GoogleAuthProvider();
+  fbAuth.signInWithPopup(provider).catch(e => showToast('⚠️', 'Sign-in failed — try again'));
+}
+document.getElementById('signInBtn').addEventListener('click', beginSignIn);
+document.getElementById('introSignInBtn').addEventListener('click', beginSignIn);
+
+if(firebaseReady){
+  fbAuth.onAuthStateChanged(user => {
+    state.user = user;
+    renderAuthUI();
+    if(user){
+      document.getElementById('introGate').classList.add('hidden');
+      document.getElementById('appRoot').classList.remove('hidden');
+      startLocation();
+      startVehiclePolling();
+      loadCollection();
+    } else {
+      document.getElementById('introGate').classList.remove('hidden');
+      document.getElementById('appRoot').classList.add('hidden');
+    }
+  });
+} else {
+  document.getElementById('introGate').classList.remove('hidden');
+}
+
+function renderAuthUI(){
+  const chip = document.getElementById('userChip');
+  const signInBtn = document.getElementById('signInBtn');
+  if(state.user){
+    signInBtn.classList.add('hidden');
+    chip.classList.remove('hidden');
+    const photo = state.user.photoURL;
+    const initial = (state.user.displayName || state.user.email || '?').charAt(0).toUpperCase();
+    chip.innerHTML = (photo ? `<img src="${photo}" alt="">` : `<div class="user-chip-fallback">${initial}</div>`) +
+      `<span>${(state.user.displayName || 'Signed in').split(' ')[0]}</span>`;
+    chip.onclick = () => { if(confirm('Sign out of Play?')) fbAuth.signOut(); };
+  } else {
+    signInBtn.classList.remove('hidden');
+    chip.classList.add('hidden');
+  }
+}
+
+/* ============================================================
+   Tabs
+   ============================================================ */
+document.getElementById('spotTabBtn').addEventListener('click', () => setTab('spot'));
+document.getElementById('collectionTabBtn').addEventListener('click', () => setTab('collection'));
+function setTab(tab){
+  state.activeTab = tab;
+  document.getElementById('spotTabBtn').classList.toggle('active', tab === 'spot');
+  document.getElementById('collectionTabBtn').classList.toggle('active', tab === 'collection');
+  document.getElementById('spotTab').classList.toggle('hidden', tab !== 'spot');
+  document.getElementById('collectionTab').classList.toggle('hidden', tab !== 'collection');
+  if(tab === 'collection') renderCollection();
+}
+
+/* ============================================================
+   Geolocation
+   ============================================================ */
+let watchId = null;
+function startLocation(){
+  if(!('geolocation' in navigator)){
+    state.posError = 'unsupported';
+    renderLocBanner();
+    return;
+  }
+  if(watchId != null) return;
+  watchId = navigator.geolocation.watchPosition(
+    pos => {
+      state.position = { lat: pos.coords.latitude, lon: pos.coords.longitude, accuracy: pos.coords.accuracy };
+      state.posError = null;
+      renderLocBanner();
+      renderSpotList();
+    },
+    err => {
+      state.posError = err.code === 1 ? 'denied' : 'unavailable';
+      renderLocBanner();
+      renderSpotList();
+    },
+    { enableHighAccuracy:true, maximumAge:8000, timeout:15000 }
+  );
+}
+document.getElementById('retryLocBtn').addEventListener('click', () => {
+  watchId = null;
+  startLocation();
+});
+function renderLocBanner(){
+  const banner = document.getElementById('locBanner');
+  const denied = document.getElementById('locDeniedBanner');
+  const dot = document.getElementById('locDot');
+  const text = document.getElementById('locBannerText');
+  if(state.posError === 'denied' || state.posError === 'unsupported'){
+    banner.classList.add('hidden');
+    denied.classList.remove('hidden');
+    return;
+  }
+  denied.classList.add('hidden');
+  banner.classList.remove('hidden');
+  if(state.position){
+    dot.classList.add('live');
+    const acc = Math.round(state.position.accuracy || 0);
+    text.innerHTML = `<b>Location on</b> — accurate to ~${acc}m. Get within ${CAPTURE_RADIUS_M}m of a vehicle to catch it.`;
+  } else {
+    dot.classList.remove('live');
+    text.textContent = 'Requesting location…';
+  }
+}
+renderLocBanner();
+
+/* ============================================================
+   MBTA vehicle fetching
+   ============================================================ */
+async function fetchLine(routeFilter, idLine, typeFn){
+  const url = withMbtaKey(`https://api-v3.mbta.com/vehicles?filter[route]=${routeFilter}&include=stop&fields[vehicle]=current_status,direction_id,label,latitude,longitude,updated_at,speed&fields[stop]=name`);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 7000);
+  let json;
+  try{
+    const res = await fetch(url, { signal: controller.signal, headers: MBTA_HEADERS });
+    clearTimeout(timeout);
+    if(!res.ok) return [];
+    json = await res.json();
+  }catch(e){ clearTimeout(timeout); return []; }
+
+  const includedStops = {};
+  (json.included || []).forEach(item => { includedStops[item.type + ':' + item.id] = item.attributes; });
+
+  return (json.data || []).map(v => {
+    const routeId = v.relationships && v.relationships.route && v.relationships.route.data ? v.relationships.route.data.id : '';
+    const stopRel = v.relationships && v.relationships.stop && v.relationships.stop.data;
+    const stopName = stopRel ? (includedStops['stop:' + stopRel.id] || {}).name : null;
+    const label = v.attributes.label || v.id;
+    let branch = null, displayLine = idLine;
+    if(idLine === 'green'){
+      branch = routeId.replace('Green-', '');
+      if(branch === 'Mattapan'){ branch = 'MATTAPAN'; displayLine = 'mattapan'; }
+    }
+    const carType = typeFn(label);
+    const isPride = idLine === 'green' && String(label) === PRIDE_CAR_NUMBER;
+    return {
+      id: v.id,
+      idLine, displayLine, branch,
+      label: String(label),
+      carType, isPride,
+      rarity: getRarity(idLine, carType, isPride),
+      status: v.attributes.current_status,
+      lat: v.attributes.latitude,
+      lon: v.attributes.longitude,
+      stopName,
+      updatedAt: v.attributes.updated_at
+    };
+  }).filter(v => typeof v.lat === 'number' && typeof v.lon === 'number');
+}
+
+async function refreshVehicles(){
+  try{
+    const [green, red, orange, blue] = await Promise.all([
+      fetchLine('Green-B,Green-C,Green-D,Green-E,Mattapan', 'green', getGreenCarType),
+      fetchLine('Red', 'red', getRedCarType),
+      fetchLine('Orange', 'orange', getOrangeCarType),
+      fetchLine('Blue', 'blue', getBlueCarType)
+    ]);
+    state.vehicles = [...green, ...red, ...orange, ...blue];
+  }catch(e){ /* keep showing the last-known list on failure */ }
+  renderSpotList();
+}
+let pollTimer = null;
+function startVehiclePolling(){
+  if(pollTimer) return;
+  refreshVehicles();
+  pollTimer = setInterval(refreshVehicles, 12000);
+}
+
+/* ============================================================
+   Spot list rendering
+   ============================================================ */
+function cardIdFor(v){ return `${v.idLine}_${v.label}`; }
+
+function renderSpotList(){
+  const list = document.getElementById('spotList');
+  if(!state.vehicles.length){
+    list.innerHTML = `<div class="empty-state"><span class="big">📡</span>Loading live vehicles…</div>`;
+    return;
+  }
+  const withDist = state.vehicles.map(v => {
+    const dist = state.position ? haversineMeters(state.position.lat, state.position.lon, v.lat, v.lon) : null;
+    return Object.assign({}, v, { dist });
+  });
+  withDist.sort((a, b) => {
+    if(a.dist == null && b.dist == null) return 0;
+    if(a.dist == null) return 1;
+    if(b.dist == null) return -1;
+    return a.dist - b.dist;
+  });
+  const shown = state.position ? withDist : withDist.slice(0, 12);
+
+  if(!shown.length){
+    list.innerHTML = `<div class="empty-state"><span class="big">🚇</span>No live vehicles right now — check back in a moment.</div>`;
+    return;
+  }
+
+  list.innerHTML = shown.map(v => {
+    const meta = LINE_META[v.displayLine] || LINE_META[v.idLine];
+    const rarity = RARITY_META[v.rarity];
+    const cardId = cardIdFor(v);
+    const already = state.cards[cardId];
+    const inRange = v.dist != null && v.dist <= CAPTURE_RADIUS_M;
+    const branchLabel = v.branch === 'MATTAPAN' ? 'Mattapan' : (v.branch ? v.branch + ' Branch' : meta.label);
+    const barColor = (v.branch && BRANCH_COLOR[v.branch]) || meta.color;
+    let btnHtml;
+    if(state.capturing[cardId]){
+      btnHtml = `<button class="capture-btn" disabled><div class="spinner" style="border-top-color:#fff;"></div></button>`;
+    } else if(inRange){
+      btnHtml = `<button class="capture-btn" data-capture="${cardId}">${already ? 'Catch again' : 'Capture'}</button>`;
+    } else {
+      btnHtml = `<button class="capture-btn" disabled>${already ? 'Caught ✓' : 'Too far'}</button>`;
+    }
+    return `
+      <div class="spot-card ${inRange ? 'in-range' : ''}">
+        <div class="spot-line-bar" style="background:${barColor};"></div>
+        <div class="spot-main">
+          <div class="spot-top">
+            <span class="spot-carnum">${v.label}</span>
+            <span class="spot-line-label">${meta.label}${v.branch ? ' · ' + branchLabel : ''}</span>
+          </div>
+          <div class="spot-sub">
+            <span class="rarity-pill" style="color:${rarity.color};background:color-mix(in srgb, ${rarity.color} 16%, transparent);">${rarity.label}</span>
+            <span>${v.carType}${already ? ' · in your collection' : ''}</span>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
+          <span class="spot-dist ${inRange ? 'close' : ''}">${state.position ? formatDistance(v.dist) : '—'}</span>
+          ${btnHtml}
+        </div>
+      </div>`;
+  }).join('');
+
+  list.querySelectorAll('[data-capture]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = btn.getAttribute('data-capture');
+      const v = shown.find(x => cardIdFor(x) === id);
+      if(v) captureVehicle(v);
+    });
+  });
+}
+
+/* ============================================================
+   Capture + Firestore
+   ============================================================ */
+async function captureVehicle(v){
+  if(!state.user || !firebaseReady) return;
+  const cardId = cardIdFor(v);
+  if(state.capturing[cardId]) return;
+  state.capturing[cardId] = true;
+  renderSpotList();
+  try{
+    const ref = fbDb.collection('users').doc(state.user.uid).collection('cards').doc(cardId);
+    const snap = await ref.get();
+    const nowFieldValue = firebase.firestore.FieldValue.serverTimestamp();
+    const commonFields = {
+      idLine: v.idLine,
+      displayLine: v.displayLine,
+      branch: v.branch,
+      label: v.label,
+      carType: v.carType,
+      isPride: v.isPride,
+      rarity: v.rarity,
+      lastCapturedAt: nowFieldValue,
+      lastLat: v.lat,
+      lastLon: v.lon,
+      lastStopName: v.stopName || null
+    };
+    if(snap.exists){
+      await ref.set(Object.assign({}, commonFields, {
+        captureCount: firebase.firestore.FieldValue.increment(1)
+      }), { merge: true });
+      showToast(v.isPride ? '🌈' : '📸', `Spotted again — car ${v.label}`);
+    } else {
+      await ref.set(Object.assign({}, commonFields, {
+        firstCapturedAt: nowFieldValue,
+        firstLat: v.lat,
+        firstLon: v.lon,
+        firstStopName: v.stopName || null,
+        captureCount: 1
+      }));
+      const rarity = RARITY_META[v.rarity];
+      showToast('🎉', `New card! ${v.carType} car ${v.label} — ${rarity.label}`);
+    }
+    await loadCollection();
+    renderSpotList();
+  } catch(e){
+    showToast('⚠️', 'Could not save that catch — try again');
+  } finally {
+    delete state.capturing[cardId];
+    renderSpotList();
+  }
+}
+
+async function loadCollection(){
+  if(!state.user || !firebaseReady) return;
+  try{
+    const snap = await fbDb.collection('users').doc(state.user.uid).collection('cards').get();
+    const cards = {};
+    snap.forEach(doc => { cards[doc.id] = doc.data(); });
+    state.cards = cards;
+    state.cardsLoaded = true;
+    updateCollectionCount();
+    if(state.activeTab === 'collection') renderCollection();
+  }catch(e){ /* leave last-known collection in place */ }
+}
+
+function updateCollectionCount(){
+  const n = Object.keys(state.cards).length;
+  document.getElementById('collectionCount').textContent = n ? `(${n})` : '';
+}
+
+/* ============================================================
+   Collection rendering
+   ============================================================ */
+function renderCollection(){
+  const cardIds = Object.keys(state.cards);
+  const totalCatches = cardIds.reduce((sum, id) => sum + (state.cards[id].captureCount || 1), 0);
+  document.getElementById('statCars').textContent = cardIds.length;
+  document.getElementById('statCatches').textContent = totalCatches;
+
+  const unlockedSpecies = DEX.filter(d => cardIds.some(id => {
+    const c = state.cards[id];
+    return c.idLine === d.idLine && c.carType === d.carType && !!c.isPride === !!d.pride;
+  }));
+  document.getElementById('statSpecies').textContent = `${unlockedSpecies.length}/${DEX.length}`;
+
+  document.getElementById('dexStrip').innerHTML = DEX.map(d => {
+    const unlocked = unlockedSpecies.includes(d);
+    const rarity = RARITY_META[getRarity(d.idLine, d.carType, d.pride)];
+    return `<div class="dex-chip">
+      <div class="dex-swatch ${unlocked ? 'unlocked' : ''}" style="${unlocked ? `background:${rarity.color};border-color:${rarity.color};` : ''}">
+        ${unlocked ? (d.pride ? '🌈' : d.carType.replace('Type ', 'T')) : '?'}
+      </div>
+      <div class="dex-name">${d.name}</div>
+    </div>`;
+  }).join('');
+
+  const grid = document.getElementById('cardGrid');
+  const empty = document.getElementById('collectionEmpty');
+  if(!cardIds.length){
+    grid.innerHTML = '';
+    empty.classList.remove('hidden');
+    return;
+  }
+  empty.classList.add('hidden');
+
+  const sorted = cardIds.slice().sort((a, b) => {
+    const ca = state.cards[a], cb = state.cards[b];
+    const ra = RARITY_META[ca.rarity].order, rb = RARITY_META[cb.rarity].order;
+    if(ra !== rb) return rb - ra;
+    return (ca.label > cb.label) ? 1 : -1;
+  });
+
+  grid.innerHTML = sorted.map(id => {
+    const c = state.cards[id];
+    const meta = LINE_META[c.displayLine] || LINE_META[c.idLine];
+    const rarity = RARITY_META[c.rarity];
+    return `<div class="tcard" style="--tint:${rarity.color};" data-open="${id}">
+      <div class="tcard-inner">
+        <div class="tcard-head">
+          <div>
+            <div class="tcard-line">${meta.label}</div>
+            <div class="tcard-num">${c.label}</div>
+          </div>
+          <span class="rarity-pill" style="color:${rarity.color};background:color-mix(in srgb, ${rarity.color} 16%, transparent);">${rarity.label}</span>
+        </div>
+        <div class="tcard-type">${c.isPride ? '🌈 Pride Train · ' : ''}${c.carType}</div>
+        <div class="tcard-foot">
+          <span>${c.captureCount || 1}&times; seen</span>
+          <span>${c.lastStopName ? 'near ' + c.lastStopName : ''}</span>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+
+  grid.querySelectorAll('[data-open]').forEach(el => {
+    el.addEventListener('click', () => openCardModal(el.getAttribute('data-open')));
+  });
+}
+
+function openCardModal(id){
+  const c = state.cards[id];
+  if(!c) return;
+  const meta = LINE_META[c.displayLine] || LINE_META[c.idLine];
+  const rarity = RARITY_META[c.rarity];
+  const info = CAR_INFO[c.carType] || CAR_INFO.Unknown;
+  const root = document.getElementById('modalRoot');
+  root.innerHTML = `
+    <div class="modal-backdrop" id="modalBackdrop">
+      <div class="modal-sheet">
+        <span class="modal-rarity-badge" style="color:${rarity.color};background:color-mix(in srgb, ${rarity.color} 16%, transparent);">${rarity.label}</span>
+        <h2 style="font-size:24px;">${meta.label} — Car ${c.label}</h2>
+        <div style="color:var(--text-dim);font-size:13px;margin-top:3px;">${c.isPride ? '🌈 The Pride Train' : c.carType}</div>
+        <div style="margin-top:14px;">
+          <div class="detail-row"><span class="k">Car type</span><span class="v">${c.carType}</span></div>
+          <div class="detail-row"><span class="k">Builder</span><span class="v">${info.builder}</span></div>
+          <div class="detail-row"><span class="k">Built</span><span class="v">${info.year}</span></div>
+          <div class="detail-row"><span class="k">Seats</span><span class="v">${info.seats ?? '—'}</span></div>
+          <div class="detail-row"><span class="k">Times spotted</span><span class="v">${c.captureCount || 1}</span></div>
+          <div class="detail-row"><span class="k">First caught</span><span class="v">${c.firstStopName ? 'near ' + c.firstStopName : 'on the ' + meta.label}</span></div>
+          <div class="detail-row"><span class="k">Last seen</span><span class="v">${c.lastStopName ? 'near ' + c.lastStopName : '—'}</span></div>
+        </div>
+        <div class="modal-close" id="modalCloseBtn">Close</div>
+      </div>
+    </div>`;
+  document.getElementById('modalBackdrop').addEventListener('click', e => { if(e.target.id === 'modalBackdrop') closeModal(); });
+  document.getElementById('modalCloseBtn').addEventListener('click', closeModal);
+}
+function closeModal(){ document.getElementById('modalRoot').innerHTML = ''; }
+
+/* ============================================================
+   Toast
+   ============================================================ */
+let toastTimer = null;
+function showToast(emoji, text){
+  const root = document.getElementById('toastRoot');
+  root.innerHTML = `<div class="toast"><span class="big">${emoji}</span><span>${text}</span></div>`;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { root.innerHTML = ''; }, 3200);
+}
+</script>
+</body>
+</html>
