@@ -3388,11 +3388,16 @@ async function refreshStandingByCache(){
     standingByCache = map;
   }catch(e){ console.error(e); }
 }
-async function saveStandingByReport(v, stationName, holdMinutes, notes){
+async function saveStandingByReport(v, stationName, holdMinutes, notes, untilRelease){
   if(!firebaseReady) return;
   const payload = {
     stationName,
-    holdMinutes: holdMinutes || null,
+    // untilRelease means "holding for dispatch, no set time" — mutually
+    // exclusive with holdMinutes (see reportStandingByBtn's handler, which
+    // never sends both), so a specific expected minutes figure is dropped
+    // in favor of the flag whenever it's set.
+    holdMinutes: untilRelease ? null : (holdMinutes || null),
+    untilRelease: !!untilRelease,
     notes: notes || null,
     reportedBy: state.userName, reportedByUid: state.uid || null, ts: Date.now(),
     originalTripId: v.tripId || null
@@ -3400,7 +3405,7 @@ async function saveStandingByReport(v, stationName, holdMinutes, notes){
   try{
     await fbDb.collection('standing_by_reports').doc(v.id).set(payload);
     standingByCache[v.id] = payload;
-    const holdText = holdMinutes ? ` for about ${holdMinutes} min` : '';
+    const holdText = untilRelease ? ' until release' : (holdMinutes ? ` for about ${holdMinutes} min` : '');
     logEdit(state.userName, state.uid, `Reported car ${formatCarNumberForDisplay(v.label)} standing by at ${stationName}${holdText}`);
   }catch(e){ console.error(e); }
 }
@@ -5533,7 +5538,9 @@ async function showCarModal(v){
     ? `<div class="modal-section">
         <h4>Standing by</h4>
         <div class="modal-row"><span>Station</span><strong>${displayName(existingStandingBy.stationName)}</strong></div>
-        ${existingStandingBy.holdMinutes ? `<div class="modal-row"><span>Expected hold</span><strong>~${existingStandingBy.holdMinutes} min</strong></div>` : ''}
+        ${existingStandingBy.untilRelease
+          ? `<div class="modal-row"><span>Expected hold</span><strong>Until release</strong></div>`
+          : (existingStandingBy.holdMinutes ? `<div class="modal-row"><span>Expected hold</span><strong>~${existingStandingBy.holdMinutes} min</strong></div>` : '')}
         ${existingStandingBy.notes ? `<div class="signin-note">"${existingStandingBy.notes}"</div>` : ''}
         <div class="signin-note">Reported by ${existingStandingBy.reportedBy || 'Unknown'} \u2014 clears automatically once the train leaves this station.</div>
         ${state.signedIn ? `<button class="roster-reset-btn" id="clearStandingByBtn" style="margin-top:8px;">Cancel standing by</button>` : ''}
@@ -5547,6 +5554,10 @@ async function showCarModal(v){
         </datalist>
         <input type="text" class="roster-input" id="standingByStation" list="standingByStationsDatalist" data-enter-target="reportStandingByBtn" placeholder="Start typing a station&hellip;" autocomplete="off" style="margin-top:6px;">
         <input type="number" class="roster-input" id="standingByMinutes" data-enter-target="reportStandingByBtn" placeholder="Expected hold time in minutes (optional)" min="0">
+        <label style="display:flex; align-items:center; gap:6px; margin:6px 0 2px; font-size:13px; color:var(--text-dim);">
+          <input type="checkbox" id="standingByUntilRelease" style="width:auto;">
+          Standing by until release (no set time — holding for dispatch)
+        </label>
         <textarea class="roster-textarea" id="standingByNotes" placeholder="Notes (optional)" style="margin-top:8px;"></textarea>
         <button class="account-btn" id="reportStandingByBtn" style="margin-top:8px;">Report standing by</button>
         <span class="roster-submit-note" id="standingByNote"></span>
@@ -5908,10 +5919,23 @@ async function showCarModal(v){
   }
 
   const reportStandingByBtn = document.getElementById('reportStandingByBtn');
+  const standingByUntilReleaseCheckbox = document.getElementById('standingByUntilRelease');
+  const standingByMinutesInput = document.getElementById('standingByMinutes');
+  if(standingByUntilReleaseCheckbox && standingByMinutesInput){
+    // Mutually exclusive with a specific expected-minutes figure \u2014 checking
+    // this clears and locks the minutes field rather than leaving both
+    // fillable at once, which would leave it ambiguous which one wins.
+    standingByUntilReleaseCheckbox.addEventListener('change', ()=>{
+      const checked = standingByUntilReleaseCheckbox.checked;
+      standingByMinutesInput.disabled = checked;
+      if(checked) standingByMinutesInput.value = '';
+    });
+  }
   if(reportStandingByBtn){
     reportStandingByBtn.addEventListener('click', async ()=>{
       const stationTyped = document.getElementById('standingByStation').value.trim();
-      const minutes = document.getElementById('standingByMinutes').value.trim();
+      const untilRelease = !!(standingByUntilReleaseCheckbox && standingByUntilReleaseCheckbox.checked);
+      const minutes = untilRelease ? '' : document.getElementById('standingByMinutes').value.trim();
       const notes = document.getElementById('standingByNotes').value.trim();
       const note = document.getElementById('standingByNote');
       if(!stationTyped){
@@ -5923,8 +5947,8 @@ async function showCarModal(v){
         note.textContent = "That doesn't match a real station on this train's route \u2014 pick one from the suggestions.";
         return;
       }
-      await saveStandingByReport(v, station, minutes ? parseInt(minutes, 10) : null, notes);
-      awardPoints(minutes ? 6 : 3);
+      await saveStandingByReport(v, station, minutes ? parseInt(minutes, 10) : null, notes, untilRelease);
+      awardPoints((minutes || untilRelease) ? 6 : 3);
       showCarModal(v);
     });
   }
