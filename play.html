@@ -191,7 +191,7 @@ a{color:inherit;}
   <!-- Signed-out intro -->
   <div id="introGate" class="intro-card hidden">
     <h2>Catch real MBTA vehicles</h2>
-    <p>Play works like a field guide: get near a real Green, Red, Orange, or Blue Line train (or the Mattapan Line), and capture it as a card for your collection — real car number, real car type, real rarity.</p>
+    <p>Play works like a field guide: get near a real Green, Red, Orange, or Blue Line train, the Mattapan Line, or an MBTA bus, and capture it as a card for your collection — real car number, real car type, real rarity.</p>
     <ul>
       <li>Sign in to save your collection across devices</li>
       <li>Allow location — you have to actually be near a vehicle to catch it</li>
@@ -239,7 +239,7 @@ a{color:inherit;}
       <div class="dex-strip" id="dexStrip"></div>
       <div class="collection-stats">
         <div class="stat-box"><div class="num" id="statCars">0</div><div class="lbl">cars caught</div></div>
-        <div class="stat-box"><div class="num" id="statSpecies">0/12</div><div class="lbl">species</div></div>
+        <div class="stat-box"><div class="num" id="statSpecies">0/14</div><div class="lbl">species</div></div>
         <div class="stat-box"><div class="num" id="statCatches">0</div><div class="lbl">total catches</div></div>
       </div>
       <div id="collectionEmpty" class="empty-state hidden">
@@ -330,28 +330,44 @@ function getBlueCarType(label){
   if(n >= 700 && n <= 799) return 'Siemens';
   return 'Unknown';
 }
+// Buses aren't identifiable by model from the live feed, so this is a
+// route-based guess: Silver Line routes (SL1–SL5) mostly run articulated
+// 60-ft buses, every other bus route is treated as a standard 40-ft bus.
+function isSilverLineRoute(routeShortName, routeLongName){
+  const s = String(routeShortName || '');
+  const l = String(routeLongName || '');
+  return /^SL\d/i.test(s) || /silver line/i.test(l);
+}
 
 const CAR_INFO = {
-  'Type 7': { builder:'Kinki Sharyo', year:'1986–1997', seats:46 },
-  'Type 8': { builder:'AnsaldoBreda', year:'1998–2007', seats:44 },
-  'Type 9': { builder:'CAF USA', year:'2018–2020', seats:44 },
-  'Type 10': { builder:'CAF USA', year:'2026–2031', seats:60 },
-  'PCC': { builder:'Pullman-Standard / St. Louis Car Co.', year:'1945–1946', seats:38 },
-  'Type 1': { builder:'Pullman-Standard', year:'1969–1970', seats:63 },
-  'Type 2': { builder:'UTDC', year:'1987–1989', seats:62 },
-  'Type 3': { builder:'Bombardier', year:'1993–1994', seats:50 },
-  'Type 4': { builder:'CRRC', year:'2019–2027', seats:'32/38' },
-  'CRRC': { builder:'CRRC', year:'2018–2025', seats:'41/44' },
-  'Siemens': { builder:'Siemens', year:'2007–2009', seats:35 },
-  'Unknown': { builder:'Unknown', year:'Unknown', seats:null }
+  'Type 7': { builder:'Kinki Sharyo', year:'1986–1997', seats:46, length:'72\'', width:'104"' },
+  'Type 8': { builder:'AnsaldoBreda', year:'1998–2007', seats:44, length:'74\'', width:'104"' },
+  'Type 9': { builder:'CAF USA', year:'2018–2020', seats:44, length:'74\'', width:'104"' },
+  'Type 10': { builder:'CAF USA', year:'2026–2031', seats:60, length:'114\'', width:'104"' },
+  'PCC': { builder:'Pullman-Standard / St. Louis Car Co.', year:'1945–1946', seats:38, length:'46\'', width:'100"' },
+  'Type 1': { builder:'Pullman-Standard', year:'1969–1970', seats:63, length:'69\'06"', width:'122"' },
+  'Type 2': { builder:'UTDC', year:'1987–1989', seats:62, length:'69\'09"', width:'120"' },
+  'Type 3': { builder:'Bombardier', year:'1993–1994', seats:50, length:'69\'06"', width:'120"' },
+  'Type 4': { builder:'CRRC', year:'2019–2027', seats:'32/38', length:'69\'06"', width:'120"' },
+  'CRRC': { builder:'CRRC', year:'2018–2025', seats:'41/44', length:'65\'', width:'111"' },
+  'Siemens': { builder:'Siemens', year:'2007–2009', seats:35, length:'48\'06"', width:'111"' },
+  // Bus dimensions/seats are typical specs for the fleet's dominant model
+  // (mostly New Flyer Xcelsior), not read from the live vehicle feed —
+  // MBTA's API doesn't expose a per-vehicle bus model, so this is an
+  // approximation rather than a confirmed reading for any specific bus.
+  'Standard Bus': { builder:'New Flyer (approx.)', year:'Varies', seats:'~38', length:'40\'', width:'102"' },
+  'Articulated Bus': { builder:'New Flyer (approx.)', year:'Varies', seats:'~57', length:'60\'09"', width:'102"' },
+  'Unknown': { builder:'Unknown', year:'Unknown', seats:null, length:null, width:null }
 };
 
 const LINE_META = {
-  green:    { label:'Green Line',    color:'#00843D' },
-  mattapan: { label:'Mattapan Line', color:'#EA580C' },
-  red:      { label:'Red Line',      color:'#FA2D27' },
-  orange:   { label:'Orange Line',   color:'#ED8B00' },
-  blue:     { label:'Blue Line',     color:'#003DA5' }
+  green:      { label:'Green Line',    color:'#00843D' },
+  mattapan:   { label:'Mattapan Line', color:'#EA580C' },
+  red:        { label:'Red Line',      color:'#FA2D27' },
+  orange:     { label:'Orange Line',   color:'#ED8B00' },
+  blue:       { label:'Blue Line',     color:'#003DA5' },
+  bus:        { label:'Bus',           color:'#FFC72C' },
+  silverline: { label:'Silver Line',   color:'#7C878E' }
 };
 const BRANCH_COLOR = { B:'#ED7093', C:'#7CE094', D:'#F9DE51', E:'#6FE9FC' };
 const STATUS_LABELS = { INCOMING_AT:'Arriving at', STOPPED_AT:'Stopped at', IN_TRANSIT_TO:'Approaching' };
@@ -368,6 +384,7 @@ function getRarity(idLine, carType, isPride){
   if(carType === 'PCC') return 'ultra';
   if((idLine === 'green' && carType === 'Type 10') || (idLine === 'red' && carType === 'Type 4')) return 'rare';
   if((idLine === 'green' && carType === 'Type 7') || (idLine === 'red' && carType === 'Type 1')) return 'uncommon';
+  if(idLine === 'bus' && carType === 'Articulated Bus') return 'uncommon';
   return 'common';
 }
 
@@ -383,7 +400,9 @@ const DEX = [
   { key:'red-Type 3',    idLine:'red',    carType:'Type 3',  name:'Red Type 3',      pride:false },
   { key:'red-Type 4',    idLine:'red',    carType:'Type 4',  name:'Red Type 4',      pride:false },
   { key:'orange-CRRC',   idLine:'orange', carType:'CRRC',    name:'Orange CRRC',     pride:false },
-  { key:'blue-Siemens',  idLine:'blue',   carType:'Siemens', name:'Blue Siemens',    pride:false }
+  { key:'blue-Siemens',  idLine:'blue',   carType:'Siemens', name:'Blue Siemens',    pride:false },
+  { key:'bus-Standard',  idLine:'bus',    carType:'Standard Bus',    name:'Standard Bus',    pride:false },
+  { key:'bus-Articulated', idLine:'bus',  carType:'Articulated Bus', name:'Articulated Bus', pride:false }
 ];
 
 /* ============================================================
@@ -656,15 +675,54 @@ async function fetchLine(routeFilter, idLine, typeFn){
   }).filter(t => typeof t.lat === 'number' && typeof t.lon === 'number' && t.cars.length);
 }
 
+async function fetchBuses(){
+  const url = withMbtaKey(`https://api-v3.mbta.com/vehicles?filter[route_type]=3&include=route,stop&fields[vehicle]=current_status,label,latitude,longitude,updated_at&fields[route]=short_name,long_name&fields[stop]=name`);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 9000);
+  let json;
+  try{
+    const res = await fetch(url, { signal: controller.signal, headers: MBTA_HEADERS });
+    clearTimeout(timeout);
+    if(!res.ok) return [];
+    json = await res.json();
+  }catch(e){ clearTimeout(timeout); return []; }
+
+  const included = {};
+  (json.included || []).forEach(item => { included[item.type + ':' + item.id] = item.attributes; });
+
+  return (json.data || []).map(v => {
+    const routeRel = v.relationships && v.relationships.route && v.relationships.route.data;
+    const routeInfo = routeRel ? (included['route:' + routeRel.id] || {}) : {};
+    const stopRel = v.relationships && v.relationships.stop && v.relationships.stop.data;
+    const stopName = stopRel ? (included['stop:' + stopRel.id] || {}).name : null;
+    const label = String(v.attributes.label || v.id);
+    const silverLine = isSilverLineRoute(routeInfo.short_name, routeInfo.long_name);
+    const carType = silverLine ? 'Articulated Bus' : 'Standard Bus';
+    const cars = [{ label, carType, isPride:false, rarity: getRarity('bus', carType, false) }];
+    return {
+      id: v.id,
+      idLine: 'bus', displayLine: silverLine ? 'silverline' : 'bus', branch: null,
+      routeName: routeInfo.short_name || (routeRel ? routeRel.id : null),
+      status: v.attributes.current_status,
+      lat: v.attributes.latitude,
+      lon: v.attributes.longitude,
+      stopName,
+      updatedAt: v.attributes.updated_at,
+      cars
+    };
+  }).filter(t => typeof t.lat === 'number' && typeof t.lon === 'number');
+}
+
 async function refreshVehicles(){
   try{
-    const [green, red, orange, blue] = await Promise.all([
+    const [green, red, orange, blue, buses] = await Promise.all([
       fetchLine('Green-B,Green-C,Green-D,Green-E,Mattapan', 'green', getGreenCarType),
       fetchLine('Red', 'red', getRedCarType),
       fetchLine('Orange', 'orange', getOrangeCarType),
-      fetchLine('Blue', 'blue', getBlueCarType)
+      fetchLine('Blue', 'blue', getBlueCarType),
+      fetchBuses()
     ]);
-    state.trains = [...green, ...red, ...orange, ...blue];
+    state.trains = [...green, ...red, ...orange, ...blue, ...buses];
   }catch(e){ /* keep showing the last-known list on failure */ }
   renderAll();
 }
@@ -738,7 +796,7 @@ function renderFocusCard(t){
   const cardId = cardIdFor(t.idLine, car.label);
   const alreadyCaught = !!state.cards[cardId];
   const inRange = t.dist != null && t.dist <= CAPTURE_RADIUS_M;
-  const branchLabel = t.branch === 'MATTAPAN' ? 'Mattapan' : (t.branch ? t.branch + ' Branch' : meta.label);
+  const branchLabel = t.branch === 'MATTAPAN' ? 'Mattapan' : (t.branch ? t.branch + ' Branch' : (t.routeName ? 'Route ' + t.routeName : meta.label));
   const barColor = (t.branch && BRANCH_COLOR[t.branch]) || meta.color;
   root.style.setProperty('--fc-tint', barColor + '33');
 
@@ -758,7 +816,7 @@ function renderFocusCard(t){
   root.innerHTML = `
     <div class="focus-top">
       <div>
-        <span class="focus-line-pill" style="background:${barColor};">${meta.label}${t.branch ? ' · ' + branchLabel : ''}</span>
+        <span class="focus-line-pill" style="background:${barColor};">${meta.label}${(t.branch || t.routeName) ? ' · ' + branchLabel : ''}</span>
       </div>
       ${alreadyCaught ? '<span class="focus-caught-tag">In collection</span>' : '<span class="focus-new-tag">NEW</span>'}
     </div>
@@ -791,7 +849,7 @@ function renderNearbyList(withDist){
     const inRange = t.dist != null && t.dist <= CAPTURE_RADIUS_M;
     const isFocused = t.id === state.focusedTrainId;
     const barColor = (t.branch && BRANCH_COLOR[t.branch]) || meta.color;
-    const branchLabel = t.branch === 'MATTAPAN' ? 'Mattapan' : (t.branch ? t.branch + ' Branch' : '');
+    const branchLabel = t.branch === 'MATTAPAN' ? 'Mattapan' : (t.branch ? t.branch + ' Branch' : (t.routeName ? 'Route ' + t.routeName : ''));
     return `<div class="spot-card ${isFocused ? 'focused' : ''} ${inRange ? 'in-range' : ''}" data-focus="${t.id}">
       <div class="spot-line-bar" style="background:${barColor};"></div>
       <div class="spot-main">
@@ -993,6 +1051,8 @@ function openCardModal(id){
           <div class="detail-row"><span class="k">Car type</span><span class="v">${c.carType}</span></div>
           <div class="detail-row"><span class="k">Builder</span><span class="v">${info.builder}</span></div>
           <div class="detail-row"><span class="k">Built</span><span class="v">${info.year}</span></div>
+          <div class="detail-row"><span class="k">Length</span><span class="v">${info.length ?? '—'}</span></div>
+          <div class="detail-row"><span class="k">Width</span><span class="v">${info.width ?? '—'}</span></div>
           <div class="detail-row"><span class="k">Seats</span><span class="v">${info.seats ?? '—'}</span></div>
           <div class="detail-row"><span class="k">Times spotted</span><span class="v">${c.captureCount || 1}</span></div>
           <div class="detail-row"><span class="k">First caught</span><span class="v">${c.firstStopName ? 'near ' + c.firstStopName : 'on the ' + meta.label}</span></div>
