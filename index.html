@@ -1182,6 +1182,28 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
    layout container, not something you click. */
 #rosterList .roster-row:hover{border-color:var(--accent); transform:translateY(-1px); box-shadow:0 6px 16px -6px rgba(0,0,0,0.4);}
 #rosterList .roster-row:active{transform:translateY(0) scale(0.99);}
+/* Cars with a spotting photo from mbtapics.vercel.app (via getFleetPhotos)
+   get it as a card-top image, bled out to the card's own edges (offsetting
+   the row's 12px padding with a negative margin) and clipped to the row's
+   own rounded corners on top. Cars with no photo render exactly as before —
+   photoThumb is just an empty string, no layout change. */
+.roster-row.has-photo{overflow:hidden; padding-top:0;}
+.roster-photo-thumb{
+  display:block; width:calc(100% + 24px); margin:0 -12px 10px; height:110px;
+  object-fit:cover; border-radius:0;
+}
+/* Car detail page's larger hero version of the same photo — a real block
+   below the summary line rather than a bled-out card-top image, since the
+   detail page isn't a tight grid card. */
+.car-detail-photo-wrap{margin:10px 0 4px;}
+.car-detail-photo{
+  display:block; width:100%; max-height:320px; object-fit:cover;
+  border-radius:10px; border:1px solid var(--border);
+}
+.car-detail-photo-credit{
+  font-size:10.5px; color:var(--text-faint); margin-top:5px;
+}
+.car-detail-photo-credit a{color:var(--text-faint); text-decoration:underline;}
 .roster-row-head{display:flex; align-items:center; gap:8px; margin-bottom:8px; flex-wrap:wrap;}
 .roster-car-chip{font-family:'IBM Plex Mono', monospace; font-weight:700; font-size:13px; color:var(--text);}
 .roster-type-tag{font-size:10.5px; color:var(--text-faint); font-family:'IBM Plex Mono', monospace;}
@@ -8428,6 +8450,39 @@ async function loadPairHistory(key){
   }catch(e){ console.error(e); return []; }
 }
 
+// Most-recent spotting photo per car, sourced from Quinn's other app
+// (mbtapics.vercel.app / "Trackside") via the getFleetPhotos Cloud Function
+// proxy (a direct browser fetch to mbtapics fails — it doesn't send CORS
+// headers). Keyed "line-4digitCarNumber" (e.g. "green-3801", "blue-0700"),
+// matching entry.car's own zero-padding so lookups are a plain property
+// access: fleetPhotosCache[photoKeyFor(state.activeLine, entry.car)].
+// Whole map is fetched once and cached for 10 minutes client-side too (on
+// top of the function's own 10-minute cache) since it's cheap to hold in
+// memory and every roster/car-detail render would otherwise refetch it.
+const FLEET_PHOTOS_ENDPOINT = 'https://us-central1-green-o.cloudfunctions.net/getFleetPhotos';
+const FLEET_PHOTOS_CLIENT_CACHE_MS = 10 * 60 * 1000;
+let fleetPhotosCache = null;
+let fleetPhotosCacheTs = 0;
+function photoKeyFor(line, carStr){
+  return `${line}-${carStr}`;
+}
+async function loadFleetPhotos(){
+  if(fleetPhotosCache && (Date.now() - fleetPhotosCacheTs) < FLEET_PHOTOS_CLIENT_CACHE_MS){
+    return fleetPhotosCache;
+  }
+  try{
+    const res = await fetch(FLEET_PHOTOS_ENDPOINT);
+    if(!res.ok) throw new Error(`getFleetPhotos returned ${res.status}`);
+    const json = await res.json();
+    fleetPhotosCache = json.photos || {};
+    fleetPhotosCacheTs = Date.now();
+    return fleetPhotosCache;
+  }catch(e){
+    console.error('loadFleetPhotos failed:', e);
+    return fleetPhotosCache || {};
+  }
+}
+
 // A key like "red-3803" or "blue-0700" -> just the car number, formatted
 // the same way the rest of the roster displays car numbers (Blue Line
 // zero-padding included). Only ever called with a real partner key now —
@@ -8534,15 +8589,15 @@ async function loadAndRenderPairHistory(key, line){
 async function loadRosterPanelData(forceRefresh){
   const isStale = !rosterPanelDataCache || (Date.now() - rosterPanelDataCacheTs) >= ROSTER_PANEL_CACHE_TTL_MS;
   if(forceRefresh || isStale){
-    const [rosterData, gltpsMap, tagMap, pantoMap] = await Promise.all([loadRoster(), loadGltps(), getUserTagMap(), loadPantograph()]);
-    rosterPanelDataCache = { rosterData, gltpsMap, tagMap, pantoMap };
+    const [rosterData, gltpsMap, tagMap, pantoMap, photosMap] = await Promise.all([loadRoster(), loadGltps(), getUserTagMap(), loadPantograph(), loadFleetPhotos()]);
+    rosterPanelDataCache = { rosterData, gltpsMap, tagMap, pantoMap, photosMap };
     rosterPanelDataCacheTs = Date.now();
   }
   return rosterPanelDataCache;
 }
 
 async function buildRosterPanel(){
-  const { rosterData, gltpsMap, tagMap } = await loadRosterPanelData();
+  const { rosterData, gltpsMap, tagMap, photosMap } = await loadRosterPanelData();
   const activeSet = getActiveCarSet();
   const search = state.rosterSearch.trim();
   const searchLower = search.toLowerCase();
@@ -8615,18 +8670,24 @@ async function buildRosterPanel(){
     const seats = showGltps ? getSeatCount(entry.type, gltps ? gltps.status : null) : (info.seats !== undefined ? info.seats : null);
     const seatsSuffix = (seats !== null && seats !== undefined) ? ` \u00b7 ${seats} seats` : '';
 
+    const photo = (photosMap || {})[photoKeyFor(state.activeLine, entry.car)];
+    const photoThumb = photo ? `<img class="roster-photo-thumb" src="${photo.url}" alt="Car ${entry.car}" loading="lazy">` : '';
+
     return `
-      <div class="roster-row" data-car="${entry.car}" data-roster-toggle="${entry.key}">
-        <div class="roster-row-head">
-          <span class="roster-car-chip" style="color:${LINE_BRAND_HEX[state.activeLine] || 'var(--text)'};">Car ${entry.car}</span>
-          ${statusBadge}
-          ${isActive ? '<span class="roster-active-badge">Active now</span>' : ''}
+      <div class="roster-row${photo ? ' has-photo' : ''}" data-car="${entry.car}" data-roster-toggle="${entry.key}">
+        ${photoThumb}
+        <div class="roster-row-body">
+          <div class="roster-row-head">
+            <span class="roster-car-chip" style="color:${LINE_BRAND_HEX[state.activeLine] || 'var(--text)'};">Car ${entry.car}</span>
+            ${statusBadge}
+            ${isActive ? '<span class="roster-active-badge">Active now</span>' : ''}
+          </div>
+          <div class="roster-card-summary">${entry.type} \u00b7 ${info.builder} \u00b7 ${rosterBuildYearFor(state.activeLine, entry.type, entry.car)}${seatsSuffix}</div>
+          <div class="roster-section-divider" style="margin:10px 0;"></div>
+          ${lastSeenLine}
+          ${firstTrackedLine}
+          <div class="roster-expand-hint">View details \u203a</div>
         </div>
-        <div class="roster-card-summary">${entry.type} \u00b7 ${info.builder} \u00b7 ${rosterBuildYearFor(state.activeLine, entry.type, entry.car)}${seatsSuffix}</div>
-        <div class="roster-section-divider" style="margin:10px 0;"></div>
-        ${lastSeenLine}
-        ${firstTrackedLine}
-        <div class="roster-expand-hint">View details \u203a</div>
       </div>`;
   }).join('');
 
@@ -9017,7 +9078,7 @@ async function buildCarDetailPanel(){
     return;
   }
 
-  const { rosterData, gltpsMap, tagMap, pantoMap } = await loadRosterPanelData();
+  const { rosterData, gltpsMap, tagMap, pantoMap, photosMap } = await loadRosterPanelData();
   const activeSet = getActiveCarSet();
   const data = rosterData[entry.key] || {};
   const showGltps = state.activeLine === 'green';
@@ -9140,12 +9201,31 @@ async function buildCarDetailPanel(){
 
   const liveInfo = getCarDetailLiveInfo(entry, activeSet);
 
+  // Most recent spotting photo of this car, sourced from mbtapics.vercel.app
+  // ("Trackside", Quinn's other app) via getFleetPhotos — see loadFleetPhotos
+  // above for the CORS-proxy explanation. photo is undefined for the vast
+  // majority of cars (only a handful have been photographed so far), in
+  // which case photoField is just an empty string and the page looks
+  // exactly as it did before this feature existed.
+  const photo = (photosMap || {})[photoKeyFor(state.activeLine, entry.car)];
+  const photoDateLabel = (photo && photo.date) ? new Date(photo.date + 'T00:00:00').toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }) : null;
+  const photoCreditParts = [];
+  if(photo && photo.photographer) photoCreditParts.push(`Photo by ${escapeHtml(photo.photographer)}`);
+  if(photoDateLabel) photoCreditParts.push(photoDateLabel);
+  if(photo && photo.location) photoCreditParts.push(escapeHtml(photo.location));
+  const photoField = photo ? `
+    <div class="car-detail-photo-wrap">
+      <img class="car-detail-photo" src="${photo.url}" alt="Car ${entry.car}" loading="lazy">
+      <div class="car-detail-photo-credit">${photoCreditParts.join(' · ')}${photoCreditParts.length ? ' · ' : ''}<a href="https://mbtapics.vercel.app" target="_blank" rel="noopener">via Trackside</a></div>
+    </div>` : '';
+
   body.innerHTML = `
     <div class="roster-row-head" style="margin-bottom:4px;">
       <span class="roster-car-chip" style="color:${LINE_BRAND_HEX[state.activeLine] || 'var(--text)'};">Car ${entry.car}</span>
       ${statusBadge}
     </div>
     <div class="roster-card-summary">${entry.type} · ${info.builder}</div>
+    ${photoField}
     <div class="roster-section-divider"></div>
     <div id="carDetailStatusBadge">${renderCarDetailStatusBadge(liveInfo)}</div>
     <div id="carDetailMapContainer" style="display:none;"></div>

@@ -60,7 +60,7 @@
 //    GOOGLE_SHEETS_CREDENTIALS comment below for the full 8-step walkthrough.
 // 5. Deploy with: firebase deploy --only functions
 
-const { onDocumentCreated, onDocumentWritten } = require('firebase-functions/v2/firestore');
+const { onDocumentCreated, onDocumentWritten, onDocumentDeleted } = require('firebase-functions/v2/firestore');
 const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { onRequest } = require('firebase-functions/v2/https');
 const { defineSecret } = require('firebase-functions/params');
@@ -709,6 +709,34 @@ exports.sendPushOnCommunityAlert = onDocumentCreated(
   }
 );
 
+// Fires the moment a community_alerts doc is deleted — whether that's a
+// moderator/trusted member manually removing it (Remove button on Publish
+// Alerts & Diversions), the client-side lazy expired-doc cleanup
+// (fetchCommunityAlerts/loadDiversionsList/refreshLiveDiversionBypassCache
+// all delete-on-read anything past its expiresAt), or the server-side
+// proactive sweep in syncLastSeenCars further down. onDocumentDeleted fires
+// regardless of which of those actually performed the delete, so this one
+// trigger covers "the diversion ended" for every path instead of needing a
+// push call duplicated at each individual delete call site. Same
+// subscriber set as sendPushOnCommunityAlert above (per-branch T-Alerts
+// preference plus the standalone "Diversions" toggle) — anyone who wanted
+// to know it started reasonably wants to know it's over, too.
+exports.sendPushOnCommunityAlertEnd = onDocumentDeleted(
+  { document: 'community_alerts/{alertId}', secrets: [VAPID_PRIVATE_KEY] },
+  async (event) => {
+    const data = event.data.data();
+    if(!data || !data.route) return;
+    const where = (data.fromStation && data.toStation)
+      ? (data.fromStation === data.toStation ? data.fromStation : `${data.fromStation} to ${data.toStation}`)
+      : (data.text || '').slice(0, 180);
+    if(!where) return;
+    const title = `${ALERT_ROUTE_LABELS[data.route] || data.route} diversion ended`;
+    const prefField = ALERT_ROUTE_PREF_FIELDS[data.route];
+    const prefFields = prefField ? ['notifyDiversions', prefField] : ['notifyDiversions'];
+    await sendToFilteredSubscribersMulti(prefFields, { title, body: `Service has resumed: ${where}`, url: './' });
+  }
+);
+
 function rosterStorageKey(line, carNum){
   return line === 'green' ? String(carNum) : `${line}-${carNum}`;
 }
@@ -1028,6 +1056,74 @@ exports.getPairHistory = onRequest({ secrets: [GOOGLE_SHEETS_CREDENTIALS] }, asy
   }catch(e){
     console.error(`Failed to read pair history for ${key}:`, e);
     res.status(500).json({ error: 'Failed to read pair history' });
+  }
+});
+
+/* ---------------- Fleet photos (mbtapics.vercel.app proxy) ----------------
+   Quinn's other app, mbtapics.vercel.app ("Trackside"), lets people upload
+   spotting photos tagged to a specific car. Its /api/photos endpoint
+   doesn't send CORS headers, so a browser on thembtaloop.com can't fetch it
+   directly (fails with a CORS error) — this function proxies it server-side
+   instead, where there's no CORS restriction between two backends.
+
+   It also does the reduction work once per cache window instead of on every
+   client: collapses the full (ever-growing) photo log down to just the
+   single most-recently-uploaded photo per car, keyed the same way as the
+   client's own roster entries ("line-4digitCarNumber", e.g. "green-3801",
+   "blue-0700" — matches entry.car's zero-padding, see buildRosterCarList's
+   padStart(4,'0') comment in index.html), so the client can look one up
+   with a plain property access instead of scanning the whole list.
+
+   Cached in memory for 10 minutes — this data changes at most a few times
+   an hour, and this avoids hitting mbtapics on every roster/car-detail page
+   load from every visitor. */
+const FLEET_PHOTOS_SOURCE = 'https://mbtapics.vercel.app/api/photos';
+const FLEET_PHOTOS_CACHE_MS = 10 * 60 * 1000;
+let _fleetPhotosCache = null;
+let _fleetPhotosCacheTs = 0;
+
+async function getFleetPhotosMap(){
+  if(_fleetPhotosCache && (Date.now() - _fleetPhotosCacheTs) < FLEET_PHOTOS_CACHE_MS){
+    return _fleetPhotosCache;
+  }
+  const res = await fetch(FLEET_PHOTOS_SOURCE);
+  if(!res.ok) throw new Error(`mbtapics /api/photos returned ${res.status}`);
+  const json = await res.json();
+  const photos = json.photos || [];
+
+  const byCar = {};
+  const latestTs = {};
+  for(const p of photos){
+    if(!p.line || p.number === undefined || p.number === null || !p.url) continue;
+    const key = `${String(p.line).toLowerCase()}-${String(p.number).padStart(4, '0')}`;
+    const ts = new Date(p.uploadedAt || p.date || 0).getTime() || 0;
+    if(!byCar[key] || ts > latestTs[key]){
+      byCar[key] = {
+        url: p.url,
+        photographer: p.photographer || null,
+        location: p.location || null,
+        date: p.date || null,
+        uploadedAt: p.uploadedAt || null
+      };
+      latestTs[key] = ts;
+    }
+  }
+
+  _fleetPhotosCache = byCar;
+  _fleetPhotosCacheTs = Date.now();
+  return byCar;
+}
+
+exports.getFleetPhotos = onRequest(async (req, res) => {
+  applyCors(res);
+  if(req.method === 'OPTIONS'){ res.status(204).send(''); return; }
+  try{
+    const byCar = await getFleetPhotosMap();
+    res.set('Cache-Control', 'public, max-age=300');
+    res.status(200).json({ photos: byCar });
+  }catch(e){
+    console.error('getFleetPhotos failed:', e);
+    res.status(500).json({ error: 'Failed to load fleet photos' });
   }
 });
 
