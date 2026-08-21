@@ -10,6 +10,7 @@
 <meta name="theme-color" content="#0B1420">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Play — In the Loop">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
 
@@ -31,12 +32,13 @@
 *{box-sizing:border-box;}
 html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:'IBM Plex Sans',sans-serif;-webkit-font-smoothing:antialiased;overscroll-behavior-y:none;}
 body{min-height:100vh;padding-bottom:36px;}
+body.has-catchbar{padding-bottom:96px;}
 h1,h2,h3{font-family:'Space Grotesk',sans-serif;margin:0;}
 button{font-family:inherit;}
 a{color:inherit;}
 
 /* ---------- header ---------- */
-.topbar{position:sticky;top:0;z-index:20;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 16px;background:rgba(11,20,32,0.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--border);}
+.topbar{position:sticky;top:0;z-index:600;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 16px;background:rgba(11,20,32,0.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--border);}
 .topbar-left{display:flex;align-items:center;gap:10px;min-width:0;}
 .back-link{display:flex;align-items:center;gap:5px;color:var(--text-dim);text-decoration:none;font-size:13px;font-family:'Space Grotesk',sans-serif;font-weight:600;flex-shrink:0;padding:6px 8px;margin:-6px -8px;border-radius:8px;}
 .back-link:active{background:var(--panel-2);}
@@ -64,7 +66,6 @@ a{color:inherit;}
 .intro-tip{display:flex;gap:9px;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:10px;padding:10px 12px;font-size:12.5px;color:var(--text-faint);line-height:1.5;margin-top:12px;}
 .primary-btn{display:flex;align-items:center;justify-content:center;gap:9px;width:100%;padding:13px;border-radius:12px;border:none;background:var(--accent);color:#fff;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:14.5px;cursor:pointer;margin-top:4px;}
 .primary-btn:disabled{opacity:0.55;}
-.ghost-btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:11px;border-radius:12px;border:1px solid var(--border);background:transparent;color:var(--text-dim);font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:13.5px;cursor:pointer;margin-top:8px;}
 
 /* ---------- status banner ---------- */
 .status-banner{display:flex;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:11px 13px;margin:14px 0 4px;font-size:13px;color:var(--text-dim);}
@@ -72,25 +73,60 @@ a{color:inherit;}
 .status-dot.live{background:#34D399;box-shadow:0 0 8px rgba(52,211,153,0.7);}
 .status-banner b{color:var(--text);}
 
-/* ---------- spot list ---------- */
-.spot-list{display:flex;flex-direction:column;gap:10px;margin:14px 0 24px;}
-.spot-card{display:flex;align-items:center;gap:12px;background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:12px;}
-.spot-card.in-range{border-color:rgba(52,211,153,0.55);box-shadow:0 0 0 1px rgba(52,211,153,0.15) inset;}
-.spot-line-bar{width:5px;align-self:stretch;border-radius:4px;flex-shrink:0;}
+/* ---------- focus card ---------- */
+.focus-card{margin:14px 0 0;background:linear-gradient(160deg, var(--fc-tint,#1c2a3d), var(--panel) 55%);border:1px solid var(--border);border-radius:16px;padding:14px 15px;}
+.focus-empty{text-align:center;padding:26px 16px;color:var(--text-faint);font-size:13px;}
+.focus-top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;}
+.focus-line-pill{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:700;font-family:'Space Grotesk',sans-serif;color:#fff;padding:3px 9px;border-radius:20px;text-transform:uppercase;letter-spacing:0.02em;}
+.focus-new-tag{font-size:10px;font-weight:800;color:#0B1420;background:#FF5D8F;padding:2px 8px;border-radius:20px;letter-spacing:0.03em;}
+.focus-caught-tag{font-size:10px;font-weight:700;color:var(--text-faint);border:1px solid var(--border);padding:2px 8px;border-radius:20px;}
+.focus-title{font-family:'Space Grotesk',sans-serif;font-weight:800;font-size:24px;margin-top:9px;letter-spacing:-0.01em;}
+.focus-subtitle{color:var(--text-dim);font-size:13px;margin-top:2px;}
+.focus-meta-row{display:flex;align-items:center;gap:10px;margin-top:11px;flex-wrap:wrap;}
+.focus-dist{font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--text-dim);}
+.focus-dist.close{color:#34D399;font-weight:700;}
+.focus-status{font-size:12.5px;color:var(--text-faint);}
+.car-chip-row{display:flex;gap:7px;overflow-x:auto;margin-top:12px;padding-bottom:2px;-ms-overflow-style:none;scrollbar-width:none;}
+.car-chip-row::-webkit-scrollbar{display:none;}
+.car-chip{flex-shrink:0;display:flex;align-items:center;gap:5px;padding:6px 11px;border-radius:10px;border:1.5px solid var(--border);background:rgba(255,255,255,0.03);color:var(--text-dim);font-family:'IBM Plex Mono',monospace;font-size:12.5px;cursor:pointer;}
+.car-chip.active{border-color:#fff;color:#fff;background:rgba(255,255,255,0.08);}
+.car-chip .dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;}
+.car-chip .caught-mark{font-size:10px;}
+
+/* ---------- map ---------- */
+.map-wrap{position:relative;height:320px;border-radius:16px;overflow:hidden;margin:14px 0;border:1px solid var(--border);background:#0B1420;}
+#leafletMap{width:100%;height:100%;}
+.map-recenter-btn{position:absolute;right:10px;bottom:10px;width:38px;height:38px;border-radius:50%;background:rgba(16,29,47,0.92);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;color:var(--text);z-index:500;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,0.4);font-size:16px;}
+.train-marker-wrap{position:relative;}
+.train-dot{border-radius:50%;border:2px solid rgba(255,255,255,0.85);box-shadow:0 0 6px rgba(0,0,0,0.55);}
+.train-dot.focused{border-color:#fff;box-shadow:0 0 0 5px rgba(255,255,255,0.22), 0 0 10px rgba(0,0,0,0.6);}
+.train-dot-badge{position:absolute;top:-6px;right:-8px;background:#0B1420;color:#fff;font-size:9px;font-weight:700;border-radius:8px;padding:1px 4px;border:1px solid rgba(255,255,255,0.45);}
+.user-dot{width:14px;height:14px;border-radius:50%;background:#4F9CFF;border:3px solid #fff;box-shadow:0 0 0 6px rgba(79,156,255,0.22);}
+
+.nearby-label{font-size:11px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:0.05em;margin:16px 2px 8px;}
+
+/* ---------- nearby list ---------- */
+.spot-list{display:flex;flex-direction:column;gap:8px;margin:0 0 20px;}
+.spot-card{display:flex;align-items:center;gap:11px;background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:10px 12px;cursor:pointer;}
+.spot-card.focused{border-color:rgba(255,255,255,0.4);}
+.spot-card.in-range{box-shadow:0 0 0 1px rgba(52,211,153,0.25) inset;}
+.spot-line-bar{width:4px;align-self:stretch;border-radius:4px;flex-shrink:0;}
 .spot-main{flex:1;min-width:0;}
 .spot-top{display:flex;align-items:baseline;gap:7px;flex-wrap:wrap;}
-.spot-carnum{font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:15px;}
-.spot-line-label{font-size:11.5px;color:var(--text-faint);}
-.spot-sub{font-size:12.5px;color:var(--text-dim);margin-top:2px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;}
-.rarity-pill{display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:700;font-family:'Space Grotesk',sans-serif;padding:2px 7px;border-radius:20px;letter-spacing:0.02em;text-transform:uppercase;}
-.spot-dist{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--text-faint);white-space:nowrap;}
-.spot-dist.close{color:#34D399;font-weight:600;}
-.capture-btn{flex-shrink:0;padding:9px 14px;border-radius:10px;border:none;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:12.5px;cursor:pointer;background:var(--accent);color:#fff;}
-.capture-btn:disabled{background:transparent;border:1px solid var(--border);color:var(--text-faint);cursor:default;}
-.capture-btn.caught{background:transparent;border:1px solid var(--border);color:var(--text-faint);}
+.spot-line-name{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13.5px;}
+.spot-car-count{font-size:11.5px;color:var(--text-faint);}
+.spot-sub{font-size:12px;color:var(--text-faint);margin-top:2px;}
+.spot-dist{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--text-faint);white-space:nowrap;flex-shrink:0;}
+.spot-dist.close{color:#34D399;font-weight:700;}
 
-.empty-state{text-align:center;padding:36px 16px;color:var(--text-faint);font-size:13.5px;line-height:1.6;}
-.empty-state .big{font-size:30px;display:block;margin-bottom:8px;}
+.empty-state{text-align:center;padding:30px 16px;color:var(--text-faint);font-size:13.5px;line-height:1.6;}
+.empty-state .big{font-size:28px;display:block;margin-bottom:8px;}
+
+/* ---------- catch bar ---------- */
+.catch-bar{position:fixed;left:0;right:0;bottom:0;z-index:700;padding:12px 16px calc(12px + env(safe-area-inset-bottom));background:linear-gradient(0deg, rgba(11,20,32,0.98) 60%, rgba(11,20,32,0.7));display:none;}
+.catch-bar.visible{display:block;}
+.catch-btn{width:100%;max-width:640px;margin:0 auto;display:block;padding:15px;border-radius:14px;border:none;background:#34D399;color:#08120D;font-family:'Space Grotesk',sans-serif;font-weight:800;font-size:15.5px;cursor:pointer;box-shadow:0 6px 20px rgba(52,211,153,0.25);}
+.catch-btn:disabled{background:var(--panel-2);color:var(--text-faint);box-shadow:none;cursor:default;}
 
 /* ---------- collection ---------- */
 .dex-strip{display:flex;overflow-x:auto;gap:8px;padding:14px 0 6px;-ms-overflow-style:none;scrollbar-width:none;}
@@ -114,15 +150,10 @@ a{color:inherit;}
 .tcard-type{font-size:12px;color:var(--text-dim);margin-top:3px;}
 .tcard-foot{display:flex;justify-content:space-between;align-items:center;margin-top:auto;padding-top:6px;border-top:1px solid var(--border);font-size:10.5px;color:var(--text-faint);}
 
-/* ---------- rarity color helpers, applied via inline style var --------- */
-.r-common{--rc:var(--common);}
-.r-uncommon{--rc:var(--uncommon);}
-.r-rare{--rc:var(--rare);}
-.r-ultra{--rc:var(--ultra);}
-.r-legendary{--rc:var(--legendary);}
+.rarity-pill{display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:700;font-family:'Space Grotesk',sans-serif;padding:2px 7px;border-radius:20px;letter-spacing:0.02em;text-transform:uppercase;}
 
 /* ---------- modal ---------- */
-.modal-backdrop{position:fixed;inset:0;background:rgba(4,8,13,0.72);display:flex;align-items:flex-end;justify-content:center;z-index:50;}
+.modal-backdrop{position:fixed;inset:0;background:rgba(4,8,13,0.72);display:flex;align-items:flex-end;justify-content:center;z-index:2000;}
 .modal-sheet{width:100%;max-width:460px;background:var(--panel);border-radius:20px 20px 0 0;padding:22px 20px 28px;max-height:82vh;overflow-y:auto;}
 .modal-close{width:100%;text-align:center;color:var(--text-faint);font-size:12.5px;margin-top:16px;cursor:pointer;}
 .modal-rarity-badge{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;font-family:'Space Grotesk',sans-serif;padding:3px 10px;border-radius:20px;text-transform:uppercase;letter-spacing:0.03em;margin-bottom:10px;}
@@ -132,9 +163,9 @@ a{color:inherit;}
 .detail-row .v{color:var(--text);font-weight:500;text-align:right;max-width:60%;}
 
 /* ---------- toast ---------- */
-.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--panel-2);border:1px solid var(--border);border-radius:14px;padding:12px 18px;display:flex;align-items:center;gap:10px;box-shadow:0 8px 30px rgba(0,0,0,0.4);z-index:60;font-size:13.5px;max-width:90vw;}
+.toast{position:fixed;left:50%;bottom:96px;transform:translateX(-50%);background:var(--panel-2);border:1px solid var(--border);border-radius:14px;padding:12px 18px;display:flex;align-items:center;gap:10px;box-shadow:0 8px 30px rgba(0,0,0,0.4);z-index:2100;font-size:13.5px;max-width:90vw;}
 .toast .big{font-size:20px;}
-.spinner{width:16px;height:16px;border-radius:50%;border:2px solid rgba(255,255,255,0.25);border-top-color:#fff;animation:spin 0.7s linear infinite;flex-shrink:0;}
+.spinner{width:16px;height:16px;border-radius:50%;border:2px solid rgba(0,0,0,0.25);border-top-color:#08120D;animation:spin 0.7s linear infinite;flex-shrink:0;display:inline-block;}
 @keyframes spin{to{transform:rotate(360deg);}}
 
 .hidden{display:none !important;}
@@ -170,7 +201,7 @@ a{color:inherit;}
       <svg viewBox="0 0 24 24" width="16" height="16" fill="none"><circle cx="12" cy="8" r="4" stroke="currentColor" stroke-width="2"/><path d="M4 20c0-4.4 3.6-7 8-7s8 2.6 8 7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
       Sign in with Google to play
     </button>
-    <div class="intro-tip">📡 GPS is weakest underground — capturing works best above ground, at outdoor stations, or on the surface branches (Green B/C/D/E, Mattapan, and the outdoor ends of Red/Orange/Blue).</div>
+    <div class="intro-tip" id="introTip">📡 GPS is weakest underground — capturing works best above ground, at outdoor stations, or on the surface branches (Green B/C/D/E, Mattapan, and the outdoor ends of Red/Orange/Blue).</div>
   </div>
 
   <!-- Signed-in app -->
@@ -192,6 +223,14 @@ a{color:inherit;}
         <div style="flex:1;">Location access is off, so distances can't be shown. <span style="text-decoration:underline;cursor:pointer;" id="retryLocBtn">Try again</span></div>
       </div>
 
+      <div id="focusCard" class="focus-card"><div class="focus-empty">Loading live vehicles…</div></div>
+
+      <div class="map-wrap">
+        <div id="leafletMap"></div>
+        <button class="map-recenter-btn" id="mapRecenterBtn" title="Recenter on me">⦿</button>
+      </div>
+
+      <div class="nearby-label">Nearby</div>
       <div id="spotList" class="spot-list"></div>
     </div>
 
@@ -213,12 +252,17 @@ a{color:inherit;}
   </div>
 </div>
 
+<div class="catch-bar" id="catchBar">
+  <button class="catch-btn" id="catchBtn" disabled>Get closer to catch</button>
+</div>
+
 <div id="modalRoot"></div>
 <div id="toastRoot"></div>
 
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 /* ============================================================
    Firebase — same project as the main In the Loop app
@@ -310,6 +354,7 @@ const LINE_META = {
   blue:     { label:'Blue Line',     color:'#003DA5' }
 };
 const BRANCH_COLOR = { B:'#ED7093', C:'#7CE094', D:'#F9DE51', E:'#6FE9FC' };
+const STATUS_LABELS = { INCOMING_AT:'Arriving at', STOPPED_AT:'Stopped at', IN_TRANSIT_TO:'Approaching' };
 
 const RARITY_META = {
   legendary: { label:'Legendary', order:4, color:'var(--legendary)' },
@@ -342,7 +387,7 @@ const DEX = [
 ];
 
 /* ============================================================
-   Distance
+   Distance — displayed in feet / miles throughout
    ============================================================ */
 function haversineMeters(lat1, lon1, lat2, lon2){
   const R = 6371000;
@@ -351,12 +396,17 @@ function haversineMeters(lat1, lon1, lat2, lon2){
   const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 }
+function metersToFeet(m){ return m * 3.28084; }
 function formatDistance(m){
   if(m == null) return '—';
-  if(m < 1000) return Math.round(m) + 'm';
-  return (m/1000).toFixed(1) + 'km';
+  const ft = metersToFeet(m);
+  if(ft < 1000) return Math.round(ft) + ' ft';
+  return (ft / 5280).toFixed(1) + ' mi';
 }
-const CAPTURE_RADIUS_M = 500;
+const CAPTURE_RADIUS_FT = 1600; // ~0.3 mi — roughly "at or near the platform"
+const CAPTURE_RADIUS_M = CAPTURE_RADIUS_FT / 3.28084;
+document.getElementById('introTip').innerHTML =
+  `📡 GPS is weakest underground — capturing works best above ground, at outdoor stations, or on the surface branches (Green B/C/D/E, Mattapan, and the outdoor ends of Red/Orange/Blue). You need to be within about ${CAPTURE_RADIUS_FT.toLocaleString()} ft of a vehicle to catch it.`;
 
 /* ============================================================
    State
@@ -365,11 +415,13 @@ const state = {
   user: null,
   position: null,
   posError: null,
-  vehicles: [],
-  cards: {},           // cardId -> card doc data
+  trains: [],              // grouped live vehicles, each with .cars[]
+  cards: {},                // cardId -> card doc data
   cardsLoaded: false,
   activeTab: 'spot',
-  capturing: {}         // cardId -> true while a capture write is in flight
+  focusedTrainId: null,
+  focusedCarIndex: 0,
+  capturing: {}              // cardId -> true while a capture write is in flight
 };
 
 /* ============================================================
@@ -390,12 +442,17 @@ if(firebaseReady){
     if(user){
       document.getElementById('introGate').classList.add('hidden');
       document.getElementById('appRoot').classList.remove('hidden');
+      document.body.classList.add('has-catchbar');
+      document.getElementById('catchBar').classList.add('visible');
+      ensureMap();
       startLocation();
       startVehiclePolling();
       loadCollection();
     } else {
       document.getElementById('introGate').classList.remove('hidden');
       document.getElementById('appRoot').classList.add('hidden');
+      document.body.classList.remove('has-catchbar');
+      document.getElementById('catchBar').classList.remove('visible');
     }
   });
 } else {
@@ -430,7 +487,9 @@ function setTab(tab){
   document.getElementById('collectionTabBtn').classList.toggle('active', tab === 'collection');
   document.getElementById('spotTab').classList.toggle('hidden', tab !== 'spot');
   document.getElementById('collectionTab').classList.toggle('hidden', tab !== 'collection');
+  document.getElementById('catchBar').classList.toggle('visible', tab === 'spot' && !!state.user);
   if(tab === 'collection') renderCollection();
+  if(tab === 'spot') ensureMap();
 }
 
 /* ============================================================
@@ -449,12 +508,12 @@ function startLocation(){
       state.position = { lat: pos.coords.latitude, lon: pos.coords.longitude, accuracy: pos.coords.accuracy };
       state.posError = null;
       renderLocBanner();
-      renderSpotList();
+      renderAll();
     },
     err => {
       state.posError = err.code === 1 ? 'denied' : 'unavailable';
       renderLocBanner();
-      renderSpotList();
+      renderAll();
     },
     { enableHighAccuracy:true, maximumAge:8000, timeout:15000 }
   );
@@ -477,8 +536,8 @@ function renderLocBanner(){
   banner.classList.remove('hidden');
   if(state.position){
     dot.classList.add('live');
-    const acc = Math.round(state.position.accuracy || 0);
-    text.innerHTML = `<b>Location on</b> — accurate to ~${acc}m. Get within ${CAPTURE_RADIUS_M}m of a vehicle to catch it.`;
+    const accFt = Math.round(metersToFeet(state.position.accuracy || 0));
+    text.innerHTML = `<b>Location on</b> — accurate to ~${accFt.toLocaleString()} ft. Get within ${CAPTURE_RADIUS_FT.toLocaleString()} ft of a vehicle to catch it.`;
   } else {
     dot.classList.remove('live');
     text.textContent = 'Requesting location…';
@@ -487,10 +546,71 @@ function renderLocBanner(){
 renderLocBanner();
 
 /* ============================================================
-   MBTA vehicle fetching
+   Map (Leaflet, CARTO dark tiles — no API key required)
+   ============================================================ */
+let leafletMap = null, userMarker = null, radiusCircle = null;
+let trainMarkers = {};
+function ensureMap(){
+  if(!leafletMap){
+    leafletMap = L.map('leafletMap', { zoomControl:true }).setView([42.3601, -71.0589], 12);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      subdomains: 'abcd',
+      maxZoom: 20,
+      attribution: '&copy; OpenStreetMap &copy; CARTO'
+    }).addTo(leafletMap);
+  }
+  setTimeout(() => { if(leafletMap) leafletMap.invalidateSize(); }, 60);
+}
+document.getElementById('mapRecenterBtn').addEventListener('click', () => {
+  if(leafletMap && state.position) leafletMap.setView([state.position.lat, state.position.lon], 15);
+});
+function updateMapUserPosition(){
+  if(!leafletMap || !state.position) return;
+  const ll = [state.position.lat, state.position.lon];
+  if(!userMarker){
+    const icon = L.divIcon({ className:'', html:'<div class="user-dot"></div>', iconSize:[14,14], iconAnchor:[7,7] });
+    userMarker = L.marker(ll, { icon, zIndexOffset:1000 }).addTo(leafletMap);
+    leafletMap.setView(ll, 14);
+  } else {
+    userMarker.setLatLng(ll);
+  }
+  if(!radiusCircle){
+    radiusCircle = L.circle(ll, { radius: CAPTURE_RADIUS_M, color:'#34D399', weight:1.5, fillColor:'#34D399', fillOpacity:0.08 }).addTo(leafletMap);
+  } else {
+    radiusCircle.setLatLng(ll);
+  }
+}
+function renderMapMarkers(withDist){
+  if(!leafletMap) return;
+  const seen = new Set();
+  withDist.forEach(t => {
+    seen.add(t.id);
+    const isFocused = t.id === state.focusedTrainId;
+    const color = (t.branch && BRANCH_COLOR[t.branch]) || (LINE_META[t.displayLine] || LINE_META[t.idLine]).color;
+    const size = isFocused ? 22 : 14;
+    const badge = t.cars.length > 1 ? `<div class="train-dot-badge">${t.cars.length}</div>` : '';
+    const html = `<div class="train-dot ${isFocused ? 'focused' : ''}" style="width:${size}px;height:${size}px;background:${color};"></div>${badge}`;
+    const icon = L.divIcon({ className:'train-marker-wrap', html, iconSize:[size, size], iconAnchor:[size/2, size/2] });
+    if(trainMarkers[t.id]){
+      trainMarkers[t.id].setLatLng([t.lat, t.lon]);
+      trainMarkers[t.id].setIcon(icon);
+    } else {
+      const m = L.marker([t.lat, t.lon], { icon });
+      m.on('click', () => focusTrain(t.id));
+      m.addTo(leafletMap);
+      trainMarkers[t.id] = m;
+    }
+  });
+  Object.keys(trainMarkers).forEach(id => {
+    if(!seen.has(id)){ leafletMap.removeLayer(trainMarkers[id]); delete trainMarkers[id]; }
+  });
+}
+
+/* ============================================================
+   MBTA vehicle fetching — one entry per physical car, not per train
    ============================================================ */
 async function fetchLine(routeFilter, idLine, typeFn){
-  const url = withMbtaKey(`https://api-v3.mbta.com/vehicles?filter[route]=${routeFilter}&include=stop&fields[vehicle]=current_status,direction_id,label,latitude,longitude,updated_at,speed&fields[stop]=name`);
+  const url = withMbtaKey(`https://api-v3.mbta.com/vehicles?filter[route]=${routeFilter}&include=stop&fields[vehicle]=current_status,label,latitude,longitude,updated_at,carriages&fields[stop]=name`);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 7000);
   let json;
@@ -508,27 +628,32 @@ async function fetchLine(routeFilter, idLine, typeFn){
     const routeId = v.relationships && v.relationships.route && v.relationships.route.data ? v.relationships.route.data.id : '';
     const stopRel = v.relationships && v.relationships.stop && v.relationships.stop.data;
     const stopName = stopRel ? (includedStops['stop:' + stopRel.id] || {}).name : null;
-    const label = v.attributes.label || v.id;
     let branch = null, displayLine = idLine;
     if(idLine === 'green'){
       branch = routeId.replace('Green-', '');
       if(branch === 'Mattapan'){ branch = 'MATTAPAN'; displayLine = 'mattapan'; }
     }
-    const carType = typeFn(label);
-    const isPride = idLine === 'green' && String(label) === PRIDE_CAR_NUMBER;
+    // Individual cars in the consist, not just the lead car's label —
+    // a 2-car train shows (and is catchable) as two separate cars.
+    const rawCarriages = Array.isArray(v.attributes.carriages) ? v.attributes.carriages.filter(c => c && c.label != null) : [];
+    const labels = rawCarriages.length ? rawCarriages.map(c => String(c.label)) : [String(v.attributes.label || v.id)];
+    const uniqueLabels = [...new Set(labels)];
+    const cars = uniqueLabels.map(label => {
+      const carType = typeFn(label);
+      const isPride = idLine === 'green' && label === PRIDE_CAR_NUMBER;
+      return { label, carType, isPride, rarity: getRarity(idLine, carType, isPride) };
+    });
     return {
       id: v.id,
       idLine, displayLine, branch,
-      label: String(label),
-      carType, isPride,
-      rarity: getRarity(idLine, carType, isPride),
       status: v.attributes.current_status,
       lat: v.attributes.latitude,
       lon: v.attributes.longitude,
       stopName,
-      updatedAt: v.attributes.updated_at
+      updatedAt: v.attributes.updated_at,
+      cars
     };
-  }).filter(v => typeof v.lat === 'number' && typeof v.lon === 'number');
+  }).filter(t => typeof t.lat === 'number' && typeof t.lon === 'number' && t.cars.length);
 }
 
 async function refreshVehicles(){
@@ -539,9 +664,9 @@ async function refreshVehicles(){
       fetchLine('Orange', 'orange', getOrangeCarType),
       fetchLine('Blue', 'blue', getBlueCarType)
     ]);
-    state.vehicles = [...green, ...red, ...orange, ...blue];
+    state.trains = [...green, ...red, ...orange, ...blue];
   }catch(e){ /* keep showing the last-known list on failure */ }
-  renderSpotList();
+  renderAll();
 }
 let pollTimer = null;
 function startVehiclePolling(){
@@ -551,19 +676,30 @@ function startVehiclePolling(){
 }
 
 /* ============================================================
-   Spot list rendering
+   Card id + focus selection
    ============================================================ */
-function cardIdFor(v){ return `${v.idLine}_${v.label}`; }
+function cardIdFor(idLine, label){ return `${idLine}_${label}`; }
+function focusTrain(id){
+  state.focusedTrainId = id;
+  state.focusedCarIndex = 0;
+  renderAll();
+}
 
-function renderSpotList(){
-  const list = document.getElementById('spotList');
-  if(!state.vehicles.length){
-    list.innerHTML = `<div class="empty-state"><span class="big">📡</span>Loading live vehicles…</div>`;
+/* ============================================================
+   Master render pass — focus card, map, nearby list, catch bar
+   ============================================================ */
+function renderAll(){
+  if(!state.trains.length){
+    document.getElementById('focusCard').innerHTML = `<div class="focus-empty">📡 Loading live vehicles…</div>`;
+    document.getElementById('spotList').innerHTML = '';
+    updateMapUserPosition();
+    renderCatchBar(null, null);
     return;
   }
-  const withDist = state.vehicles.map(v => {
-    const dist = state.position ? haversineMeters(state.position.lat, state.position.lon, v.lat, v.lon) : null;
-    return Object.assign({}, v, { dist });
+
+  const withDist = state.trains.map(t => {
+    const dist = state.position ? haversineMeters(state.position.lat, state.position.lon, t.lat, t.lon) : null;
+    return Object.assign({}, t, { dist });
   });
   withDist.sort((a, b) => {
     if(a.dist == null && b.dist == null) return 0;
@@ -571,107 +707,184 @@ function renderSpotList(){
     if(b.dist == null) return -1;
     return a.dist - b.dist;
   });
-  const shown = state.position ? withDist : withDist.slice(0, 12);
 
-  if(!shown.length){
-    list.innerHTML = `<div class="empty-state"><span class="big">🚇</span>No live vehicles right now — check back in a moment.</div>`;
+  // Keep the user's manual focus if that train is still live; otherwise
+  // default to the nearest in-range train, or just the nearest overall.
+  let focused = withDist.find(t => t.id === state.focusedTrainId);
+  if(!focused){
+    focused = withDist.find(t => t.dist != null && t.dist <= CAPTURE_RADIUS_M) || withDist[0];
+    state.focusedTrainId = focused ? focused.id : null;
+    state.focusedCarIndex = 0;
+  }
+  if(state.focusedCarIndex >= (focused ? focused.cars.length : 0)) state.focusedCarIndex = 0;
+
+  renderFocusCard(focused);
+  renderNearbyList(withDist);
+  updateMapUserPosition();
+  renderMapMarkers(withDist);
+  renderCatchBar(focused, focused ? focused.cars[state.focusedCarIndex] : null);
+}
+
+function renderFocusCard(t){
+  const root = document.getElementById('focusCard');
+  if(!t){
+    root.innerHTML = `<div class="focus-empty">🚇 No live vehicles right now — check back in a moment.</div>`;
+    root.style.setProperty('--fc-tint', '#1c2a3d');
     return;
   }
+  const meta = LINE_META[t.displayLine] || LINE_META[t.idLine];
+  const car = t.cars[state.focusedCarIndex] || t.cars[0];
+  const rarity = RARITY_META[car.rarity];
+  const cardId = cardIdFor(t.idLine, car.label);
+  const alreadyCaught = !!state.cards[cardId];
+  const inRange = t.dist != null && t.dist <= CAPTURE_RADIUS_M;
+  const branchLabel = t.branch === 'MATTAPAN' ? 'Mattapan' : (t.branch ? t.branch + ' Branch' : meta.label);
+  const barColor = (t.branch && BRANCH_COLOR[t.branch]) || meta.color;
+  root.style.setProperty('--fc-tint', barColor + '33');
 
-  list.innerHTML = shown.map(v => {
-    const meta = LINE_META[v.displayLine] || LINE_META[v.idLine];
-    const rarity = RARITY_META[v.rarity];
-    const cardId = cardIdFor(v);
-    const already = state.cards[cardId];
-    const inRange = v.dist != null && v.dist <= CAPTURE_RADIUS_M;
-    const branchLabel = v.branch === 'MATTAPAN' ? 'Mattapan' : (v.branch ? v.branch + ' Branch' : meta.label);
-    const barColor = (v.branch && BRANCH_COLOR[v.branch]) || meta.color;
-    let btnHtml;
-    if(state.capturing[cardId]){
-      btnHtml = `<button class="capture-btn" disabled><div class="spinner" style="border-top-color:#fff;"></div></button>`;
-    } else if(inRange){
-      btnHtml = `<button class="capture-btn" data-capture="${cardId}">${already ? 'Catch again' : 'Capture'}</button>`;
-    } else {
-      btnHtml = `<button class="capture-btn" disabled>${already ? 'Caught ✓' : 'Too far'}</button>`;
-    }
-    return `
-      <div class="spot-card ${inRange ? 'in-range' : ''}">
-        <div class="spot-line-bar" style="background:${barColor};"></div>
-        <div class="spot-main">
-          <div class="spot-top">
-            <span class="spot-carnum">${v.label}</span>
-            <span class="spot-line-label">${meta.label}${v.branch ? ' · ' + branchLabel : ''}</span>
-          </div>
-          <div class="spot-sub">
-            <span class="rarity-pill" style="color:${rarity.color};background:color-mix(in srgb, ${rarity.color} 16%, transparent);">${rarity.label}</span>
-            <span>${v.carType}${already ? ' · in your collection' : ''}</span>
-          </div>
-        </div>
-        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
-          <span class="spot-dist ${inRange ? 'close' : ''}">${state.position ? formatDistance(v.dist) : '—'}</span>
-          ${btnHtml}
-        </div>
-      </div>`;
-  }).join('');
+  const chipsHtml = t.cars.length > 1 ? `
+    <div class="car-chip-row">
+      ${t.cars.map((c, i) => {
+        const cId = cardIdFor(t.idLine, c.label);
+        const caught = !!state.cards[cId];
+        const cRarity = RARITY_META[c.rarity];
+        return `<div class="car-chip ${i === state.focusedCarIndex ? 'active' : ''}" data-car-index="${i}">
+          <span class="dot" style="background:${cRarity.color};"></span>
+          ${c.label}${caught ? '<span class="caught-mark">✓</span>' : ''}
+        </div>`;
+      }).join('')}
+    </div>` : '';
 
-  list.querySelectorAll('[data-capture]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const id = btn.getAttribute('data-capture');
-      const v = shown.find(x => cardIdFor(x) === id);
-      if(v) captureVehicle(v);
+  root.innerHTML = `
+    <div class="focus-top">
+      <div>
+        <span class="focus-line-pill" style="background:${barColor};">${meta.label}${t.branch ? ' · ' + branchLabel : ''}</span>
+      </div>
+      ${alreadyCaught ? '<span class="focus-caught-tag">In collection</span>' : '<span class="focus-new-tag">NEW</span>'}
+    </div>
+    <div class="focus-title">${car.isPride ? '🌈 ' : ''}Car ${car.label}</div>
+    <div class="focus-subtitle">${car.carType} · <span class="rarity-pill" style="color:${rarity.color};background:color-mix(in srgb, ${rarity.color} 16%, transparent);">${rarity.label}</span></div>
+    <div class="focus-meta-row">
+      <span class="focus-dist ${inRange ? 'close' : ''}">${state.position ? formatDistance(t.dist) : '—'} away</span>
+      <span class="focus-status">${(STATUS_LABELS[t.status] || 'Near')}${t.stopName ? ' ' + t.stopName : ''}</span>
+    </div>
+    ${chipsHtml}
+  `;
+
+  root.querySelectorAll('[data-car-index]').forEach(el => {
+    el.addEventListener('click', () => {
+      state.focusedCarIndex = parseInt(el.getAttribute('data-car-index'), 10);
+      renderAll();
     });
   });
+}
+
+function renderNearbyList(withDist){
+  const list = document.getElementById('spotList');
+  if(!withDist.length){
+    list.innerHTML = `<div class="empty-state"><span class="big">🚇</span>No live vehicles right now.</div>`;
+    return;
+  }
+  const shown = state.position ? withDist : withDist.slice(0, 15);
+  list.innerHTML = shown.map(t => {
+    const meta = LINE_META[t.displayLine] || LINE_META[t.idLine];
+    const inRange = t.dist != null && t.dist <= CAPTURE_RADIUS_M;
+    const isFocused = t.id === state.focusedTrainId;
+    const barColor = (t.branch && BRANCH_COLOR[t.branch]) || meta.color;
+    const branchLabel = t.branch === 'MATTAPAN' ? 'Mattapan' : (t.branch ? t.branch + ' Branch' : '');
+    return `<div class="spot-card ${isFocused ? 'focused' : ''} ${inRange ? 'in-range' : ''}" data-focus="${t.id}">
+      <div class="spot-line-bar" style="background:${barColor};"></div>
+      <div class="spot-main">
+        <div class="spot-top">
+          <span class="spot-line-name">${meta.label}${branchLabel ? ' · ' + branchLabel : ''}</span>
+          ${t.cars.length > 1 ? `<span class="spot-car-count">${t.cars.length} cars</span>` : ''}
+        </div>
+        <div class="spot-sub">${t.cars.map(c => c.label).join(', ')}</div>
+      </div>
+      <span class="spot-dist ${inRange ? 'close' : ''}">${state.position ? formatDistance(t.dist) : '—'}</span>
+    </div>`;
+  }).join('');
+
+  list.querySelectorAll('[data-focus]').forEach(el => {
+    el.addEventListener('click', () => focusTrain(el.getAttribute('data-focus')));
+  });
+}
+
+function renderCatchBar(t, car){
+  const btn = document.getElementById('catchBtn');
+  if(!t || !car){
+    btn.disabled = true;
+    btn.textContent = 'No vehicle selected';
+    btn.onclick = null;
+    return;
+  }
+  const cardId = cardIdFor(t.idLine, car.label);
+  const inRange = t.dist != null && t.dist <= CAPTURE_RADIUS_M;
+  if(state.capturing[cardId]){
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spinner"></span> Catching…`;
+    btn.onclick = null;
+    return;
+  }
+  if(!inRange){
+    btn.disabled = true;
+    btn.textContent = state.position ? `Get closer — ${formatDistance(t.dist)} away` : 'Waiting for your location…';
+    btn.onclick = null;
+    return;
+  }
+  btn.disabled = false;
+  btn.textContent = state.cards[cardId] ? `Catch car ${car.label} again` : `Catch car ${car.label}`;
+  btn.onclick = () => captureCarNow(t, car);
 }
 
 /* ============================================================
    Capture + Firestore
    ============================================================ */
-async function captureVehicle(v){
+async function captureCarNow(t, car){
   if(!state.user || !firebaseReady) return;
-  const cardId = cardIdFor(v);
+  const cardId = cardIdFor(t.idLine, car.label);
   if(state.capturing[cardId]) return;
   state.capturing[cardId] = true;
-  renderSpotList();
+  renderCatchBar(t, car);
   try{
     const ref = fbDb.collection('users').doc(state.user.uid).collection('cards').doc(cardId);
     const snap = await ref.get();
     const nowFieldValue = firebase.firestore.FieldValue.serverTimestamp();
     const commonFields = {
-      idLine: v.idLine,
-      displayLine: v.displayLine,
-      branch: v.branch,
-      label: v.label,
-      carType: v.carType,
-      isPride: v.isPride,
-      rarity: v.rarity,
+      idLine: t.idLine,
+      displayLine: t.displayLine,
+      branch: t.branch,
+      label: car.label,
+      carType: car.carType,
+      isPride: car.isPride,
+      rarity: car.rarity,
       lastCapturedAt: nowFieldValue,
-      lastLat: v.lat,
-      lastLon: v.lon,
-      lastStopName: v.stopName || null
+      lastLat: t.lat,
+      lastLon: t.lon,
+      lastStopName: t.stopName || null
     };
     if(snap.exists){
       await ref.set(Object.assign({}, commonFields, {
         captureCount: firebase.firestore.FieldValue.increment(1)
       }), { merge: true });
-      showToast(v.isPride ? '🌈' : '📸', `Spotted again — car ${v.label}`);
+      showToast(car.isPride ? '🌈' : '📸', `Spotted again — car ${car.label}`);
     } else {
       await ref.set(Object.assign({}, commonFields, {
         firstCapturedAt: nowFieldValue,
-        firstLat: v.lat,
-        firstLon: v.lon,
-        firstStopName: v.stopName || null,
+        firstLat: t.lat,
+        firstLon: t.lon,
+        firstStopName: t.stopName || null,
         captureCount: 1
       }));
-      const rarity = RARITY_META[v.rarity];
-      showToast('🎉', `New card! ${v.carType} car ${v.label} — ${rarity.label}`);
+      const rarity = RARITY_META[car.rarity];
+      showToast('🎉', `New card! ${car.carType} car ${car.label} — ${rarity.label}`);
     }
     await loadCollection();
-    renderSpotList();
   } catch(e){
     showToast('⚠️', 'Could not save that catch — try again');
   } finally {
     delete state.capturing[cardId];
-    renderSpotList();
+    renderAll();
   }
 }
 
@@ -685,6 +898,7 @@ async function loadCollection(){
     state.cardsLoaded = true;
     updateCollectionCount();
     if(state.activeTab === 'collection') renderCollection();
+    else renderAll();
   }catch(e){ /* leave last-known collection in place */ }
 }
 
