@@ -7877,11 +7877,24 @@ function keepAliveDurationFor(v){
   // VEHICLE_KEEP_ALIVE_MS below, but that ~100s window is too short to
   // reliably bridge the feed gap while a train lays over and starts its
   // next eastbound trip.
-  if(v.stopName && normName(v.stopName) === normName('Heath Street')) return HEATH_STREET_TURNBACK_KEEP_ALIVE_MS;
-  if(v.stopName && !REAL_TERMINUS_STOPS.some(s => normName(s) === normName(v.stopName))){
-    return disruptionModeCache ? NON_TERMINUS_KEEP_ALIVE_DISRUPTION_MS : NON_TERMINUS_KEEP_ALIVE_MS;
-  }
-  return VEHICLE_KEEP_ALIVE_MS;
+  const baseMs = (()=>{
+    if(v.stopName && normName(v.stopName) === normName('Heath Street')) return HEATH_STREET_TURNBACK_KEEP_ALIVE_MS;
+    if(v.stopName && !REAL_TERMINUS_STOPS.some(s => normName(s) === normName(v.stopName))){
+      return disruptionModeCache ? NON_TERMINUS_KEEP_ALIVE_DISRUPTION_MS : NON_TERMINUS_KEEP_ALIVE_MS;
+    }
+    return VEHICLE_KEEP_ALIVE_MS;
+  })();
+  // A train someone's reported "standing by" stays on the map for at least
+  // the same 10-minute grace period non-terminus trains already get, even
+  // if it's sitting at a real terminus (normally just a ~100s window) or
+  // the Heath Street turnback (7 min) — a standing-by report means people
+  // are specifically watching this train hold, so a brief feed hiccup
+  // shouldn't make it vanish before the hold itself even ends. Math.max
+  // rather than a flat override so disruption mode's longer 25-minute
+  // window (already >= 10 min) isn't shortened for a standing-by train
+  // that's also non-terminus.
+  if(standingByCache[v.id]) return Math.max(baseMs, NON_TERMINUS_KEEP_ALIVE_MS);
+  return baseMs;
 }
 const DESTINATION_OVERRIDE_STALE_MS = 5 * 60 * 1000; // clear an updated-destination report if its train hasn't been seen in 5 minutes
 let lastKnownVehicles = {}; // vehicleId -> { vehicle, lastSeenTs }
@@ -7926,10 +7939,15 @@ function clearStaleDestinationOverrides(now){
   // the train has actually passed the reported station. Not checked
   // against trip ID either, for the same reason express reports aren't:
   // Green Line trip IDs can change mid-run even for the same physical trip.
+  // Uses NON_TERMINUS_KEEP_ALIVE_MS (10 min), not the shorter 5-minute
+  // DESTINATION_OVERRIDE_STALE_MS above, to match keepAliveDurationFor's
+  // own 10-minute floor for standing-by vehicles — otherwise the report
+  // itself would clear at 5 minutes, and the map keep-alive it grants would
+  // stop applying right along with it, defeating the point of either.
   Object.keys(standingByCache).forEach(vehicleId=>{
     const report = standingByCache[vehicleId];
     const lastSeen = vehicleLastSeenTs[vehicleId];
-    if(lastSeen === undefined || (now - lastSeen) > DESTINATION_OVERRIDE_STALE_MS){
+    if(lastSeen === undefined || (now - lastSeen) > NON_TERMINUS_KEEP_ALIVE_MS){
       clearStandingByReport(vehicleId);
       return;
     }
