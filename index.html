@@ -11996,13 +11996,24 @@ function isOnLiveTrackPage(){
 // for data nothing on screen uses. Direct, ad-hoc calls to the underlying
 // function elsewhere in the code (e.g. right after saving an edit) are
 // completely unaffected — this only gates the recurring interval tick.
-function startGatedPoll(fn, ms, { scopeToLivePage = true } = {}){
+// staggerMs delays only the RECURRING interval's start, not the immediate
+// fn() call above — every cache still populates as fast as possible on
+// load, but a dozen-plus 60s polls that all started within the same
+// init() call would otherwise all land on the exact same tick forever
+// after, firing a burst of a dozen+ simultaneous network requests (and a
+// dozen+ re-renders) every single minute instead of spreading that same
+// work out. See the staggerMs values passed in below.
+function startGatedPoll(fn, ms, { scopeToLivePage = true, staggerMs = 0 } = {}){
   fn();
-  setInterval(()=>{
-    if(document.visibilityState === 'hidden') return;
-    if(scopeToLivePage && !isOnLiveTrackPage()) return;
-    fn();
-  }, ms);
+  const begin = ()=>{
+    setInterval(()=>{
+      if(document.visibilityState === 'hidden') return;
+      if(scopeToLivePage && !isOnLiveTrackPage()) return;
+      fn();
+    }, ms);
+  };
+  if(staggerMs > 0) setTimeout(begin, staggerMs);
+  else begin();
 }
 
 async function init(){
@@ -12121,6 +12132,10 @@ async function init(){
   // is visible again, same as every other startGatedPoll call below.
   startGatedPoll(refreshVehicles, 10000, { scopeToLivePage: false });
 
+  // refreshEnhancedTripData (also 10s, below) is offset by half a cycle so
+  // the two don't land on the same tick forever — see startGatedPoll's own
+  // staggerMs comment.
+
   updateDiscordBanner();
 
   // Alerts + moderator notifications now share one bell button and one
@@ -12129,8 +12144,14 @@ async function init(){
   // each); checkCarBackInServiceNotifications reads a full small
   // collection — neither needs to run while the tab is backgrounded, and
   // both catch up immediately once it's visible again.
-  startGatedPoll(checkForAlertsAndNotifications, 60000, { scopeToLivePage: false });
-  startGatedPoll(checkCarBackInServiceNotifications, 60000, { scopeToLivePage: false });
+  // The 15 startGatedPoll(..., 60000) calls in this init() (these 2 plus the
+  // 13 further below) all used to land on the exact same tick every single
+  // minute — they're spread across the 60s window in 4s increments here
+  // (staggerMs) purely so that burst of a dozen-plus simultaneous requests/
+  // re-renders doesn't happen, without changing what any of them actually
+  // do or how often. See startGatedPoll's own comment.
+  startGatedPoll(checkForAlertsAndNotifications, 60000, { scopeToLivePage: false, staggerMs: 0 });
+  startGatedPoll(checkCarBackInServiceNotifications, 60000, { scopeToLivePage: false, staggerMs: 4000 });
 
   document.getElementById('pushEnableBtn').addEventListener('click', subscribeToPushNotifications);
   checkPushSubscriptionStatus();
@@ -12149,26 +12170,28 @@ async function init(){
   // isOnLiveTrackPage/startGatedPoll above. Each used to be a full,
   // uncached collection read fired every 60s no matter what page you were
   // on or whether the tab was even visible.
-  startGatedPoll(refreshConsistOverrideCache, 60000);
-  startGatedPoll(refreshDestinationOverrideCache, 60000);
-  startGatedPoll(refreshDisruptionModeCache, 60000);
-  startGatedPoll(refreshRedOriginLogCache, 60000);
-  startGatedPoll(refreshOutOfServiceCache, 60000);
-  startGatedPoll(refreshDroppedTripsCache, 60000);
-  startGatedPoll(refreshHiddenTrainsCache, 60000);
-  startGatedPoll(refreshOperatorSearchCache, 60000);
-  startGatedPoll(refreshLiveDiversionBypassCache, 60000);
+  startGatedPoll(refreshConsistOverrideCache, 60000, { staggerMs: 8000 });
+  startGatedPoll(refreshDestinationOverrideCache, 60000, { staggerMs: 12000 });
+  startGatedPoll(refreshDisruptionModeCache, 60000, { staggerMs: 16000 });
+  startGatedPoll(refreshRedOriginLogCache, 60000, { staggerMs: 20000 });
+  startGatedPoll(refreshOutOfServiceCache, 60000, { staggerMs: 24000 });
+  startGatedPoll(refreshDroppedTripsCache, 60000, { staggerMs: 28000 });
+  startGatedPoll(refreshHiddenTrainsCache, 60000, { staggerMs: 32000 });
+  startGatedPoll(refreshOperatorSearchCache, 60000, { staggerMs: 36000 });
+  startGatedPoll(refreshLiveDiversionBypassCache, 60000, { staggerMs: 40000 });
 
   // Matches the edge cache's s-maxage=10 on /api/enhanced-vehicle-positions
   // (see that file) — polling any faster wouldn't get fresher data than
   // what's already sitting in the cache, just more requests to it. Gated
-  // by tab visibility for the same reason as refreshVehicles above.
-  startGatedPoll(refreshEnhancedTripData, 10000, { scopeToLivePage: false });
+  // by tab visibility for the same reason as refreshVehicles above. Offset
+  // 5s from refreshVehicles' own 10s cycle (see that call) so the two
+  // 10-second polls don't coincide either.
+  startGatedPoll(refreshEnhancedTripData, 10000, { scopeToLivePage: false, staggerMs: 5000 });
 
-  startGatedPoll(refreshSoloType7OverrideCache, 60000);
-  startGatedPoll(refreshBranchReassignmentCache, 60000);
-  startGatedPoll(refreshStandingByCache, 60000);
-  startGatedPoll(refreshExpressReportCache, 60000);
+  startGatedPoll(refreshSoloType7OverrideCache, 60000, { staggerMs: 44000 });
+  startGatedPoll(refreshBranchReassignmentCache, 60000, { staggerMs: 48000 });
+  startGatedPoll(refreshStandingByCache, 60000, { staggerMs: 52000 });
+  startGatedPoll(refreshExpressReportCache, 60000, { staggerMs: 56000 });
 
   routeOnLoad();
 }
