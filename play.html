@@ -97,7 +97,7 @@ a{color:inherit;}
 .map-wrap{position:relative;height:320px;border-radius:16px;overflow:hidden;margin:14px 0;border:1px solid var(--border);background:#0B1420;}
 #leafletMap{width:100%;height:100%;}
 .map-recenter-btn{position:absolute;right:10px;bottom:10px;width:38px;height:38px;border-radius:50%;background:rgba(16,29,47,0.92);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;color:var(--text);z-index:500;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,0.4);font-size:16px;}
-.train-marker-wrap{position:relative;}
+.train-marker-inner{position:relative;width:100%;height:100%;}
 .train-dot{border-radius:50%;border:2px solid rgba(255,255,255,0.85);box-shadow:0 0 6px rgba(0,0,0,0.55);}
 .train-dot.focused{border-color:#fff;box-shadow:0 0 0 5px rgba(255,255,255,0.22), 0 0 10px rgba(0,0,0,0.6);}
 .train-dot-badge{position:absolute;top:-6px;right:-8px;background:#0B1420;color:#fff;font-size:9px;font-weight:700;border-radius:8px;padding:1px 4px;border:1px solid rgba(255,255,255,0.45);}
@@ -608,7 +608,7 @@ function renderMapMarkers(withDist){
     const color = (t.branch && BRANCH_COLOR[t.branch]) || (LINE_META[t.displayLine] || LINE_META[t.idLine]).color;
     const size = isFocused ? 22 : 14;
     const badge = t.cars.length > 1 ? `<div class="train-dot-badge">${t.cars.length}</div>` : '';
-    const html = `<div class="train-dot ${isFocused ? 'focused' : ''}" style="width:${size}px;height:${size}px;background:${color};"></div>${badge}`;
+    const html = `<div class="train-marker-inner"><div class="train-dot ${isFocused ? 'focused' : ''}" style="width:${size}px;height:${size}px;background:${color};"></div>${badge}</div>`;
     const icon = L.divIcon({ className:'train-marker-wrap', html, iconSize:[size, size], iconAnchor:[size/2, size/2] });
     if(trainMarkers[t.id]){
       trainMarkers[t.id].setLatLng([t.lat, t.lon]);
