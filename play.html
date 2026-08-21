@@ -5,8 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Play — In the Loop</title>
 <meta name="description" content="Spot real MBTA vehicles near you and collect them as cards. A companion game to In the Loop, the MBTA subway tracker.">
-<link rel="icon" type="image/x-icon" href="/favicon.ico">
-<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="32x32" href="/play-favicon-32.png">
+<link rel="icon" type="image/png" sizes="192x192" href="/play-favicon-192.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/play-apple-touch-icon.png">
 <meta name="theme-color" content="#0B1420">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Play — In the Loop">
@@ -97,12 +98,11 @@ a{color:inherit;}
 .car-chip .caught-mark{font-size:10px;}
 
 /* ---------- map (full-bleed, fills most of the screen) ---------- */
-.map-wrap{position:relative;width:100%;height:calc(100dvh - 122px - var(--catchbar-h));min-height:340px;overflow:hidden;background:#0B1420;border-top:1px solid var(--border);border-bottom:1px solid var(--border);margin-top:14px;}
+.map-wrap{position:relative;width:100%;height:calc(100dvh - 122px);min-height:340px;overflow:hidden;background:#0B1420;border-top:1px solid var(--border);border-bottom:1px solid var(--border);margin-top:14px;}
 #leafletMap{width:100%;height:100%;}
 .map-recenter-btn{position:absolute;right:10px;bottom:10px;width:38px;height:38px;border-radius:50%;background:rgba(16,29,47,0.92);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;color:var(--text);z-index:500;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,0.4);font-size:16px;}
 .train-marker-inner{position:relative;width:100%;height:100%;}
-.train-dot{border-radius:50%;border:2px solid rgba(255,255,255,0.85);box-shadow:0 0 6px rgba(0,0,0,0.55);}
-.train-dot.focused{border-color:#fff;box-shadow:0 0 0 5px rgba(255,255,255,0.22), 0 0 10px rgba(0,0,0,0.6);}
+.train-marker-inner svg{filter:drop-shadow(0 0 4px rgba(0,0,0,0.5));}
 .train-dot-badge{position:absolute;top:-6px;right:-8px;background:#0B1420;color:#fff;font-size:9px;font-weight:700;border-radius:8px;padding:1px 4px;border:1px solid rgba(255,255,255,0.45);}
 .user-dot{width:14px;height:14px;border-radius:50%;background:#4F9CFF;border:3px solid #fff;box-shadow:0 0 0 6px rgba(79,156,255,0.22);}
 
@@ -114,7 +114,7 @@ a{color:inherit;}
    edge, right above the fixed Catch bar, like Lightning Stripes' Nearby
    toolbar. Fixed positioning (not normal flow) so the expanded list can
    never end up hidden underneath the fixed Catch bar. ---------- */
-.nearby-sheet{position:fixed;left:0;right:0;bottom:var(--catchbar-h);z-index:600;padding:0 16px;box-sizing:border-box;pointer-events:none;}
+.nearby-sheet{position:fixed;left:0;right:0;bottom:var(--catchbar-h);z-index:1200;padding:0 16px;box-sizing:border-box;pointer-events:none;}
 .nearby-inner{max-width:640px;margin:0 auto;pointer-events:auto;}
 .nearby-toggle{display:flex;align-items:center;justify-content:space-between;width:100%;background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:12px 14px;color:var(--text);font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13.5px;cursor:pointer;box-shadow:0 4px 18px rgba(0,0,0,0.4);}
 .nearby-count{color:var(--text-faint);font-weight:500;margin-left:4px;}
@@ -142,7 +142,7 @@ a{color:inherit;}
 .empty-state .big{font-size:28px;display:block;margin-bottom:8px;}
 
 /* ---------- catch bar ---------- */
-.catch-bar{position:fixed;left:0;right:0;bottom:0;z-index:700;padding:12px 16px calc(12px + env(safe-area-inset-bottom));background:linear-gradient(0deg, rgba(11,20,32,0.98) 60%, rgba(11,20,32,0.7));display:none;}
+.catch-bar{position:fixed;left:0;right:0;bottom:0;z-index:1300;padding:12px 16px calc(12px + env(safe-area-inset-bottom));background:linear-gradient(0deg, rgba(11,20,32,0.98) 60%, rgba(11,20,32,0.7));display:none;}
 .catch-bar.visible{display:block;}
 .catch-btn{width:100%;max-width:640px;margin:0 auto;display:block;padding:15px;border-radius:14px;border:none;background:#34D399;color:#08120D;font-family:'Space Grotesk',sans-serif;font-weight:800;font-size:15.5px;cursor:pointer;box-shadow:0 6px 20px rgba(52,211,153,0.25);}
 .catch-btn:disabled{background:var(--panel-2);color:var(--text-faint);box-shadow:none;cursor:default;}
@@ -188,6 +188,57 @@ a{color:inherit;}
 @keyframes spin{to{transform:rotate(360deg);}}
 
 .hidden{display:none !important;}
+
+/* ---------- desktop: map runs all the way to the bottom of the screen —
+   the Catch bar and Nearby toolbar already float on top of it as fixed
+   overlays, so there's nothing below the map that needs the gap. The base
+   .map-wrap rule above already omits the catchbar-h subtraction so mobile
+   gets the same full-bleed treatment; this just guarantees a taller floor
+   on bigger screens. ---------- */
+@media (min-width:768px){
+  .map-wrap{min-height:460px;}
+}
+
+/* ---------- small phones: tighten padding/type so nothing feels
+   oversized or cramped on a ~375px-wide screen. ---------- */
+@media (max-width:420px){
+  .topbar{padding:10px 12px;}
+  .topbar-title{font-size:15.5px;}
+  .tabs{padding:10px 12px 0;}
+  .tab-btn{padding:9px 6px;font-size:12.5px;}
+  .page{padding:0 12px;}
+  .intro-card{padding:16px;}
+  .intro-card h2{font-size:17px;}
+  .map-wrap{margin-top:12px;height:calc(100dvh - 111px);}
+  .map-overlay-top{top:10px;left:10px;right:10px;max-width:300px;gap:6px;}
+  /* Focus card ("current vehicle") is deliberately compact on phones so it
+     doesn't eat into the map — smaller type, tighter spacing, and the
+     status/stop-name line clipped to one line instead of wrapping. */
+  .focus-card{padding:9px 11px;border-radius:13px;}
+  .focus-top{gap:8px;}
+  .focus-line-pill{font-size:10px;padding:2px 7px;}
+  .focus-new-tag,.focus-caught-tag{font-size:9px;padding:2px 6px;}
+  .focus-title{font-size:16.5px;margin-top:5px;}
+  .focus-subtitle{font-size:11px;margin-top:1px;}
+  .focus-meta-row{margin-top:6px;gap:7px;flex-wrap:nowrap;}
+  .focus-dist{font-size:11px;flex-shrink:0;}
+  .focus-status{font-size:10.5px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .car-chip-row{margin-top:8px;gap:5px;}
+  .car-chip{padding:5px 9px;font-size:11px;}
+  .status-banner.compact{padding:8px 10px;font-size:11.5px;}
+  .nearby-sheet{padding:0 12px;}
+  .nearby-toggle{padding:10px 12px;font-size:12.5px;}
+  .catch-bar{padding:10px 12px calc(10px + env(safe-area-inset-bottom));}
+  .catch-btn{padding:13px;font-size:14px;}
+  .card-grid{gap:9px;margin:14px 0 24px;}
+  .tcard-inner{padding:10px 10px 9px;gap:5px;}
+  .tcard-num{font-size:15px;}
+  .tcard-type{font-size:11px;}
+  .collection-stats{gap:8px;}
+  .modal-sheet{padding:18px 16px 22px;}
+  .modal-sheet h2{font-size:20px;}
+  .detail-row{font-size:12.5px;}
+}
 </style>
 </head>
 <body>
@@ -710,17 +761,40 @@ function updateMapUserPosition(){
     radiusCircle.setLatLng(ll);
   }
 }
+// Uncaught vehicles render as black dots — line/rarity color only kicks in
+// once at least one car on that vehicle has actually been caught, so the
+// map reads like a "seen vs. caught" field guide instead of giving away
+// every vehicle's identity at a glance.
+const UNCAUGHT_MARKER_COLOR = '#000000';
+// A small arrow drawn on the circle's rim, rotated to the vehicle's
+// compass bearing (0=N, 90=E, matches MBTA's `bearing` field and SVG's
+// rotate(), both clockwise-positive) — shows direction of travel.
+function markerSvg(color, size, bearing, pad, focused){
+  const r = size / 2;
+  const total = size + pad * 2;
+  const c = total / 2;
+  const glow = focused ? `<circle cx="${c}" cy="${c}" r="${r+5}" fill="none" stroke="rgba(255,255,255,0.35)" stroke-width="6"/>` : '';
+  const arrow = (typeof bearing === 'number') ? `
+    <g transform="rotate(${bearing} ${c} ${c})">
+      <polygon points="${c-4},${c-r-1} ${c+4},${c-r-1} ${c},${c-r-7}" fill="#fff" stroke="rgba(0,0,0,0.45)" stroke-width="0.5"/>
+    </g>` : '';
+  return `<svg width="${total}" height="${total}" viewBox="0 0 ${total} ${total}" style="display:block;overflow:visible;">${glow}${arrow}<circle cx="${c}" cy="${c}" r="${r}" fill="${color}" stroke="rgba(255,255,255,0.85)" stroke-width="2"/></svg>`;
+}
 function renderMapMarkers(withDist){
   if(!leafletMap) return;
   const seen = new Set();
   withDist.forEach(t => {
     seen.add(t.id);
     const isFocused = t.id === state.focusedTrainId;
-    const color = (t.branch && BRANCH_COLOR[t.branch]) || (LINE_META[t.displayLine] || LINE_META[t.idLine]).color;
+    const anyCaught = t.cars.some(c => !!state.cards[cardIdFor(t.idLine, c.label)]);
+    const lineColor = (t.branch && BRANCH_COLOR[t.branch]) || (LINE_META[t.displayLine] || LINE_META[t.idLine]).color;
+    const color = anyCaught ? lineColor : UNCAUGHT_MARKER_COLOR;
     const size = isFocused ? 22 : 14;
-    const badge = t.cars.length > 1 ? `<div class="train-dot-badge">${t.cars.length}</div>` : '';
-    const html = `<div class="train-marker-inner"><div class="train-dot ${isFocused ? 'focused' : ''}" style="width:${size}px;height:${size}px;background:${color};"></div>${badge}</div>`;
-    const icon = L.divIcon({ className:'train-marker-wrap', html, iconSize:[size, size], iconAnchor:[size/2, size/2] });
+    const pad = isFocused ? 12 : 6;
+    const total = size + pad * 2;
+    const badge = t.cars.length > 1 ? `<div class="train-dot-badge" style="top:${pad-6}px;right:${pad-8}px;">${t.cars.length}</div>` : '';
+    const html = `<div class="train-marker-inner">${markerSvg(color, size, t.bearing, pad, isFocused)}${badge}</div>`;
+    const icon = L.divIcon({ className:'train-marker-wrap', html, iconSize:[total, total], iconAnchor:[total/2, total/2] });
     if(trainMarkers[t.id]){
       trainMarkers[t.id].setLatLng([t.lat, t.lon]);
       trainMarkers[t.id].setIcon(icon);
@@ -740,7 +814,7 @@ function renderMapMarkers(withDist){
    MBTA vehicle fetching — one entry per physical car, not per train
    ============================================================ */
 async function fetchLine(routeFilter, idLine, typeFn){
-  const url = withMbtaKey(`https://api-v3.mbta.com/vehicles?filter[route]=${routeFilter}&include=stop&fields[vehicle]=current_status,label,latitude,longitude,updated_at,carriages&fields[stop]=name`);
+  const url = withMbtaKey(`https://api-v3.mbta.com/vehicles?filter[route]=${routeFilter}&include=stop&fields[vehicle]=current_status,label,latitude,longitude,updated_at,carriages,bearing&fields[stop]=name`);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 7000);
   let json;
@@ -779,6 +853,7 @@ async function fetchLine(routeFilter, idLine, typeFn){
       status: v.attributes.current_status,
       lat: v.attributes.latitude,
       lon: v.attributes.longitude,
+      bearing: typeof v.attributes.bearing === 'number' ? v.attributes.bearing : null,
       stopName,
       updatedAt: v.attributes.updated_at,
       cars
@@ -787,7 +862,7 @@ async function fetchLine(routeFilter, idLine, typeFn){
 }
 
 async function fetchBuses(){
-  const url = withMbtaKey(`https://api-v3.mbta.com/vehicles?filter[route_type]=3&include=route,stop&fields[vehicle]=current_status,label,latitude,longitude,updated_at&fields[route]=short_name,long_name&fields[stop]=name`);
+  const url = withMbtaKey(`https://api-v3.mbta.com/vehicles?filter[route_type]=3&include=route,stop&fields[vehicle]=current_status,label,latitude,longitude,updated_at,bearing&fields[route]=short_name,long_name&fields[stop]=name`);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 9000);
   let json;
@@ -819,6 +894,7 @@ async function fetchBuses(){
       status: v.attributes.current_status,
       lat: v.attributes.latitude,
       lon: v.attributes.longitude,
+      bearing: typeof v.attributes.bearing === 'number' ? v.attributes.bearing : null,
       stopName,
       updatedAt: v.attributes.updated_at,
       cars
