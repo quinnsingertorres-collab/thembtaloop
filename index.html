@@ -1192,7 +1192,7 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
   display:block; width:calc(100% + 24px); margin:0 -12px 10px; height:110px;
   object-fit:cover; border-radius:0;
 }
-/* Car detail page's larger hero version of the same photo — a real block
+/* Car detail page's larger hero version of the photo — a real block
    below the summary line rather than a bled-out card-top image, since the
    detail page isn't a tight grid card. */
 .car-detail-photo-wrap{margin:10px 0 4px;}
@@ -1203,7 +1203,6 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
 .car-detail-photo-credit{
   font-size:10.5px; color:var(--text-faint); margin-top:5px;
 }
-.car-detail-photo-credit a{color:var(--text-faint); text-decoration:underline;}
 .roster-row-head{display:flex; align-items:center; gap:8px; margin-bottom:8px; flex-wrap:wrap;}
 .roster-car-chip{font-family:'IBM Plex Mono', monospace; font-weight:700; font-size:13px; color:var(--text);}
 .roster-type-tag{font-size:10.5px; color:var(--text-faint); font-family:'IBM Plex Mono', monospace;}
@@ -9216,7 +9215,7 @@ async function buildCarDetailPanel(){
   const photoField = photo ? `
     <div class="car-detail-photo-wrap">
       <img class="car-detail-photo" src="${photo.url}" alt="Car ${entry.car}" loading="lazy">
-      <div class="car-detail-photo-credit">${photoCreditParts.join(' · ')}${photoCreditParts.length ? ' · ' : ''}<a href="https://mbtapics.vercel.app" target="_blank" rel="noopener">via Trackside</a></div>
+      <div class="car-detail-photo-credit">${photoCreditParts.join(' · ')}</div>
     </div>` : '';
 
   body.innerHTML = `
