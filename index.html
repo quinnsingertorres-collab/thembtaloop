@@ -1231,10 +1231,18 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
 .roster-input, .roster-textarea{
   width:100%; padding:8px 10px; border-radius:8px; border:1px solid var(--border);
   background:var(--panel); color:var(--text); font-size:12.5px; font-family:'IBM Plex Sans', sans-serif;
-  margin-top:8px; transition:border-color 0.15s ease;
+  margin-top:8px; transition:border-color 0.15s ease; box-sizing:border-box;
 }
+/* Different input types (select, text, number, datetime-local) render at
+   different native heights on their own — most visibly datetime-local,
+   whose mobile Safari picker chrome is noticeably taller than a plain text
+   field even with identical padding — so every single-line .roster-input
+   gets one explicit height here to force them all to match. .roster-textarea
+   is excluded (its own min-height + resize below still applies) since it's
+   meant to be taller/resizable, not uniform with the single-line inputs. */
+.roster-input{height:38px;}
 .roster-input:focus, .roster-textarea:focus{outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(20,108,67,0.25);}
-.roster-textarea{min-height:48px; resize:vertical;}
+.roster-textarea{min-height:48px; height:auto; resize:vertical;}
 .roster-readonly{
   font-size:12.5px; color:var(--text-dim); padding:7px 0; min-height:20px;
 }
@@ -4869,13 +4877,27 @@ async function unhideTrain(vehicleId){
   try{ await fbDb.collection('hidden_trains').doc(vehicleId).delete(); }catch(e){ console.error(e); }
   delete hiddenTrainsCache[vehicleId];
 }
-async function markCarOutOfService(carNum, reason){
+// pushBatch (optional) lets a caller marking several cars OOS in one action
+// (see oosToggleAllBtn below) control the server-side push Cloud Function
+// fires per doc — without it, marking a 2-car consist writes 2 docs and
+// sends 2 separate "Car X marked out of service" pushes back to back for
+// what's really one event. Passing { label, isFirst } on every doc in the
+// batch lets sendPushOnCarOutOfService (functions/index.js) send exactly
+// one combined "Cars A-B marked out of service" push — only the doc with
+// isFirst:true triggers it, the rest carry suppressPush instead. A lone
+// call with no pushBatch (the single-car button) behaves exactly as before.
+async function markCarOutOfService(carNum, reason, pushBatch){
   if(!firebaseReady) return;
   try{
-    await fbDb.collection('car_out_of_service').doc(carNum).set({
+    const payload = {
       outOfService: true, reason: reason || '', markedBy: state.userName, markedByUid: state.uid || null,
       ts: Date.now(), date: todayDateString()
-    });
+    };
+    if(pushBatch){
+      if(pushBatch.isFirst) payload.pushLabel = pushBatch.label;
+      else payload.suppressPush = true;
+    }
+    await fbDb.collection('car_out_of_service').doc(carNum).set(payload);
     outOfServiceCarsCache[carNum] = { reason: reason || '', markedBy: state.userName };
     logEdit(state.userName, state.uid, `Marked car ${carNum} out of service${reason ? `: "${reason.slice(0,60)}"` : ''}`);
   }catch(e){ console.error(e); }
@@ -5965,7 +5987,11 @@ async function showCarModal(v){
       }else{
         const reasonInput = document.getElementById('oosReasonInput');
         const reason = reasonInput ? reasonInput.value.trim() : '';
-        await Promise.all(carParts.map(c => markCarOutOfService(c, reason)));
+        // Single combined push for the whole consist (see markCarOutOfService's
+        // pushBatch comment) instead of one per car — only the first car's doc
+        // is flagged to actually trigger the notification, using the full
+        // consist label (e.g. "3907-3918") in its body.
+        await Promise.all(carParts.map((c, i) => markCarOutOfService(c, reason, { isFirst: i === 0, label: v.label })));
         awardPoints(1);
       }
       showCarModal(v);

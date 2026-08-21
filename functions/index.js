@@ -566,16 +566,27 @@ exports.sendPushOnLineChange = onDocumentWritten(
 // OOS" moment; no update case to worry about the way the two triggers above
 // need it (this doc's own document ID is stable, but it doesn't get
 // re-written while already OOS the way an override can be corrected).
+// When index.html's "Mark this train Out of Service" button marks a whole
+// multi-car consist OOS at once, it writes one doc per car (see
+// markCarOutOfService there) but only flags ONE of them to actually push —
+// that doc carries pushLabel (the full consist label, e.g. "3907-3918");
+// the rest carry suppressPush instead — so a 2+ car consist gets exactly
+// one combined notification instead of one per car. The single-car button
+// doesn't set either field, so it behaves exactly as before: one push,
+// worded for just that one car.
 exports.sendPushOnCarOutOfService = onDocumentCreated(
   { document: 'car_out_of_service/{carNum}', secrets: [VAPID_PRIVATE_KEY] },
   async (event) => {
     const data = event.data.data();
     if(!data || !data.outOfService) return;
+    if(data.suppressPush) return;
     const carNum = event.params.carNum;
     const reason = data.reason ? `: ${data.reason.slice(0, 100)}` : '';
+    const label = data.pushLabel || carNum;
+    const isMultiCar = String(label).includes('-');
     await sendToFilteredSubscribers('notifyOutOfService', {
-      title: 'Car marked out of service',
-      body: `Car ${carNum} marked out of service${reason}`,
+      title: isMultiCar ? 'Train marked out of service' : 'Car marked out of service',
+      body: `${isMultiCar ? 'Cars' : 'Car'} ${label} marked out of service${reason}`,
       url: './'
     });
   }
@@ -698,8 +709,11 @@ exports.sendPushOnCommunityAlert = onDocumentCreated(
   async (event) => {
     const data = event.data.data();
     if(!data || !data.route) return;
-    const body = (data.fromStation && data.toStation)
-      ? `${data.fromStation} to ${data.toStation}${data.notes ? ': ' + data.notes.slice(0, 120) : ''}`
+    const where = (data.fromStation && data.toStation)
+      ? (data.fromStation === data.toStation ? data.fromStation : `${data.fromStation} to ${data.toStation}`)
+      : null;
+    const body = where !== null
+      ? `${where}${data.notes ? ': ' + data.notes.slice(0, 120) : ''}`
       : (data.text || '').slice(0, 180);
     if(!body) return;
     const title = `${ALERT_ROUTE_LABELS[data.route] || data.route} diversion/closure`;
