@@ -825,15 +825,18 @@ body.dark .stop-dot{background:var(--bg);}
 }
 body.status-chip-above .route-status-chip{border-top:none; border-bottom:1px solid var(--border); order:-1;}
 body.status-chip-hidden .route-status-chip{display:none;}
+/* Date/time/weather is only meaningful next to the live track map — every
+   other page (Fleet Roster, car detail, Settings, Admin, etc.) hides it
+   outright, regardless of the statusChipPosition setting above (that
+   setting only controls above/below/hidden placement WHILE on the track
+   map). Placed after status-chip-hidden so it wins the specificity tie
+   when both apply (hidden-by-setting + not-on-track-map is still hidden
+   either way, but this keeps the cascade unambiguous). */
+body:not(.track-map-page) .route-status-chip{display:none;}
 /* Fleet Roster has no live-tracking use for the branch/route selector (its
    own "‹ Back" link is how you leave the page) and no docked side panel
    depending on the bottom-nav's edge, so hide just the route-button row
-   while it's open — the time/weather chip stays. Its border (top or bottom,
-   depending on chip-above vs default position) is dropped too, since with
-   the row above/below it gone that border would otherwise look like a
-   stray line floating at the chip's own edge. Placed after the
-   status-chip-above rule above so it wins the tie on specificity when both
-   apply. */
+   while it's open. */
 body.roster-page-open .bottom-nav-inner{display:none;}
 body.roster-page-open .route-status-chip{border-top:none; border-bottom:none;}
 .route-status-chip #clock, .route-status-chip #weatherDisplay{display:flex; align-items:center; gap:5px; overflow:hidden; text-overflow:ellipsis;}
