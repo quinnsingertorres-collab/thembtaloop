@@ -845,6 +845,20 @@ const FIRST_TRACKED_GRACE_MS = 15 * 60 * 1000; // 15 minutes
 // isn't a practical concern for a long while; if it ever needs active
 // pruning, that'd be a separate periodic cleanup function.)
 const PAIR_HISTORY_MAX_AGE_MS = 21 * 24 * 60 * 60 * 1000; // 3 weeks
+
+// Before this timestamp (2026-08-11 ~17:33 ET, commit f0ce3ac), a car that
+// briefly dropped out of the live feed — a normal AVL/GPS blip, not a real
+// uncoupling — had its pairing state wiped instead of carried forward, so
+// the very next poll where it reappeared (even paired with the exact same
+// car as before) looked like a brand-new pairing and wrote a spurious row.
+// That produced strings of many short-lived, same-partner entries in the
+// sheet (confirmed example: car 3907 on 2026-08-11). getPairHistory below
+// drops any row written before this cutoff so that old noise doesn't keep
+// showing up — it's a read-side filter only, nothing is deleted from the
+// sheet itself. Once PAIR_HISTORY_MAX_AGE_MS's normal 3-week trim ages
+// past this date on its own (~early September 2026), this constant stops
+// doing anything and can be deleted.
+const PAIR_HISTORY_PRE_FIX_CUTOFF_MS = new Date('2026-08-11T21:40:00.000Z').getTime();
 const PAIR_HISTORY_MAX_ENTRIES = 40;
 
 // MBTA's service day doesn't end at midnight — matches index.html's own
@@ -1030,6 +1044,7 @@ exports.getPairHistory = onRequest({ secrets: [GOOGLE_SHEETS_CREDENTIALS] }, asy
       .filter(r => r[0] === key)
       .map(r => ({ partners: parsePartnersCell(r[1]), from: new Date(r[2]).getTime() }))
       .filter(r => !isNaN(r.from))
+      .filter(r => r.from >= PAIR_HISTORY_PRE_FIX_CUTOFF_MS)
       .sort((a, b) => a.from - b.from);
 
     // Chain each row's "to" from the NEXT row's "from" — the last row for
