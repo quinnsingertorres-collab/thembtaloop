@@ -209,7 +209,7 @@ a{color:inherit;}
   <!-- Signed-out intro -->
   <div id="introGate" class="intro-card hidden">
     <h2>Catch real MBTA vehicles</h2>
-    <p>Play works like a field guide: get near a real Green, Red, Orange, or Blue Line train, the Mattapan Line, or an MBTA bus, and capture it as a card for your collection — real car number, real car type, real rarity.</p>
+    <p>Play works like a field guide: get near a real Green, Red, Orange, or Blue Line train, the Mattapan Line, or an MBTA bus, and capture it as a card for your collection — real fleet number, real vehicle type, real rarity.</p>
     <ul>
       <li>Sign in to save your collection across devices</li>
       <li>Allow location — you have to actually be near a vehicle to catch it</li>
@@ -413,6 +413,9 @@ function displayCarType(idLine, c){
   }
   return c.carType;
 }
+// Buses aren't "cars" — use this wherever the vehicle is named/labeled so a
+// bus reads "Bus 1451" and a train reads "Car 3706", never "Car" for a bus.
+function vehicleNoun(idLine){ return idLine === 'bus' ? 'Bus' : 'Car'; }
 
 const CAR_INFO = {
   'Type 7': { builder:'Kinki Sharyo', year:'1986–1997', seats:46, length:'72\'', width:'104"' },
@@ -930,7 +933,7 @@ function renderFocusCard(t){
       </div>
       ${alreadyCaught ? '<span class="focus-caught-tag">In collection</span>' : '<span class="focus-new-tag">NEW</span>'}
     </div>
-    <div class="focus-title">${car.isPride ? '🌈 ' : ''}Car ${car.label}</div>
+    <div class="focus-title">${car.isPride ? '🌈 ' : ''}${vehicleNoun(t.idLine)} ${car.label}</div>
     <div class="focus-subtitle">${displayCarType(t.idLine, car)} · <span class="rarity-pill" style="color:${rarity.color};background:color-mix(in srgb, ${rarity.color} 16%, transparent);">${rarity.label}</span></div>
     <div class="focus-meta-row">
       <span class="focus-dist ${inRange ? 'close' : ''}">${state.position ? formatDistance(t.dist) : '—'} away</span>
@@ -1058,7 +1061,7 @@ async function captureCarNow(t, car){
       await ref.set(Object.assign({}, commonFields, {
         captureCount: firebase.firestore.FieldValue.increment(1)
       }), { merge: true });
-      showToast(car.isPride ? '🌈' : '📸', `Spotted again — car ${car.label}`);
+      showToast(car.isPride ? '🌈' : '📸', `Spotted again — ${vehicleNoun(t.idLine).toLowerCase()} ${car.label}`);
     } else {
       await ref.set(Object.assign({}, commonFields, {
         firstCapturedAt: nowFieldValue,
@@ -1068,7 +1071,7 @@ async function captureCarNow(t, car){
         captureCount: 1
       }));
       const rarity = RARITY_META[car.rarity];
-      showToast('🎉', `New card! ${displayCarType(t.idLine, car)} car ${car.label} — ${rarity.label}`);
+      showToast('🎉', `New card! ${displayCarType(t.idLine, car)} ${vehicleNoun(t.idLine).toLowerCase()} ${car.label} — ${rarity.label}`);
     }
     await loadCollection();
   } catch(e){
@@ -1178,10 +1181,10 @@ function openCardModal(id){
     <div class="modal-backdrop" id="modalBackdrop">
       <div class="modal-sheet">
         <span class="modal-rarity-badge" style="color:${rarity.color};background:color-mix(in srgb, ${rarity.color} 16%, transparent);">${rarity.label}</span>
-        <h2 style="font-size:24px;">${meta.label} — Car ${c.label}</h2>
+        <h2 style="font-size:24px;">${meta.label === vehicleNoun(c.idLine) ? meta.label : meta.label + ' — ' + vehicleNoun(c.idLine)} ${c.label}</h2>
         <div style="color:var(--text-dim);font-size:13px;margin-top:3px;">${c.isPride ? '🌈 The Pride Train' : displayCarType(c.idLine, c)}</div>
         <div style="margin-top:14px;">
-          <div class="detail-row"><span class="k">Car type</span><span class="v">${c.carType}</span></div>
+          <div class="detail-row"><span class="k">${vehicleNoun(c.idLine)} type</span><span class="v">${c.carType}</span></div>
           <div class="detail-row"><span class="k">Builder</span><span class="v">${info.builder}</span></div>
           <div class="detail-row"><span class="k">Built</span><span class="v">${c.yearBuilt || info.year}</span></div>
           <div class="detail-row"><span class="k">Length</span><span class="v">${info.length ?? '—'}</span></div>
