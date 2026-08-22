@@ -433,7 +433,7 @@ a{color:inherit;}
     <div class="dex-strip" id="dexStrip"></div>
     <div class="collection-stats">
       <div class="stat-box"><div class="num" id="statCars">0</div><div class="lbl">cars caught</div></div>
-      <div class="stat-box"><div class="num" id="statSpecies">0/17</div><div class="lbl">species</div></div>
+      <div class="stat-box"><div class="num" id="statSpecies">0/20</div><div class="lbl">species</div></div>
       <div class="stat-box"><div class="num" id="statCatches">0</div><div class="lbl">total catches</div></div>
     </div>
     <div id="collectionEmpty" class="empty-state hidden">
@@ -585,6 +585,21 @@ function isSilverLineRoute(routeShortName, routeLongName){
   return /^SL\d/i.test(s) || /silver line/i.test(l);
 }
 
+// Rail-replacement "diversion shuttle" routes — MBTA spins these up on the
+// fly whenever a subway/Green Line segment is out of service, and IDs them
+// with a "Shuttle-" route id (e.g. "Shuttle-BroadwayKendall") and/or the
+// word "Shuttle" in the route name. MBTA doesn't own enough spare buses to
+// run these itself, so it charters coaches from outside operators — mainly
+// Paul Revere Transportation and Yankee Lines — which is why a bus turning
+// up on one of these routes is treated as a distinct (and much rarer)
+// species below, separate from MBTA's own numbered fleet.
+function isDiversionShuttleRoute(routeId, routeShortName, routeLongName){
+  const id = String(routeId || '');
+  const l = String(routeLongName || '');
+  const s = String(routeShortName || '');
+  return /^shuttle-/i.test(id) || /\bshuttle\b/i.test(l) || /\bshuttle\b/i.test(s);
+}
+
 // Real MBTA bus fleet roster — fleet number ranges mapped to their actual
 // New Flyer model and delivery year, sourced from the MBTA's published
 // vehicle roster (per Wikipedia's "MBTA bus" fleet table, current as of
@@ -659,6 +674,9 @@ const CAR_INFO = {
   // route-based approximation rather than a confirmed reading.
   'Standard Bus': { builder:'New Flyer (approx.)', year:'Varies', seats:'~38', length:'40\'', width:'102"' },
   'Articulated Bus': { builder:'New Flyer (approx.)', year:'Varies', seats:'~57', length:'60\'', width:'102"' },
+  // Chartered coach filling in on a diversion shuttle route — not part of
+  // MBTA's own fleet, so there's no fleet number range to match against.
+  'Charter Shuttle': { builder:'Paul Revere Transportation / Yankee Lines', year:'Varies', seats:'~45', length:'40\'', width:'102"' },
   'Unknown': { builder:'Unknown', year:'Unknown', seats:null, length:null, width:null }
 };
 
@@ -669,7 +687,8 @@ const LINE_META = {
   orange:     { label:'Orange Line',   color:'#ED8B00' },
   blue:       { label:'Blue Line',     color:'#003DA5' },
   bus:        { label:'Bus',           color:'#FFC72C' },
-  silverline: { label:'Silver Line',   color:'#7C878E' }
+  silverline: { label:'Silver Line',   color:'#7C878E' },
+  shuttle:    { label:'Charter Shuttle', color:'#A855F7' }
 };
 const BRANCH_COLOR = { B:'#ED7093', C:'#7CE094', D:'#F9DE51', E:'#6FE9FC' };
 const STATUS_LABELS = { INCOMING_AT:'Arriving at', STOPPED_AT:'Stopped at', IN_TRANSIT_TO:'Approaching' };
@@ -684,6 +703,7 @@ const RARITY_META = {
 function getRarity(idLine, carType, isPride){
   if(isPride) return 'legendary';
   if(carType === 'PCC') return 'ultra';
+  if(carType === 'Charter Shuttle') return 'ultra'; // Paul Revere / Yankee Lines coach subbing on a diversion shuttle
   if(carType === 'XE60') return 'legendary'; // only 5 ever built — the rarest bus in the fleet
   if((idLine === 'green' && carType === 'Type 10') || (idLine === 'red' && carType === 'Type 4')) return 'rare';
   if(carType === 'D40LF' || carType === 'DE60LFR' || carType === 'XE40') return 'rare';
@@ -711,7 +731,8 @@ const DEX = [
   { key:'bus-XE60',      idLine:'bus',    carType:'XE60',     name:'New Flyer XE60',    pride:false },
   { key:'bus-XDE40',     idLine:'bus',    carType:'XDE40',    name:'New Flyer XDE40',   pride:false },
   { key:'bus-XN40',      idLine:'bus',    carType:'XN40',     name:'New Flyer XN40',    pride:false },
-  { key:'bus-XE40',      idLine:'bus',    carType:'XE40',     name:'New Flyer XE40',    pride:false }
+  { key:'bus-XE40',      idLine:'bus',    carType:'XE40',     name:'New Flyer XE40',    pride:false },
+  { key:'bus-charter-shuttle', idLine:'bus', carType:'Charter Shuttle', name:'Charter Shuttle Bus', pride:false }
 ];
 
 /* ============================================================
@@ -1205,12 +1226,18 @@ async function fetchBuses(){
     const label = String(v.attributes.label || v.id);
     const silverLine = isSilverLineRoute(routeInfo.short_name, routeInfo.long_name);
     const modelInfo = getBusModelInfo(label);
-    const carType = modelInfo ? modelInfo.model : (silverLine ? 'Articulated Bus' : 'Standard Bus');
+    // A diversion shuttle route running a fleet number that isn't in MBTA's
+    // own bus roster is a chartered coach (Paul Revere / Yankee Lines), not
+    // an MBTA-owned bus — flag it as its own species before falling back to
+    // the ordinary silver-line/standard-bus guess.
+    const isShuttleRoute = isDiversionShuttleRoute(routeRel ? routeRel.id : null, routeInfo.short_name, routeInfo.long_name);
+    const isCharterShuttle = isShuttleRoute && !modelInfo;
+    const carType = isCharterShuttle ? 'Charter Shuttle' : (modelInfo ? modelInfo.model : (silverLine ? 'Articulated Bus' : 'Standard Bus'));
     const yearBuilt = modelInfo ? modelInfo.year : null;
     const cars = [{ label, carType, yearBuilt, isPride:false, rarity: getRarity('bus', carType, false) }];
     return {
       id: v.id,
-      idLine: 'bus', displayLine: silverLine ? 'silverline' : 'bus', branch: null,
+      idLine: 'bus', displayLine: isCharterShuttle ? 'shuttle' : (silverLine ? 'silverline' : 'bus'), branch: null,
       routeId: routeRel ? routeRel.id : null,
       routeName: routeInfo.short_name || (routeRel ? routeRel.id : null),
       status: v.attributes.current_status,
@@ -1591,7 +1618,7 @@ function renderCollection(){
     const rarity = RARITY_META[getRarity(d.idLine, d.carType, d.pride)];
     return `<div class="dex-chip">
       <div class="dex-swatch ${unlocked ? 'unlocked' : ''}" style="${unlocked ? `background:${rarity.color};border-color:${rarity.color};` : ''}">
-        ${unlocked ? (d.pride ? '🌈' : d.carType.replace('Type ', 'T')) : '?'}
+        ${unlocked ? (d.pride ? '🌈' : (d.carType === 'Charter Shuttle' ? 'CHTR' : d.carType.replace('Type ', 'T'))) : '?'}
       </div>
       <div class="dex-name">${d.name}</div>
     </div>`;
