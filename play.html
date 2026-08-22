@@ -10,7 +10,9 @@
 <link rel="apple-touch-icon" sizes="180x180" href="/play-apple-touch-icon.png">
 <meta name="theme-color" content="#0B1420">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="Play — In the Loop">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="MBTPLAY">
+<link rel="manifest" href="/play-manifest.json">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
@@ -160,22 +162,51 @@ a{color:inherit;}
 .stat-box .num{font-family:'Space Grotesk',sans-serif;font-weight:800;font-size:19px;}
 .stat-box .lbl{font-size:11px;color:var(--text-faint);margin-top:1px;}
 
-.card-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin:16px 0 28px;}
-.tcard{position:relative;border-radius:16px;padding:1px;cursor:pointer;background:linear-gradient(160deg, var(--tint,#2a3444), transparent 60%);}
-.tcard-inner{background:var(--panel);border-radius:15px;padding:12px 12px 11px;height:100%;display:flex;flex-direction:column;gap:7px;}
-.tcard-head{display:flex;justify-content:space-between;align-items:flex-start;}
-.tcard-line{font-size:10px;color:var(--text-faint);font-weight:600;text-transform:uppercase;letter-spacing:0.03em;}
-.tcard-num{font-family:'IBM Plex Mono',monospace;font-weight:700;font-size:17px;margin-top:1px;}
-.tcard-type{font-size:12px;color:var(--text-dim);margin-top:3px;}
-.tcard-foot{display:flex;justify-content:space-between;align-items:center;margin-top:auto;padding-top:6px;border-top:1px solid var(--border);font-size:10.5px;color:var(--text-faint);}
+.card-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin:16px 0 28px;}
+/* ---------- trading card (collection grid tile) — a holo-style border
+   frame around a dark inner panel, an "art" window with the vehicle's
+   silhouette, and a name/stat footer, styled after real trading cards
+   (Pokemon-esque foil border + art box) rather than a plain info tile. ---------- */
+.tcard{position:relative;aspect-ratio:5/7;border-radius:14px;padding:3px;cursor:pointer;background:linear-gradient(150deg, var(--tint,#2a3444) 0%, rgba(255,255,255,0.9) 10%, var(--tint,#2a3444) 22%, #0c1626 52%, var(--tint,#2a3444) 100%);box-shadow:0 4px 14px rgba(0,0,0,0.45);transition:transform 0.15s ease;}
+.tcard:active{transform:scale(0.97);}
+.tcard-inner{background:linear-gradient(165deg,#16233a,#0c1626 75%);border-radius:11px;height:100%;display:flex;flex-direction:column;padding:8px;position:relative;overflow:hidden;}
+.tcard-head{display:flex;justify-content:space-between;align-items:flex-start;gap:6px;}
+.tcard-line{font-size:9px;color:var(--text-faint);font-weight:700;text-transform:uppercase;letter-spacing:0.04em;padding-top:2px;}
+.tcard-art{position:relative;flex:1;margin:6px 0;border-radius:9px;background:radial-gradient(circle at 50% 38%, color-mix(in srgb, var(--tint) 30%, #0c1626), #0c1626 78%);border:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:center;overflow:hidden;}
+.tcard-art svg{width:56%;height:56%;filter:drop-shadow(0 3px 5px rgba(0,0,0,0.5));}
+.tcard-art-num{position:absolute;bottom:5px;right:7px;font-family:'IBM Plex Mono',monospace;font-weight:700;font-size:10px;color:rgba(255,255,255,0.6);letter-spacing:0.02em;}
+.tcard-name{font-family:'IBM Plex Mono',monospace;font-weight:700;font-size:15px;line-height:1.15;}
+.tcard-type{font-size:10.5px;color:var(--text-dim);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.tcard-foot{display:flex;justify-content:space-between;align-items:center;margin-top:6px;padding-top:6px;border-top:1px solid var(--border);font-size:9.5px;color:var(--text-faint);gap:6px;}
+.tcard-foot span:last-child{text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+/* rare-and-up tiers get a diagonal foil sheen across the art window */
+.tcard[data-rarity="rare"] .tcard-art::before,
+.tcard[data-rarity="ultra"] .tcard-art::before,
+.tcard[data-rarity="legendary"] .tcard-art::before,
+.modal-card[data-rarity="rare"] .modal-card-art::before,
+.modal-card[data-rarity="ultra"] .modal-card-art::before,
+.modal-card[data-rarity="legendary"] .modal-card-art::before{
+  content:'';position:absolute;inset:0;pointer-events:none;
+  background:linear-gradient(115deg, transparent 15%, rgba(255,255,255,0.4) 32%, rgba(255,255,255,0.06) 42%, transparent 55%, rgba(255,255,255,0.22) 72%, transparent 88%);
+  mix-blend-mode:overlay;
+}
+.tcard[data-rarity="legendary"]{box-shadow:0 4px 20px color-mix(in srgb, var(--tint) 45%, transparent);}
 
-.rarity-pill{display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:700;font-family:'Space Grotesk',sans-serif;padding:2px 7px;border-radius:20px;letter-spacing:0.02em;text-transform:uppercase;}
+.rarity-pill{display:inline-flex;align-items:center;gap:4px;font-size:9.5px;font-weight:700;font-family:'Space Grotesk',sans-serif;padding:2px 7px;border-radius:20px;letter-spacing:0.02em;text-transform:uppercase;flex-shrink:0;}
 
-/* ---------- modal ---------- */
+/* ---------- modal — the "flipped up" full-size card ---------- */
 .modal-backdrop{position:fixed;inset:0;background:rgba(4,8,13,0.72);display:flex;align-items:flex-end;justify-content:center;z-index:2000;}
-.modal-sheet{width:100%;max-width:460px;background:var(--panel);border-radius:20px 20px 0 0;padding:22px 20px 28px;max-height:82vh;overflow-y:auto;}
+.modal-card{width:100%;max-width:400px;max-height:88vh;overflow-y:auto;border-radius:20px 20px 0 0;padding:3px;background:linear-gradient(150deg, var(--tint,#2a3444) 0%, rgba(255,255,255,0.9) 8%, var(--tint,#2a3444) 18%, #0c1626 46%, var(--tint,#2a3444) 100%);}
+.modal-card-inner{background:linear-gradient(165deg,#16233a,#0c1626 65%);border-radius:18px 18px 0 0;padding:20px 18px 26px;}
+.modal-card-head{display:flex;justify-content:space-between;align-items:center;gap:8px;}
+.modal-card-line{font-size:11px;color:var(--text-faint);font-weight:700;text-transform:uppercase;letter-spacing:0.05em;}
+.modal-card-art{position:relative;aspect-ratio:16/10;margin:12px 0 14px;border-radius:14px;background:radial-gradient(circle at 50% 38%, color-mix(in srgb, var(--tint) 32%, #0c1626), #0c1626 78%);border:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:center;overflow:hidden;}
+.modal-card-art svg{width:42%;height:42%;filter:drop-shadow(0 4px 8px rgba(0,0,0,0.5));}
+.modal-card-art-num{position:absolute;bottom:8px;right:12px;font-family:'IBM Plex Mono',monospace;font-weight:700;font-size:13px;color:rgba(255,255,255,0.6);}
+.modal-card-title{font-family:'Space Grotesk',sans-serif;font-weight:800;font-size:23px;letter-spacing:-0.01em;}
+.modal-card-sub{color:var(--text-dim);font-size:13px;margin-top:2px;}
+.modal-card-stats{margin-top:16px;}
 .modal-close{width:100%;text-align:center;color:var(--text-faint);font-size:12.5px;margin-top:16px;cursor:pointer;}
-.modal-rarity-badge{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;font-family:'Space Grotesk',sans-serif;padding:3px 10px;border-radius:20px;text-transform:uppercase;letter-spacing:0.03em;margin-bottom:10px;}
 .detail-row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px;}
 .detail-row:last-child{border-bottom:none;}
 .detail-row .k{color:var(--text-faint);}
@@ -231,12 +262,12 @@ a{color:inherit;}
   .catch-bar{padding:10px 12px calc(10px + env(safe-area-inset-bottom));}
   .catch-btn{padding:13px;font-size:14px;}
   .card-grid{gap:9px;margin:14px 0 24px;}
-  .tcard-inner{padding:10px 10px 9px;gap:5px;}
-  .tcard-num{font-size:15px;}
-  .tcard-type{font-size:11px;}
+  .tcard-inner{padding:7px;}
+  .tcard-name{font-size:13.5px;}
+  .tcard-type{font-size:10px;}
   .collection-stats{gap:8px;}
-  .modal-sheet{padding:18px 16px 22px;}
-  .modal-sheet h2{font-size:20px;}
+  .modal-card-inner{padding:16px 14px 22px;}
+  .modal-card-title{font-size:19px;}
   .detail-row{font-size:12.5px;}
 }
 </style>
@@ -247,7 +278,7 @@ a{color:inherit;}
   <div class="topbar-left">
     <a class="back-link" href="/">&lsaquo; In the Loop</a>
   </div>
-  <div class="topbar-title"><span class="emoji">🚋</span>Play</div>
+  <div class="topbar-title"><span class="emoji">🚋</span>MBTPLAY</div>
   <div class="auth-area" id="authArea">
     <button class="google-btn" id="signInBtn" title="Sign in with Google">
       <svg viewBox="0 0 24 24" width="17" height="17" fill="none"><circle cx="12" cy="8" r="4" stroke="currentColor" stroke-width="2"/><path d="M4 20c0-4.4 3.6-7 8-7s8 2.6 8 7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
@@ -726,6 +757,16 @@ function ensureMap(){
       maxZoom: 20,
       attribution: '&copy; OpenStreetMap &copy; CARTO'
     }).addTo(leafletMap);
+    // Tapping empty map (not a marker — marker clicks stop propagation
+    // before they reach here) clears the manually-picked focus and falls
+    // back to auto-following the nearest vehicle again.
+    leafletMap.on('click', () => {
+      if(state.focusedTrainId !== null){
+        state.focusedTrainId = null;
+        state.focusedCarIndex = 0;
+        renderAll();
+      }
+    });
   }
   setTimeout(() => { if(leafletMap) leafletMap.invalidateSize(); }, 60);
 }
@@ -766,10 +807,29 @@ function updateMapUserPosition(){
 // map reads like a "seen vs. caught" field guide instead of giving away
 // every vehicle's identity at a glance.
 const UNCAUGHT_MARKER_COLOR = '#000000';
+// Tiny mode glyphs drawn inside the marker disc — a boxy front-on bus
+// silhouette vs. a rounder subway-car silhouette — authored on a 24x24
+// grid and scaled to fit the disc, so the shapes stay proportional at
+// any marker size instead of hand-tuning coordinates per size.
+function iconGlyph(idLine, c, r){
+  const isBus = idLine === 'bus';
+  const k = (r * 2 * 0.62) / 24;
+  const tx = c - 12 * k, ty = c - 12 * k;
+  const body = isBus
+    ? `<rect x="5" y="4" width="14" height="14" rx="3" fill="#fff" stroke="rgba(0,0,0,0.55)" stroke-width="1"/>
+       <rect x="7" y="6.2" width="10" height="4.6" rx="1.2" fill="rgba(11,20,32,0.55)"/>
+       <circle cx="8.4" cy="18.6" r="1.7" fill="#fff" stroke="rgba(0,0,0,0.55)" stroke-width="0.8"/>
+       <circle cx="15.6" cy="18.6" r="1.7" fill="#fff" stroke="rgba(0,0,0,0.55)" stroke-width="0.8"/>`
+    : `<rect x="4" y="5" width="16" height="13" rx="6" fill="#fff" stroke="rgba(0,0,0,0.55)" stroke-width="1"/>
+       <rect x="6.5" y="8" width="11" height="4" rx="1.4" fill="rgba(11,20,32,0.55)"/>
+       <circle cx="8.4" cy="18.6" r="1.6" fill="#fff" stroke="rgba(0,0,0,0.55)" stroke-width="0.8"/>
+       <circle cx="15.6" cy="18.6" r="1.6" fill="#fff" stroke="rgba(0,0,0,0.55)" stroke-width="0.8"/>`;
+  return `<g transform="translate(${tx} ${ty}) scale(${k})">${body}</g>`;
+}
 // A small arrow drawn on the circle's rim, rotated to the vehicle's
 // compass bearing (0=N, 90=E, matches MBTA's `bearing` field and SVG's
 // rotate(), both clockwise-positive) — shows direction of travel.
-function markerSvg(color, size, bearing, pad, focused){
+function markerSvg(color, size, bearing, pad, focused, idLine){
   const r = size / 2;
   const total = size + pad * 2;
   const c = total / 2;
@@ -778,7 +838,7 @@ function markerSvg(color, size, bearing, pad, focused){
     <g transform="rotate(${bearing} ${c} ${c})">
       <polygon points="${c-4},${c-r-1} ${c+4},${c-r-1} ${c},${c-r-7}" fill="#fff" stroke="rgba(0,0,0,0.45)" stroke-width="0.5"/>
     </g>` : '';
-  return `<svg width="${total}" height="${total}" viewBox="0 0 ${total} ${total}" style="display:block;overflow:visible;">${glow}${arrow}<circle cx="${c}" cy="${c}" r="${r}" fill="${color}" stroke="rgba(255,255,255,0.85)" stroke-width="2"/></svg>`;
+  return `<svg width="${total}" height="${total}" viewBox="0 0 ${total} ${total}" style="display:block;overflow:visible;">${glow}${arrow}<circle cx="${c}" cy="${c}" r="${r}" fill="${color}" stroke="rgba(255,255,255,0.85)" stroke-width="2"/>${iconGlyph(idLine, c, r)}</svg>`;
 }
 function renderMapMarkers(withDist){
   if(!leafletMap) return;
@@ -793,13 +853,16 @@ function renderMapMarkers(withDist){
     const pad = isFocused ? 12 : 6;
     const total = size + pad * 2;
     const badge = t.cars.length > 1 ? `<div class="train-dot-badge" style="top:${pad-6}px;right:${pad-8}px;">${t.cars.length}</div>` : '';
-    const html = `<div class="train-marker-inner">${markerSvg(color, size, t.bearing, pad, isFocused)}${badge}</div>`;
+    const html = `<div class="train-marker-inner">${markerSvg(color, size, t.bearing, pad, isFocused, t.idLine)}${badge}</div>`;
     const icon = L.divIcon({ className:'train-marker-wrap', html, iconSize:[total, total], iconAnchor:[total/2, total/2] });
     if(trainMarkers[t.id]){
       trainMarkers[t.id].setLatLng([t.lat, t.lon]);
       trainMarkers[t.id].setIcon(icon);
     } else {
-      const m = L.marker([t.lat, t.lon], { icon });
+      // bubblingMouseEvents:false — otherwise a marker click also fires the
+      // map's own click handler (Leaflet bubbles marker clicks to the map
+      // by default), which would immediately clear the focus we just set.
+      const m = L.marker([t.lat, t.lon], { icon, bubblingMouseEvents: false });
       m.on('click', () => focusTrain(t.id));
       m.addTo(leafletMap);
       trainMarkers[t.id] = m;
@@ -1180,6 +1243,26 @@ function updateCollectionCount(){
 /* ============================================================
    Collection rendering
    ============================================================ */
+// A larger, more detailed "hero art" version of the map's bus/train
+// silhouette, used as the card's art window in both the collection
+// grid and the full card modal — filled with the card's rarity/line
+// tint instead of flat white, since here it's artwork, not a tiny
+// high-contrast map pin.
+function cardArtSvg(idLine, tint){
+  const isBus = idLine === 'bus';
+  const body = isBus
+    ? `<rect x="14" y="10" width="36" height="38" rx="7" fill="${tint}" stroke="rgba(255,255,255,0.75)" stroke-width="2"/>
+       <rect x="19" y="16" width="26" height="13" rx="3" fill="rgba(11,20,32,0.55)"/>
+       <rect x="19" y="31" width="26" height="6" rx="2" fill="rgba(255,255,255,0.18)"/>
+       <circle cx="22" cy="50" r="4.5" fill="#1a2436" stroke="rgba(255,255,255,0.75)" stroke-width="2"/>
+       <circle cx="42" cy="50" r="4.5" fill="#1a2436" stroke="rgba(255,255,255,0.75)" stroke-width="2"/>`
+    : `<rect x="10" y="12" width="44" height="34" rx="16" fill="${tint}" stroke="rgba(255,255,255,0.75)" stroke-width="2"/>
+       <rect x="17" y="20" width="30" height="11" rx="4" fill="rgba(11,20,32,0.55)"/>
+       <rect x="17" y="33" width="30" height="5" rx="2" fill="rgba(255,255,255,0.18)"/>
+       <circle cx="22" cy="50" r="4" fill="#1a2436" stroke="rgba(255,255,255,0.75)" stroke-width="2"/>
+       <circle cx="42" cy="50" r="4" fill="#1a2436" stroke="rgba(255,255,255,0.75)" stroke-width="2"/>`;
+  return `<svg viewBox="0 0 64 64" width="100%" height="100%" style="display:block;">${body}</svg>`;
+}
 function renderCollection(){
   const cardIds = Object.keys(state.cards);
   const totalCatches = cardIds.reduce((sum, id) => sum + (state.cards[id].captureCount || 1), 0);
@@ -1223,16 +1306,18 @@ function renderCollection(){
     const c = state.cards[id];
     const meta = LINE_META[c.displayLine] || LINE_META[c.idLine];
     const rarity = RARITY_META[c.rarity];
-    return `<div class="tcard" style="--tint:${rarity.color};" data-open="${id}">
+    return `<div class="tcard" style="--tint:${rarity.color};" data-rarity="${c.rarity}" data-open="${id}">
       <div class="tcard-inner">
         <div class="tcard-head">
-          <div>
-            <div class="tcard-line">${meta.label}</div>
-            <div class="tcard-num">${c.label}</div>
-          </div>
+          <span class="tcard-line">${meta.label}</span>
           <span class="rarity-pill" style="color:${rarity.color};background:color-mix(in srgb, ${rarity.color} 16%, transparent);">${rarity.label}</span>
         </div>
-        <div class="tcard-type">${c.isPride ? '🌈 Pride Train · ' : ''}${displayCarType(c.idLine, c)}</div>
+        <div class="tcard-art">
+          ${cardArtSvg(c.idLine, rarity.color)}
+          <span class="tcard-art-num">${c.isPride ? '🌈' : '#' + c.label}</span>
+        </div>
+        <div class="tcard-name">${c.label}${c.isPride ? ' 🌈' : ''}</div>
+        <div class="tcard-type">${c.isPride ? 'Pride Train · ' : ''}${displayCarType(c.idLine, c)}</div>
         <div class="tcard-foot">
           <span>${c.captureCount || 1}&times; seen</span>
           <span>${c.lastStopName ? 'near ' + c.lastStopName : ''}</span>
@@ -1255,22 +1340,31 @@ function openCardModal(id){
   const root = document.getElementById('modalRoot');
   root.innerHTML = `
     <div class="modal-backdrop" id="modalBackdrop">
-      <div class="modal-sheet">
-        <span class="modal-rarity-badge" style="color:${rarity.color};background:color-mix(in srgb, ${rarity.color} 16%, transparent);">${rarity.label}</span>
-        <h2 style="font-size:24px;">${meta.label === vehicleNoun(c.idLine) ? meta.label : meta.label + ' — ' + vehicleNoun(c.idLine)} ${c.label}</h2>
-        <div style="color:var(--text-dim);font-size:13px;margin-top:3px;">${c.isPride ? '🌈 The Pride Train' : displayCarType(c.idLine, c)}</div>
-        <div style="margin-top:14px;">
-          <div class="detail-row"><span class="k">${vehicleNoun(c.idLine)} type</span><span class="v">${c.carType}</span></div>
-          <div class="detail-row"><span class="k">Builder</span><span class="v">${info.builder}</span></div>
-          <div class="detail-row"><span class="k">Built</span><span class="v">${c.yearBuilt || info.year}</span></div>
-          <div class="detail-row"><span class="k">Length</span><span class="v">${info.length ?? '—'}</span></div>
-          <div class="detail-row"><span class="k">Width</span><span class="v">${info.width ?? '—'}</span></div>
-          <div class="detail-row"><span class="k">Seats</span><span class="v">${info.seats ?? '—'}</span></div>
-          <div class="detail-row"><span class="k">Times spotted</span><span class="v">${c.captureCount || 1}</span></div>
-          <div class="detail-row"><span class="k">First caught</span><span class="v">${c.firstStopName ? 'near ' + c.firstStopName : 'on the ' + meta.label}</span></div>
-          <div class="detail-row"><span class="k">Last seen</span><span class="v">${c.lastStopName ? 'near ' + c.lastStopName : '—'}</span></div>
+      <div class="modal-card" style="--tint:${rarity.color};" data-rarity="${c.rarity}">
+        <div class="modal-card-inner">
+          <div class="modal-card-head">
+            <span class="modal-card-line">${meta.label}</span>
+            <span class="rarity-pill" style="color:${rarity.color};background:color-mix(in srgb, ${rarity.color} 16%, transparent);">${rarity.label}</span>
+          </div>
+          <div class="modal-card-art">
+            ${cardArtSvg(c.idLine, rarity.color)}
+            <span class="modal-card-art-num">${c.isPride ? '🌈' : '#' + c.label}</span>
+          </div>
+          <div class="modal-card-title">${meta.label === vehicleNoun(c.idLine) ? meta.label : meta.label + ' — ' + vehicleNoun(c.idLine)} ${c.label}</div>
+          <div class="modal-card-sub">${c.isPride ? '🌈 The Pride Train' : displayCarType(c.idLine, c)}</div>
+          <div class="modal-card-stats">
+            <div class="detail-row"><span class="k">${vehicleNoun(c.idLine)} type</span><span class="v">${c.carType}</span></div>
+            <div class="detail-row"><span class="k">Builder</span><span class="v">${info.builder}</span></div>
+            <div class="detail-row"><span class="k">Built</span><span class="v">${c.yearBuilt || info.year}</span></div>
+            <div class="detail-row"><span class="k">Length</span><span class="v">${info.length ?? '—'}</span></div>
+            <div class="detail-row"><span class="k">Width</span><span class="v">${info.width ?? '—'}</span></div>
+            <div class="detail-row"><span class="k">Seats</span><span class="v">${info.seats ?? '—'}</span></div>
+            <div class="detail-row"><span class="k">Times spotted</span><span class="v">${c.captureCount || 1}</span></div>
+            <div class="detail-row"><span class="k">First caught</span><span class="v">${c.firstStopName ? 'near ' + c.firstStopName : 'on the ' + meta.label}</span></div>
+            <div class="detail-row"><span class="k">Last seen</span><span class="v">${c.lastStopName ? 'near ' + c.lastStopName : '—'}</span></div>
+          </div>
+          <div class="modal-close" id="modalCloseBtn">Close</div>
         </div>
-        <div class="modal-close" id="modalCloseBtn">Close</div>
       </div>
     </div>`;
   document.getElementById('modalBackdrop').addEventListener('click', e => { if(e.target.id === 'modalBackdrop') closeModal(); });
