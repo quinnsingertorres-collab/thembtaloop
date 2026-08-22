@@ -512,7 +512,67 @@ body.dark .discord-banner{background:#5865F2; border-color:#5865F2; color:#fff;}
   }
   body.track-map-page .mobile-trains-open-tab{display:flex;}
   body.mobile-trains-open .mobile-trains-open-tab{display:none;}
+
+  /* Mirror of the trains drawer above, anchored to the LEFT edge instead —
+     swipe right anywhere on the map opens it (see the touchmove handling
+     near the bottom of the script), letting someone standing on a train
+     file a standing-by/express report by typing a car number instead of
+     first having to find and tap that exact train on the map. Reuses the
+     same backdrop as the trains drawer (only one of the two is ever open
+     at a time — see the swipe handler). Signed-out visitors never see the
+     open tab at all since the report forms themselves require signing in
+     (see updateQuickReportTabVisibility). */
+  .mobile-quick-report-panel{
+    position:fixed; top:0; left:0; bottom:0; z-index:70;
+    width:min(88vw, 400px); max-width:100vw;
+    margin:0; padding:0;
+    border-radius:0 16px 16px 0; border-left:none;
+    transform:translateX(-100%);
+    transition:transform 0.25s ease;
+    box-shadow:8px 0 28px rgba(0,0,0,0.4);
+    background:var(--panel); border:1px solid var(--border);
+  }
+  body.mobile-quick-report-open .mobile-quick-report-panel{
+    transform:translateX(0);
+  }
+  #quickReportScrollInner{
+    padding:calc(16px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom)) 16px;
+    height:100%; overflow-y:auto; overflow-x:hidden;
+    scrollbar-width:none; -ms-overflow-style:none;
+    overscroll-behavior:contain;
+  }
+  #quickReportScrollInner::-webkit-scrollbar{display:none;}
+  .mobile-quick-report-close{
+    display:flex; align-items:center; justify-content:center;
+    position:absolute; top:calc(10px + env(safe-area-inset-top)); right:10px; z-index:1;
+    width:30px; height:30px; border-radius:50%; border:none;
+    background:var(--bg); color:var(--text-dim); cursor:pointer;
+    transition:color 0.15s ease;
+  }
+  .mobile-quick-report-close:hover{color:var(--text);}
+  .mobile-quick-report-open-tab{
+    display:none; align-items:center; justify-content:center;
+    position:fixed; top:50%; left:0; transform:translateY(-50%);
+    width:22px; height:64px; border-radius:0 10px 10px 0;
+    background:var(--panel); border:1px solid var(--border); border-left:none;
+    color:var(--text-dim); cursor:pointer; padding:0;
+    box-shadow:2px 0 10px rgba(0,0,0,0.25);
+    z-index:65;
+  }
+  body.track-map-page.quick-report-available .mobile-quick-report-open-tab{display:flex;}
+  body.mobile-quick-report-open .mobile-quick-report-open-tab{display:none;}
 }
+.mobile-quick-report-panel{display:none;}
+@media (max-width:899px){ .mobile-quick-report-panel{display:block;} }
+/* Standing By / Express toggle inside the quick-report drawer. */
+.quick-report-type-toggle{display:flex; gap:6px; margin:10px 0 14px;}
+.quick-report-type-btn{
+  flex:1; padding:9px 6px; border-radius:8px; border:1px solid var(--border);
+  background:var(--panel-alt, rgba(255,255,255,0.05)); color:var(--text-dim);
+  font-family:'Space Grotesk', sans-serif; font-size:13px; font-weight:600;
+  cursor:pointer; transition:background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.quick-report-type-btn.active{background:var(--accent); border-color:var(--accent); color:#fff;}
 
 /* ---------- Panels ---------- */
 .panel{background:var(--panel); border:1px solid var(--border); border-radius:var(--radius); padding:16px; margin-bottom:16px;}
@@ -1539,16 +1599,72 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M9 5l7 7-7 7" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
   </button>
 
-  <!-- Mobile-only: dims the track map behind the swipe-in trains drawer (see
-       .main-grid > .panel:last-child's mobile rules) and closes it on tap,
-       same as the desktop docked panels' own backdrop-less equivalent isn't
-       needed there since that one lives fully off to the side instead of
-       overlapping the map. -->
+  <!-- Mobile-only: dims the track map behind whichever swipe-in drawer is
+       open — the trains list (right edge, swipe left) or the quick-report
+       panel below (left edge, swipe right) — and closes it on tap. Shared
+       by both since only one is ever open at a time (see the swipe
+       handler near the bottom of the script). -->
   <div class="mobile-trains-backdrop" id="mobileTrainsBackdrop"></div>
 
   <button class="mobile-trains-open-tab" id="mobileTrainsOpenTab" title="Show trains on this branch" aria-label="Show trains on this branch">
     <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M15 5l-7 7 7 7" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
   </button>
+
+  <!-- Mobile-only: swipe-right-anywhere-on-the-map quick report drawer —
+       lets someone standing on a train type its car number and file a
+       standing-by/express report directly, without first finding and
+       tapping that exact train on the map. Only shown once signed in
+       (see updateQuickReportTabVisibility) since the report itself
+       requires an account, same as the car modal's own versions of these
+       forms. Built once here (not rebuilt per-vehicle like the modal's
+       sections) since which vehicle it targets isn't known until the car
+       number is typed in — see setupQuickReportDrawer. -->
+  <button class="mobile-quick-report-open-tab" id="mobileQuickReportOpenTab" title="Quick standing-by/express report" aria-label="Quick standing-by/express report">
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M9 5l7 7-7 7" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </button>
+  <div class="mobile-quick-report-panel" id="quickReportPanel">
+    <button class="mobile-quick-report-close" id="mobileQuickReportClose" title="Close" aria-label="Close">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <div id="quickReportScrollInner">
+      <div class="panel-head">
+        <h2>Quick report</h2>
+        <span class="note">Type a car number from the set — no need to find the train first.</span>
+      </div>
+      <div class="roster-field-label">Car number</div>
+      <input type="text" class="roster-input" id="quickReportCarNumber" placeholder="e.g. 1932" inputmode="numeric" autocomplete="off" style="margin-top:6px;">
+
+      <div class="quick-report-type-toggle">
+        <button type="button" class="quick-report-type-btn active" id="quickReportTypeStandingBy">Standing by</button>
+        <button type="button" class="quick-report-type-btn" id="quickReportTypeExpress">Running express</button>
+      </div>
+
+      <datalist id="quickReportStationsDatalist"></datalist>
+
+      <div id="quickReportStandingByFields">
+        <div class="roster-field-label">Station</div>
+        <input type="text" class="roster-input" id="quickReportStation" list="quickReportStationsDatalist" placeholder="Start typing a station&hellip;" autocomplete="off" style="margin-top:6px;">
+        <input type="number" class="roster-input" id="quickReportMinutes" placeholder="Expected hold time in minutes (optional)" min="0">
+        <label style="display:flex; align-items:center; gap:6px; margin:6px 0 2px; font-size:13px; color:var(--text-dim);">
+          <input type="checkbox" id="quickReportUntilRelease" style="width:auto;">
+          Standing by until release (no set time — holding for dispatch)
+        </label>
+        <textarea class="roster-textarea" id="quickReportNotes" placeholder="Notes (optional)" style="margin-top:8px;"></textarea>
+      </div>
+
+      <div id="quickReportExpressFields" style="display:none;">
+        <div class="roster-field-label">Express from</div>
+        <input type="text" class="roster-input" id="quickReportExpressStart" list="quickReportStationsDatalist" placeholder="Start typing a station&hellip;" autocomplete="off">
+        <div class="roster-field-label">Still stops at (optional)</div>
+        <input type="text" class="roster-input" id="quickReportExpressIntermediate" list="quickReportStationsDatalist" placeholder="Only if it makes one stop in between&hellip;" autocomplete="off">
+        <div class="roster-field-label">Express to</div>
+        <input type="text" class="roster-input" id="quickReportExpressEnd" list="quickReportStationsDatalist" placeholder="Start typing a station&hellip;" autocomplete="off">
+      </div>
+
+      <button class="account-btn" id="quickReportSubmitBtn" style="margin-top:12px; width:100%;">Submit report</button>
+      <span class="roster-submit-note" id="quickReportNote"></span>
+    </div>
+  </div>
 
   <div class="panel full-bleed" id="rosterPanel" style="display:none;">
    <div class="full-bleed-inner">
@@ -2598,6 +2714,27 @@ function getRedLineBranch(v){
   const fallbackGuess = (hash % 2 === 0) ? 'ashmont' : 'braintree';
   redVehicleBranchMemory[v.id] = { branch: fallbackGuess, confirmed: false };
   return fallbackGuess;
+}
+
+// Which stations a "standing by" or "express" report can validly name for a
+// given vehicle — restricted to that train's own real route (using the same
+// branch-resolution logic used elsewhere) so a report can't be filed against
+// a station the train could never actually reach. Exception: once a
+// destination override is in effect, this train's actual route has already
+// diverged from what MBTA's feed reports (short-turn, reroute, cross-line
+// reassignment, etc.), so its real position could be anywhere — open the
+// list up to every station system-wide instead, not just its original
+// line/branch. Shared by the car modal's own standing-by/express sections
+// and the mobile quick-report drawer (see setupQuickReportDrawer) so both
+// apply the exact same rule.
+function getValidStopsForVehicle(v){
+  if(destinationOverrideCache[v.id]) return ALL_STATIONS;
+  if(state.activeLine === 'red'){
+    const branch = getRedLineBranch(v);
+    return PAGES[branch === 'ashmont' ? 'REDASHMONT' : 'REDBRAINTREE'].stops;
+  }
+  if(v.branch && PAGES[v.branch]) return PAGES[v.branch].stops;
+  return PAGES[state.activeLine === 'orange' ? 'ORANGE' : state.activeLine === 'blue' ? 'BLUE' : 'B'].stops;
 }
 
 function getRedCarType(label){
@@ -4092,11 +4229,12 @@ function switchPage(key){
   // permanent header for. Default to "not pinned" here; the one branch
   // below that actually shows the track map turns it back on.
   document.body.classList.remove('track-map-page');
-  // The mobile swipe-in trains drawer only makes sense over the track map
-  // it was swiped open from — close it unconditionally on every navigation
-  // (harmless no-op if it wasn't open) so it can't linger open on top of
-  // whatever page comes next.
+  // The mobile swipe-in trains drawer (and its quick-report mirror) only
+  // make sense over the track map they were swiped open from — close both
+  // unconditionally on every navigation (harmless no-op if not open) so
+  // neither can linger open on top of whatever page comes next.
   document.body.classList.remove('mobile-trains-open');
+  document.body.classList.remove('mobile-quick-report-open');
   // Hides the branch/route-selector row (not the whole bottom-nav — the
   // time/weather chip stays) while Fleet Roster is open; see the CSS rule.
   document.body.classList.toggle('roster-page-open', !!(page.isRoster || page.isCarDetail));
@@ -5520,23 +5658,8 @@ async function showCarModal(v){
   const isRedBranchEligible = state.activeLine === 'red';
 
   // "Standing by" report section — station dropdown is restricted to this
-  // train's own real route (using the same branch-resolution logic used
-  // elsewhere), so a report can't be filed against a station the train
-  // could never actually reach. Exception: once a destination override is
-  // in effect, this train's actual route has already diverged from what
-  // MBTA's feed reports (short-turn, reroute, cross-line reassignment,
-  // etc.), so its real position could be anywhere — open the list up to
-  // every station system-wide instead, not just its original line/branch.
-  const validStopsForThisVehicle = destinationOverrideCache[v.id]
-    ? ALL_STATIONS
-    : (()=>{
-        if(state.activeLine === 'red'){
-          const branch = getRedLineBranch(v);
-          return PAGES[branch === 'ashmont' ? 'REDASHMONT' : 'REDBRAINTREE'].stops;
-        }
-        if(v.branch && PAGES[v.branch]) return PAGES[v.branch].stops;
-        return PAGES[state.activeLine === 'orange' ? 'ORANGE' : state.activeLine === 'blue' ? 'BLUE' : 'B'].stops;
-      })();
+  // train's own real route (see getValidStopsForVehicle).
+  const validStopsForThisVehicle = getValidStopsForVehicle(v);
   const existingStandingBy = standingByCache[v.id];
   const standingBySection = existingStandingBy
     ? `<div class="modal-section">
@@ -10262,6 +10385,7 @@ async function completeSignIn(name, email, uid, photoURL, shortId){
   if(state.currentPage === 'ROSTER') buildRosterPanel();
   if(state.currentPage === 'CARDETAIL') buildCarDetailPanel();
   updateDiscordBanner();
+  updateQuickReportTabVisibility();
   if(freshSignInInProgress){
     freshSignInInProgress = false;
     showWelcomeScreen(name);
@@ -10298,6 +10422,8 @@ function resetSignedOutUI(){
   if(state.currentPage === 'CARDETAIL') buildCarDetailPanel();
   if(state.currentPage === 'MEMBERS' || state.currentPage === 'MODNOTIFS' || state.currentPage === 'EDITLOGS') switchPage('B');
   updateDiscordBanner();
+  document.body.classList.remove('mobile-quick-report-open');
+  updateQuickReportTabVisibility();
 }
 
 async function signOut(){
@@ -11584,9 +11710,14 @@ if(trainsPanelToggle){
 // this branch" panel in as a drawer (see the max-width:899px rules on
 // .main-grid > .panel:last-child above), instead of it just sitting in
 // normal document flow below the map where reaching it meant scrolling all
-// the way down. Swipe right (on the map OR the open drawer itself) closes
-// it again; the backdrop tap and the explicit close button below cover
-// people who don't think to swipe at all.
+// the way down. Swipe right opens the mirror-image quick-report drawer on
+// the left edge instead (see .mobile-quick-report-panel above and
+// setupQuickReportDrawer below) — whichever drawer is already open takes
+// priority when a swipe comes in from the opposite direction, so a swipe
+// right first closes an open trains drawer rather than immediately
+// reopening the quick-report one underneath it, and vice versa. The
+// backdrop tap and each drawer's own close button cover people who don't
+// think to swipe at all.
 (function(){
   const SWIPE_MIN_DX = 60;   // must travel at least this far horizontally
   const SWIPE_MAX_DY = 60;   // ...without wandering this far vertically first (keeps it from firing on a diagonal/vertical scroll)
@@ -11598,12 +11729,16 @@ if(trainsPanelToggle){
     if(e.touches.length !== 1){ reset(); return; }
     // Ignore gestures starting somewhere that already scrolls or reacts to
     // its own horizontal drag — the branch-selector pill row (which
-    // scrolls horizontally on narrow phones) and the train info modal/
-    // panel (a swipe there means something else entirely, not "open/close
-    // the trains drawer"). Everything else is fair game, INCLUDING the
-    // drawer itself once it's open — that's what lets a swipe right on the
-    // open panel close it again, not just a swipe on the map behind it.
-    skipGesture = !!e.target.closest('.bottom-nav, #carModalOverlay');
+    // scrolls horizontally on narrow phones), the train info modal, and the
+    // quick-report drawer's own text fields (unlike the trains list, this
+    // one has real text inputs — a drag to place a cursor or select text
+    // shouldn't ever be misread as "close the drawer" and silently drop
+    // whatever was typed). Everything else is fair game, INCLUDING the
+    // trains drawer itself once it's open — that's what lets a swipe right
+    // on the open panel close it again, not just a swipe on the map behind
+    // it. Closing the quick-report drawer instead goes through its own
+    // close button/backdrop tap only, for that same reason.
+    skipGesture = !!e.target.closest('.bottom-nav, #carModalOverlay, #quickReportPanel');
     touchStartX = e.touches[0].clientX;
     touchStartY = e.touches[0].clientY;
     triggered = false;
@@ -11620,18 +11755,25 @@ if(trainsPanelToggle){
     const dx = e.touches[0].clientX - touchStartX;
     const dy = e.touches[0].clientY - touchStartY;
     if(Math.abs(dy) > SWIPE_MAX_DY){ reset(); return; } // wandered vertically first — this is a scroll, not a swipe; stop watching this gesture
+    // Only relevant on mobile widths and while an actual track map (with a
+    // trains panel to reveal) is on screen — .main-grid is display:none on
+    // every other page (Roster, Settings, car detail, etc.), so there'd be
+    // nothing to swipe open there anyway.
+    const onMobileTrackMap = document.body.classList.contains('track-map-page') && window.matchMedia('(max-width:899px)').matches;
     if(dx <= -SWIPE_MIN_DX){
       triggered = true;
-      // Only relevant on mobile widths and while an actual track map (with
-      // a trains panel to reveal) is on screen — .main-grid is display:none
-      // on every other page (Roster, Settings, car detail, etc.), so
-      // there'd be nothing to swipe open there anyway.
-      if(document.body.classList.contains('track-map-page') && window.matchMedia('(max-width:899px)').matches){
+      if(document.body.classList.contains('mobile-quick-report-open')){
+        document.body.classList.remove('mobile-quick-report-open');
+      }else if(onMobileTrackMap){
         document.body.classList.add('mobile-trains-open');
       }
     }else if(dx >= SWIPE_MIN_DX){
       triggered = true;
-      document.body.classList.remove('mobile-trains-open');
+      if(document.body.classList.contains('mobile-trains-open')){
+        document.body.classList.remove('mobile-trains-open');
+      }else if(onMobileTrackMap && state.signedIn){
+        document.body.classList.add('mobile-quick-report-open');
+      }
     }
   }, { passive:true });
 
@@ -11642,12 +11784,179 @@ if(trainsPanelToggle){
 const mobileTrainsBackdrop = document.getElementById('mobileTrainsBackdrop');
 if(mobileTrainsBackdrop) mobileTrainsBackdrop.addEventListener('click', ()=>{
   document.body.classList.remove('mobile-trains-open');
+  document.body.classList.remove('mobile-quick-report-open');
 });
 
 const mobileTrainsOpenTab = document.getElementById('mobileTrainsOpenTab');
 if(mobileTrainsOpenTab) mobileTrainsOpenTab.addEventListener('click', ()=>{
   document.body.classList.add('mobile-trains-open');
+  document.body.classList.remove('mobile-quick-report-open');
 });
+
+const mobileQuickReportOpenTab = document.getElementById('mobileQuickReportOpenTab');
+if(mobileQuickReportOpenTab) mobileQuickReportOpenTab.addEventListener('click', ()=>{
+  document.body.classList.add('mobile-quick-report-open');
+  document.body.classList.remove('mobile-trains-open');
+});
+
+const mobileQuickReportCloseBtn = document.getElementById('mobileQuickReportClose');
+if(mobileQuickReportCloseBtn) mobileQuickReportCloseBtn.addEventListener('click', ()=>{
+  document.body.classList.remove('mobile-quick-report-open');
+});
+
+// Toggles the .quick-report-available body class that gates the drawer's
+// open tab (see the CSS above) — the report forms themselves require being
+// signed in (same as the car modal's own standing-by/express sections), so
+// there's nothing for a signed-out visitor to do in there. Called once at
+// startup and again from completeSignIn/resetSignedOutUI whenever that
+// changes.
+function updateQuickReportTabVisibility(){
+  document.body.classList.toggle('quick-report-available', !!state.signedIn);
+}
+updateQuickReportTabVisibility();
+
+// Mobile quick-report drawer — lets someone type any car number from a
+// train's set and file a standing-by/express report against it directly,
+// without needing to find and tap that specific train on the map first.
+// Unlike the car modal's own copies of these two forms (which already know
+// exactly which vehicle they're attached to), this one doesn't know which
+// vehicle it's targeting until the car number is typed in, so validation
+// and the actual save both happen together at submit time.
+function setupQuickReportDrawer(){
+  const carInput = document.getElementById('quickReportCarNumber');
+  const typeStandingByBtn = document.getElementById('quickReportTypeStandingBy');
+  const typeExpressBtn = document.getElementById('quickReportTypeExpress');
+  const standingByFields = document.getElementById('quickReportStandingByFields');
+  const expressFields = document.getElementById('quickReportExpressFields');
+  const untilReleaseCheckbox = document.getElementById('quickReportUntilRelease');
+  const minutesInput = document.getElementById('quickReportMinutes');
+  const stationInput = document.getElementById('quickReportStation');
+  const notesInput = document.getElementById('quickReportNotes');
+  const expressStartInput = document.getElementById('quickReportExpressStart');
+  const expressIntermediateInput = document.getElementById('quickReportExpressIntermediate');
+  const expressEndInput = document.getElementById('quickReportExpressEnd');
+  const note = document.getElementById('quickReportNote');
+  const submitBtn = document.getElementById('quickReportSubmitBtn');
+  const datalist = document.getElementById('quickReportStationsDatalist');
+  if(!carInput || !submitBtn) return;
+
+  // Every system-wide station, not just the eventually-resolved car's own
+  // route — which line/branch it's on isn't known until the car number is
+  // typed in and resolved, so the suggestion list can't be narrowed ahead
+  // of time the way the car modal's version of this can. Final validation
+  // below still restricts to that specific car's real route, same as
+  // there — this just makes the field autocomplete-friendly beforehand.
+  datalist.innerHTML = ALL_STATIONS.map(s => `<option value="${s.replace(/"/g,'&quot;')}">`).join('');
+
+  let activeType = 'standingby';
+  function setType(type){
+    activeType = type;
+    typeStandingByBtn.classList.toggle('active', type === 'standingby');
+    typeExpressBtn.classList.toggle('active', type === 'express');
+    standingByFields.style.display = type === 'standingby' ? '' : 'none';
+    expressFields.style.display = type === 'express' ? '' : 'none';
+    note.textContent = '';
+  }
+  typeStandingByBtn.addEventListener('click', ()=> setType('standingby'));
+  typeExpressBtn.addEventListener('click', ()=> setType('express'));
+
+  if(untilReleaseCheckbox && minutesInput){
+    untilReleaseCheckbox.addEventListener('change', ()=>{
+      const checked = untilReleaseCheckbox.checked;
+      minutesInput.disabled = checked;
+      if(checked) minutesInput.value = '';
+    });
+  }
+
+  // Resolves whatever's typed to a live vehicle currently carrying that car
+  // number on this line — tries an exact match first (getCarNumbersForVehicle
+  // returns each vehicle's raw label parts), then a couple of normalized
+  // variants (leading zeros stripped, or Blue Line's 4-digit-padded display
+  // form) since someone typing quickly on a moving train might not match
+  // the feed's exact raw label on the first try.
+  function resolveTypedCar(carTyped){
+    const trimmed = String(carTyped).trim();
+    if(!trimmed) return null;
+    let v = findActiveVehicleForCar(trimmed);
+    if(v) return v;
+    const stripped = trimmed.replace(/^0+(?=\d)/, '');
+    if(stripped !== trimmed){
+      v = findActiveVehicleForCar(stripped);
+      if(v) return v;
+    }
+    if(/^\d+$/.test(trimmed) && trimmed.length < 4){
+      v = findActiveVehicleForCar(trimmed.padStart(4, '0'));
+      if(v) return v;
+    }
+    return null;
+  }
+
+  function resetForm(){
+    carInput.value = '';
+    stationInput.value = '';
+    minutesInput.value = '';
+    minutesInput.disabled = false;
+    if(untilReleaseCheckbox) untilReleaseCheckbox.checked = false;
+    notesInput.value = '';
+    expressStartInput.value = '';
+    expressIntermediateInput.value = '';
+    expressEndInput.value = '';
+    note.textContent = '';
+  }
+
+  submitBtn.addEventListener('click', async ()=>{
+    const carTyped = carInput.value.trim();
+    if(!carTyped){ note.textContent = 'Enter a car number first.'; return; }
+    const v = resolveTypedCar(carTyped);
+    if(!v){
+      note.textContent = `Car ${carTyped} isn't currently active on this line — double check the number and make sure you're on the right line's track map.`;
+      return;
+    }
+    const validStops = getValidStopsForVehicle(v);
+
+    if(activeType === 'standingby'){
+      const stationTyped = stationInput.value.trim();
+      const untilRelease = !!(untilReleaseCheckbox && untilReleaseCheckbox.checked);
+      const minutes = untilRelease ? '' : minutesInput.value.trim();
+      const notes = notesInput.value.trim();
+      if(!stationTyped){ note.textContent = 'Enter a station first.'; return; }
+      const station = findStopMatchingInput(validStops, stationTyped);
+      if(!station){
+        note.textContent = `That doesn't match a real station on car ${formatCarNumberForDisplay(v.label)}'s route — pick one from the suggestions.`;
+        return;
+      }
+      await saveStandingByReport(v, station, minutes ? parseInt(minutes, 10) : null, notes, untilRelease);
+      awardPoints((minutes || untilRelease) ? 6 : 3);
+    }else{
+      const startTyped = expressStartInput.value.trim();
+      const endTyped = expressEndInput.value.trim();
+      const intermediateTyped = expressIntermediateInput.value.trim();
+      if(!startTyped || !endTyped){ note.textContent = 'Enter both a start and end station.'; return; }
+      const expressStopOptions = validStops.concat(['TESTING']);
+      const startStation = findStopMatchingInput(expressStopOptions, startTyped);
+      const endStation = findStopMatchingInput(expressStopOptions, endTyped);
+      if(!startStation || !endStation){
+        note.textContent = `That doesn't match a real station on car ${formatCarNumberForDisplay(v.label)}'s route — pick one from the suggestions.`;
+        return;
+      }
+      if(startStation === endStation){ note.textContent = 'Start and end station need to be different.'; return; }
+      let intermediateStop = null;
+      if(intermediateTyped){
+        intermediateStop = findStopMatchingInput(expressStopOptions, intermediateTyped);
+        if(!intermediateStop){ note.textContent = "The intermediate stop doesn't match a real station on this train's route."; return; }
+      }
+      await saveExpressReport(v, startStation, endStation, intermediateStop);
+      awardPoints(6);
+    }
+    note.textContent = `Reported car ${formatCarNumberForDisplay(v.label)} — done!`;
+    setTimeout(()=>{
+      document.body.classList.remove('mobile-quick-report-open');
+      resetForm();
+      setType('standingby');
+    }, 900);
+  });
+}
+setupQuickReportDrawer();
 
 // Belt-and-suspenders backup for the standalone-only zoom lock set on the
 // viewport meta tag up in <head> (see viewportMeta) — that meta change

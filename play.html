@@ -991,24 +991,90 @@ async function fetchRouteShapes(routeId){
   }catch(e){ return []; }
 }
 const CORE_LINE_ROUTES = [
-  { routeId: 'Red',     color: LINE_META.red.color },
-  { routeId: 'Orange',  color: LINE_META.orange.color },
-  { routeId: 'Blue',    color: LINE_META.blue.color },
-  { routeId: 'Green-B', color: BRANCH_COLOR.B },
-  { routeId: 'Green-C', color: BRANCH_COLOR.C },
-  { routeId: 'Green-D', color: BRANCH_COLOR.D },
-  { routeId: 'Green-E', color: BRANCH_COLOR.E }
+  { routeId: 'Red',      color: LINE_META.red.color },
+  { routeId: 'Orange',   color: LINE_META.orange.color },
+  { routeId: 'Blue',     color: LINE_META.blue.color },
+  { routeId: 'Green-B',  color: BRANCH_COLOR.B },
+  { routeId: 'Green-C',  color: BRANCH_COLOR.C },
+  { routeId: 'Green-D',  color: BRANCH_COLOR.D },
+  { routeId: 'Green-E',  color: BRANCH_COLOR.E },
+  { routeId: 'Mattapan', color: LINE_META.mattapan.color }
 ];
 let coreLinesLayer = null;
+// routeId -> decoded shapes (kept around after drawing, not just discarded,
+// so renderMapMarkers can snap live vehicles onto this same geometry).
+const coreLineShapes = {};
 async function loadCoreLines(){
   if(!leafletMap || coreLinesLayer) return;
   coreLinesLayer = L.layerGroup().addTo(leafletMap);
   await Promise.all(CORE_LINE_ROUTES.map(async r => {
     const shapes = await fetchRouteShapes(r.routeId);
+    coreLineShapes[r.routeId] = shapes;
     shapes.forEach(latlngs => {
       L.polyline(latlngs, { color: r.color, weight: 3, opacity: 0.55, interactive: false }).addTo(coreLinesLayer);
     });
   }));
+}
+
+// ---------- snap-to-track ----------
+// Rail vehicles' raw GPS fixes drift a car-width or two off the actual
+// rails, which reads oddly on a map where the rails themselves are drawn —
+// so once a line's shape has loaded, place the marker at the nearest point
+// on ITS OWN line/branch's track instead of the raw lat/lon. This only
+// affects where the dot is drawn; capture-range distance still uses the
+// real GPS fix (see withDist in renderAll), so it can't be gamed by a
+// vehicle that LOOKS closer on the snapped map than it really is.
+function shapeGroupsFor(t){
+  if(t.idLine === 'red') return coreLineShapes['Red'] || [];
+  if(t.idLine === 'orange') return coreLineShapes['Orange'] || [];
+  if(t.idLine === 'blue') return coreLineShapes['Blue'] || [];
+  if(t.idLine === 'green'){
+    if(t.branch === 'MATTAPAN') return coreLineShapes['Mattapan'] || [];
+    if(t.branch && coreLineShapes['Green-' + t.branch]) return coreLineShapes['Green-' + t.branch];
+    // Branch unknown (shouldn't normally happen) — fall back to every
+    // Green branch's geometry combined rather than not snapping at all.
+    return ['B', 'C', 'D', 'E'].reduce((acc, b) => acc.concat(coreLineShapes['Green-' + b] || []), []);
+  }
+  return []; // buses don't run a fixed single path — never snapped
+}
+function nearestPointOnSegment(px, py, ax, ay, bx, by){
+  const abx = bx - ax, aby = by - ay;
+  const lenSq = abx * abx + aby * aby;
+  let t = lenSq > 0 ? ((px - ax) * abx + (py - ay) * aby) / lenSq : 0;
+  t = Math.max(0, Math.min(1, t));
+  return [ax + abx * t, ay + aby * t];
+}
+// Equirectangular flattening (lon scaled by cos(lat)) is plenty accurate
+// at Boston's scale and much cheaper than true great-circle projection —
+// same trick haversineMeters already leans on for distance elsewhere.
+function snapLatLonToShapes(lat, lon, shapes){
+  if(!shapes || !shapes.length) return null;
+  const cosLat = Math.cos(lat * Math.PI / 180);
+  const px = lon * cosLat, py = lat;
+  let bestX = null, bestY = null, bestDist = Infinity;
+  for(const shape of shapes){
+    for(let i = 0; i < shape.length - 1; i++){
+      const ax = shape[i][1] * cosLat, ay = shape[i][0];
+      const bx = shape[i + 1][1] * cosLat, by = shape[i + 1][0];
+      const [nx, ny] = nearestPointOnSegment(px, py, ax, ay, bx, by);
+      const dx = nx - px, dy = ny - py;
+      const d = dx * dx + dy * dy;
+      if(d < bestDist){ bestDist = d; bestX = nx; bestY = ny; }
+    }
+  }
+  return bestX === null ? null : [bestY, bestX / cosLat];
+}
+// Cap how far a snap is allowed to pull a marker — a vehicle sitting in a
+// yard/pocket track the canonical shape doesn't cover (or, rarely, a
+// branch we guessed wrong) should just show its real GPS fix rather than
+// jump to a misleadingly "confident" spot on the wrong track.
+const SNAP_MAX_DRIFT_M = 400;
+function snappedPositionFor(t){
+  if(t.idLine === 'bus' || typeof t.lat !== 'number' || typeof t.lon !== 'number') return [t.lat, t.lon];
+  const snapped = snapLatLonToShapes(t.lat, t.lon, shapeGroupsFor(t));
+  if(!snapped) return [t.lat, t.lon];
+  const driftM = haversineMeters(t.lat, t.lon, snapped[0], snapped[1]);
+  return driftM <= SNAP_MAX_DRIFT_M ? snapped : [t.lat, t.lon];
 }
 let focusRouteLayer = null;
 const busRouteShapeCache = {}; // routeId -> decoded shapes (or [] on failure)
@@ -1134,14 +1200,18 @@ function renderMapMarkers(withDist){
     const badge = t.cars.length > 1 ? `<div class="train-dot-badge" style="top:${pad-6}px;right:${pad-8}px;">${t.cars.length}</div>` : '';
     const html = `<div class="train-marker-inner">${markerSvg(color, size, t.bearing, pad, isFocused, t.idLine)}${badge}</div>`;
     const icon = L.divIcon({ className:'train-marker-wrap', html, iconSize:[total, total], iconAnchor:[total/2, total/2] });
+    // Rail vehicles get drawn at the nearest point on their own line's
+    // track rather than their raw GPS fix (see snappedPositionFor above) —
+    // buses pass through unchanged since they don't run a single fixed path.
+    const pos = snappedPositionFor(t);
     if(trainMarkers[t.id]){
-      trainMarkers[t.id].setLatLng([t.lat, t.lon]);
+      trainMarkers[t.id].setLatLng(pos);
       trainMarkers[t.id].setIcon(icon);
     } else {
       // bubblingMouseEvents:false — otherwise a marker click also fires the
       // map's own click handler (Leaflet bubbles marker clicks to the map
       // by default), which would immediately clear the focus we just set.
-      const m = L.marker([t.lat, t.lon], { icon, bubblingMouseEvents: false });
+      const m = L.marker(pos, { icon, bubblingMouseEvents: false });
       m.on('click', () => focusTrain(t.id));
       m.addTo(leafletMap);
       trainMarkers[t.id] = m;
