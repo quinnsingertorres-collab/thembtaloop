@@ -3372,19 +3372,6 @@ const DESTINATION_OPTIONS = [
 ];
 const DESTINATION_KEY = 'destination_overrides_v1';
 
-async function loadDestinationOverride(vehicleId){
-  if(firebaseReady){
-    try{
-      const doc = await fbDb.collection('destination_overrides').doc(vehicleId).get();
-      return doc.exists ? doc.data() : null;
-    }catch(e){ console.error(e); return null; }
-  }
-  try{
-    const raw = localStorage.getItem(DESTINATION_KEY);
-    const data = raw ? JSON.parse(raw) : {};
-    return data[vehicleId] || null;
-  }catch(e){ return null; }
-}
 // Community "standing by" reports — a train holding at a station, with an
 // optional expected hold time and free-text notes. Tied to the reported
 // station and the trip it was made on; auto-clears the moment the train's
@@ -5122,10 +5109,16 @@ async function showCarModal(v){
   // every single train click, which used to mean 3 fresh full-collection
   // scans per click. Roster/GLTPS/user info doesn't change fast enough for
   // that staleness to matter here.
-  const [rosterCache, consistOverride, destinationOverrideRaw, originDepartureTime] = await Promise.all([
-    loadRosterPanelData(), loadConsistOverride(v), loadDestinationOverride(v.id),
+  const [rosterCache, consistOverride, originDepartureTime] = await Promise.all([
+    loadRosterPanelData(), loadConsistOverride(v),
     v.tripId ? getTripOriginDepartureTime(v.tripId) : Promise.resolve(null)
   ]);
+  // destination_overrides is a write-only collection under the current
+  // Firestore rules (client never reads it directly) — the already-current,
+  // 60s-polled destinationOverrideCache is the source of truth here, not a
+  // fresh per-doc fetch (that always failed permission checks and just
+  // logged console noise on every modal open/15s refresh).
+  const destinationOverrideRaw = destinationOverrideCache[v.id] || null;
   const { rosterData, gltpsMap, tagMap: userInfoMap, pantoMap } = rosterCache;
 
   // A destination override is tied to the specific trip it was reported on —
@@ -6104,6 +6097,14 @@ async function showCarModal(v){
   // mid-way through writing a trip note), skip rebuilding this cycle —
   // a full rebuild replaces the whole panel's HTML, which would wipe out
   // whatever they're actively typing. Just check again next cycle instead.
+  // Focus alone isn't enough of a guard though — someone filling out a
+  // multi-field form (e.g. the "report standing by" composer: station,
+  // minutes, until-release checkbox, notes) will naturally blur one field
+  // to move to the next, and a refresh landing in that gap used to wipe
+  // the whole form even though it still has unsaved input sitting in it.
+  // So also check every field in the panel for unsaved edits — current
+  // value/checked state differing from what it was rendered with — and
+  // skip the refresh if anything qualifies, not just the focused field.
   (function scheduleModalRefresh(){
     setTimeout(()=>{
       if(modalRefreshToken !== myModalToken) return; // modal closed or different content opened since
@@ -6111,7 +6112,11 @@ async function showCarModal(v){
       const activeEl = document.activeElement;
       const isTypingInModal = activeEl && modalBody && modalBody.contains(activeEl)
         && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA');
-      if(isTypingInModal){
+      const hasUnsavedInput = modalBody && Array.from(modalBody.querySelectorAll('input, textarea')).some(el => {
+        if(el.type === 'checkbox' || el.type === 'radio') return el.checked !== el.defaultChecked;
+        return el.value !== el.defaultValue;
+      });
+      if(isTypingInModal || hasUnsavedInput){
         scheduleModalRefresh();
         return;
       }
