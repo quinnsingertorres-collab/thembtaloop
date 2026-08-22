@@ -31,7 +31,6 @@
   --rare:#60A5FA;
   --ultra:#C084FC;
   --legendary:#FFD34D;
-  --catchbar-h:76px;
   --navbar-h:74px;
 }
 *{box-sizing:border-box;}
@@ -41,7 +40,7 @@ body{min-height:100vh;padding-bottom:36px;}
    normal-flow content — the Collection tab's card grid — never ends up
    hidden underneath it. The Spot tab's map is viewport-sized instead of
    scrolled body content, so this only really matters for Collection. */
-body.has-catchbar{padding-bottom:calc(var(--navbar-h) + 24px);}
+body.has-bottom-nav{padding-bottom:calc(var(--navbar-h) + 24px);}
 h1,h2,h3{font-family:'Space Grotesk',sans-serif;margin:0;}
 button{font-family:inherit;}
 a{color:inherit;}
@@ -74,12 +73,30 @@ a{color:inherit;}
    fixed at the very bottom, visible whenever signed in, so the map (and
    the Collection list) can run full-bleed underneath it. Sits below the
    catch bar / nearby sheet in the same fixed-overlay stack. ---------- */
-.bottom-nav{position:fixed;left:0;right:0;bottom:0;z-index:1250;display:none;gap:8px;max-width:460px;margin:0 auto;padding:10px 16px calc(10px + env(safe-area-inset-bottom));box-sizing:border-box;background:rgba(11,20,32,0.85);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-top:1px solid var(--border);border-radius:20px 20px 0 0;box-shadow:0 -8px 30px rgba(0,0,0,0.35);}
+.bottom-nav{position:fixed;left:0;right:0;bottom:0;z-index:1250;display:none;align-items:flex-end;justify-content:space-between;gap:8px;max-width:460px;margin:0 auto;padding:10px 16px calc(10px + env(safe-area-inset-bottom));box-sizing:border-box;background:rgba(11,20,32,0.85);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-top:1px solid var(--border);border-radius:20px 20px 0 0;box-shadow:0 -8px 30px rgba(0,0,0,0.35);overflow:visible;}
 .bottom-nav.visible{display:flex;}
 .nav-btn{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:8px 6px;border-radius:14px;border:none;background:transparent;color:var(--text-faint);font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:11.5px;cursor:pointer;transition:color 0.15s ease, background 0.15s ease;position:relative;}
 .nav-btn.active{color:#fff;background:var(--accent);}
 .nav-btn .tab-count{position:absolute;top:2px;right:14%;background:#FF5D8F;color:#0B1420;font-size:9px;font-weight:800;border-radius:20px;padding:1px 5px;min-width:14px;}
 .nav-btn.active .tab-count{background:rgba(255,255,255,0.25);color:#fff;}
+
+/* ---------- catch FAB — a raised circular button sitting between the
+   two nav tabs, replacing the old full-width catch bar. Color/icon state
+   is driven entirely by data-state (set from renderCatchButton) since
+   there's no room in a circle for the old status text; the informational
+   states surface that text as a toast on tap instead. ---------- */
+.catch-fab{flex-shrink:0;width:60px;height:60px;margin-top:-28px;border-radius:50%;border:4px solid var(--bg);background:var(--panel-2);color:var(--text-faint);display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 6px 18px rgba(0,0,0,0.45);transition:background 0.15s ease, color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;position:relative;}
+.catch-fab:active{transform:scale(0.94);}
+.catch-fab:disabled{cursor:default;}
+.catch-fab[data-state="ready"]{background:#34D399;color:#08120D;box-shadow:0 6px 22px rgba(52,211,153,0.55);animation:catchPulse 1.6s ease-in-out infinite;}
+.catch-fab[data-state="out-of-range"]{background:var(--panel-2);color:var(--text-faint);}
+.catch-fab[data-state="cooldown"]{background:rgba(255,211,77,0.14);color:var(--legendary);}
+.catch-fab[data-state="catching"]{background:#34D399;color:#08120D;}
+.catch-fab[data-state="catching"] svg{display:none;}
+.catch-fab-spinner{display:none;width:18px;height:18px;border-radius:50%;border:2.5px solid rgba(8,18,13,0.3);border-top-color:#08120D;animation:spin 0.7s linear infinite;}
+.catch-fab[data-state="catching"] .catch-fab-spinner{display:block;}
+.catch-fab.nav-inactive{opacity:0.4;pointer-events:none;}
+@keyframes catchPulse{0%,100%{box-shadow:0 6px 22px rgba(52,211,153,0.55);}50%{box-shadow:0 6px 26px rgba(52,211,153,0.85), 0 0 0 6px rgba(52,211,153,0.12);}}
 
 .page{max-width:640px;margin:0 auto;padding:0 16px;}
 
@@ -138,7 +155,7 @@ a{color:inherit;}
    edge, right above the fixed Catch bar, like Lightning Stripes' Nearby
    toolbar. Fixed positioning (not normal flow) so the expanded list can
    never end up hidden underneath the fixed Catch bar. ---------- */
-.nearby-sheet{position:fixed;left:0;right:0;bottom:calc(var(--catchbar-h) + var(--navbar-h));z-index:1200;padding:0 16px;box-sizing:border-box;pointer-events:none;}
+.nearby-sheet{position:fixed;left:0;right:0;bottom:var(--navbar-h);z-index:1200;padding:0 16px;box-sizing:border-box;pointer-events:none;}
 .nearby-inner{max-width:640px;margin:0 auto;pointer-events:auto;}
 .nearby-toggle{display:flex;align-items:center;justify-content:space-between;width:100%;background:rgba(16,29,47,0.9);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border:1px solid var(--border);border-radius:16px;padding:12px 14px;color:var(--text);font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13.5px;cursor:pointer;box-shadow:0 4px 18px rgba(0,0,0,0.4);}
 .nearby-count{color:var(--text-faint);font-weight:500;margin-left:4px;}
@@ -165,11 +182,16 @@ a{color:inherit;}
 .empty-state{text-align:center;padding:30px 16px;color:var(--text-faint);font-size:13.5px;line-height:1.6;}
 .empty-state .big{font-size:28px;display:block;margin-bottom:8px;}
 
-/* ---------- catch bar ---------- */
-.catch-bar{position:fixed;left:0;right:0;bottom:var(--navbar-h);z-index:1300;padding:12px 16px 10px;background:linear-gradient(0deg, rgba(11,20,32,0.98) 60%, rgba(11,20,32,0.7));display:none;}
-.catch-bar.visible{display:block;}
-.catch-btn{width:100%;max-width:640px;margin:0 auto;display:block;padding:15px;border-radius:14px;border:none;background:#34D399;color:#08120D;font-family:'Space Grotesk',sans-serif;font-weight:800;font-size:15.5px;cursor:pointer;box-shadow:0 6px 20px rgba(52,211,153,0.25);}
-.catch-btn:disabled{background:var(--panel-2);color:var(--text-faint);box-shadow:none;cursor:default;}
+/* ---------- desktop sidebar — floats over the left edge of the map,
+   same treatment as the other HUD panels (blurred dark panel), so the
+   map keeps running full-bleed underneath it. Only shown at >=900px;
+   the mobile nearby-sheet takes over below that (see min-width query). ---------- */
+.desktop-sidebar{display:none;position:fixed;top:70px;left:16px;bottom:16px;width:300px;z-index:900;background:rgba(16,29,47,0.92);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid var(--border);border-radius:16px;box-shadow:0 8px 30px rgba(0,0,0,0.4);flex-direction:column;overflow:hidden;}
+.desktop-sidebar-head{display:flex;align-items:center;justify-content:space-between;padding:14px 14px 12px;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:14px;flex-shrink:0;border-bottom:1px solid var(--border);}
+.sidebar-collapse-btn,.sidebar-expand-btn{width:26px;height:26px;border-radius:8px;border:1px solid var(--border);background:var(--panel-2);color:var(--text-dim);font-size:11px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.desktop-sidebar-scroll{flex:1;overflow-y:auto;}
+.desktop-sidebar-scroll .spot-list{padding:10px;}
+.sidebar-expand-btn{display:none;position:fixed;top:70px;left:16px;z-index:900;width:34px;height:34px;border-radius:10px;box-shadow:0 4px 14px rgba(0,0,0,0.4);}
 
 /* ---------- collection ---------- */
 .dex-strip{display:flex;overflow-x:auto;gap:8px;padding:14px 0 6px;-ms-overflow-style:none;scrollbar-width:none;}
@@ -252,6 +274,20 @@ a{color:inherit;}
   .map-wrap{min-height:460px;}
 }
 
+/* ---------- wide screens: the nearby list moves into a persistent,
+   collapsible left sidebar instead of the mobile bottom sheet, which is
+   hidden here so it doesn't leave a redundant empty-looking bar floating
+   over the map. ---------- */
+@media (min-width:900px){
+  .nearby-sheet{display:none;}
+  .desktop-sidebar{display:flex;}
+  .sidebar-expand-btn:not(.hidden){display:flex;}
+  /* keep the status/focus card HUD clear of the sidebar's right edge;
+     snaps back to the normal left offset once the sidebar is collapsed */
+  .map-overlay-top{left:332px;transition:left 0.2s ease;}
+  #spotTab.sidebar-collapsed .map-overlay-top{left:12px;}
+}
+
 /* ---------- small phones: tighten padding/type so nothing feels
    oversized or cramped on a ~375px-wide screen. ---------- */
 @media (max-width:420px){
@@ -281,8 +317,8 @@ a{color:inherit;}
   .status-banner.compact{padding:8px 10px;font-size:11.5px;}
   .nearby-sheet{padding:0 12px;}
   .nearby-toggle{padding:10px 12px;font-size:12.5px;}
-  .catch-bar{padding:10px 12px calc(10px + env(safe-area-inset-bottom));}
-  .catch-btn{padding:13px;font-size:14px;}
+  .catch-fab{width:52px;height:52px;margin-top:-24px;}
+  .catch-fab svg{width:20px;height:20px;}
   .card-grid{gap:9px;margin:14px 0 24px;}
   .tcard-inner{padding:7px;}
   .tcard-name{font-size:13.5px;}
@@ -376,6 +412,20 @@ a{color:inherit;}
         </button>
       </div>
     </div>
+
+    <!-- Desktop-only floating sidebar — the same nearby list rendered into
+         a second container so wide screens get a persistent, collapsible
+         panel instead of digging through the bottom sheet. Hidden below
+         the 900px breakpoint; the mobile nearby-sheet above is hidden at
+         and above it (see the min-width:900px block in <style>). -->
+    <div class="desktop-sidebar" id="desktopSidebar">
+      <div class="desktop-sidebar-head">
+        <span>Nearby<span class="nearby-count" id="nearbyCountDesktop"></span></span>
+        <button class="sidebar-collapse-btn" id="sidebarCollapseBtn" title="Collapse">&#10094;</button>
+      </div>
+      <div class="desktop-sidebar-scroll"><div id="spotListDesktop" class="spot-list"></div></div>
+    </div>
+    <button class="sidebar-expand-btn hidden" id="sidebarExpandBtn" title="Show nearby list">&#10095;</button>
   </div>
 
   <!-- COLLECTION TAB -->
@@ -395,21 +445,23 @@ a{color:inherit;}
 
 </div>
 
-<div class="catch-bar" id="catchBar">
-  <button class="catch-btn" id="catchBtn" disabled>Get closer to catch</button>
-</div>
-
 <!-- Bottom floating nav (Lightning Stripes–style) — replaces the old
      top tab bar. Fixed at the very bottom, visible whenever signed in
-     (both tabs), so the map can run edge-to-edge underneath it. -->
+     (both tabs), so the map can run edge-to-edge underneath it. The catch
+     button now lives here too, as a raised circular FAB between the two
+     tabs, instead of a separate full-width bar above the nav. -->
 <div class="bottom-nav" id="bottomNav">
   <button class="nav-btn active" id="spotTabBtn" data-tab="spot">
     <svg viewBox="0 0 24 24" width="20" height="20" fill="none"><path d="M12 21s-7-6.1-7-11.5A7 7 0 0 1 19 9.5C19 14.9 12 21 12 21Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="9.5" r="2.4" fill="currentColor"/></svg>
     <span>Spot</span>
   </button>
+  <button class="catch-fab" id="catchBtn" disabled data-state="empty" title="Catch">
+    <svg viewBox="0 0 24 24" width="24" height="24" fill="none"><path d="M4 8.5C4 7.12 5.12 6 6.5 6h1.4l.9-1.5A1.5 1.5 0 0 1 10.1 3.7h3.8a1.5 1.5 0 0 1 1.3.8L16.1 6h1.4C18.88 6 20 7.12 20 8.5v8c0 1.38-1.12 2.5-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5v-8Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="12" cy="12.5" r="3.4" stroke="currentColor" stroke-width="1.8"/></svg>
+    <span class="catch-fab-spinner"></span>
+  </button>
   <button class="nav-btn" id="collectionTabBtn" data-tab="collection">
     <svg viewBox="0 0 24 24" width="20" height="20" fill="none"><rect x="4" y="3.5" width="12" height="16" rx="2.4" transform="rotate(-8 10 11.5)" stroke="currentColor" stroke-width="2"/><rect x="8.5" y="5.5" width="12" height="16" rx="2.4" transform="rotate(8 14.5 13.5)" fill="currentColor" stroke="currentColor" stroke-width="2"/></svg>
-    <span>Collection</span>
+    <span>Card Library</span>
     <span class="tab-count hidden" id="collectionCount"></span>
   </button>
 </div>
@@ -719,8 +771,7 @@ if(firebaseReady){
     if(user){
       document.getElementById('introGate').classList.add('hidden');
       document.getElementById('appRoot').classList.remove('hidden');
-      document.body.classList.add('has-catchbar');
-      document.getElementById('catchBar').classList.add('visible');
+      document.body.classList.add('has-bottom-nav');
       document.getElementById('bottomNav').classList.add('visible');
       ensureMap();
       startLocation();
@@ -729,8 +780,7 @@ if(firebaseReady){
     } else {
       document.getElementById('introGate').classList.remove('hidden');
       document.getElementById('appRoot').classList.add('hidden');
-      document.body.classList.remove('has-catchbar');
-      document.getElementById('catchBar').classList.remove('visible');
+      document.body.classList.remove('has-bottom-nav');
       document.getElementById('bottomNav').classList.remove('visible');
     }
   });
@@ -766,10 +816,23 @@ function setTab(tab){
   document.getElementById('collectionTabBtn').classList.toggle('active', tab === 'collection');
   document.getElementById('spotTab').classList.toggle('hidden', tab !== 'spot');
   document.getElementById('collectionTab').classList.toggle('hidden', tab !== 'collection');
-  document.getElementById('catchBar').classList.toggle('visible', tab === 'spot' && !!state.user);
+  document.getElementById('catchBtn').classList.toggle('nav-inactive', tab !== 'spot');
   if(tab === 'collection') renderCollection();
   if(tab === 'spot') ensureMap();
 }
+
+// Desktop sidebar collapse/expand — purely a UI convenience so the nearby
+// list can get out of the way of the map without losing your place.
+document.getElementById('sidebarCollapseBtn').addEventListener('click', () => {
+  document.getElementById('desktopSidebar').classList.add('hidden');
+  document.getElementById('sidebarExpandBtn').classList.remove('hidden');
+  document.getElementById('spotTab').classList.add('sidebar-collapsed');
+});
+document.getElementById('sidebarExpandBtn').addEventListener('click', () => {
+  document.getElementById('desktopSidebar').classList.remove('hidden');
+  document.getElementById('sidebarExpandBtn').classList.add('hidden');
+  document.getElementById('spotTab').classList.remove('sidebar-collapsed');
+});
 
 /* ============================================================
    Geolocation
@@ -1200,8 +1263,9 @@ function renderAll(){
   if(!state.trains.length){
     document.getElementById('focusCard').innerHTML = `<div class="focus-empty">📡 Loading live vehicles…</div>`;
     document.getElementById('spotList').innerHTML = '';
+    document.getElementById('spotListDesktop').innerHTML = '';
     updateMapUserPosition();
-    renderCatchBar(null, null);
+    renderCatchButton(null, null);
     return;
   }
 
@@ -1241,7 +1305,7 @@ function renderAll(){
   renderNearbyList(withDist);
   updateMapUserPosition();
   renderMapMarkers(withDist);
-  renderCatchBar(focused, focused ? focused.cars[state.focusedCarIndex] : null);
+  renderCatchButton(focused, focused ? focused.cars[state.focusedCarIndex] : null);
   // Only re-fetch/redraw the highlighted bus route when the focused
   // vehicle actually changes — withDist rebuilds fresh objects every
   // render (every poll), so comparing by id (not object identity) avoids
@@ -1308,34 +1372,41 @@ function renderFocusCard(t){
 }
 
 function renderNearbyList(withDist){
-  const list = document.getElementById('spotList');
-  document.getElementById('nearbyCount').textContent = withDist.length ? ` (${withDist.length})` : '';
-  if(!withDist.length){
-    list.innerHTML = `<div class="empty-state"><span class="big">🚇</span>No live vehicles right now.</div>`;
-    return;
-  }
-  const shown = state.position ? withDist : withDist.slice(0, 15);
-  list.innerHTML = shown.map(t => {
-    const meta = LINE_META[t.displayLine] || LINE_META[t.idLine];
-    const inRange = t.dist != null && t.dist <= CAPTURE_RADIUS_M;
-    const isFocused = t.id === state.focusedTrainId;
-    const barColor = (t.branch && BRANCH_COLOR[t.branch]) || meta.color;
-    const branchLabel = t.branch === 'MATTAPAN' ? 'Mattapan' : (t.branch ? t.branch + ' Branch' : (t.routeName ? 'Route ' + t.routeName : ''));
-    return `<div class="spot-card ${isFocused ? 'focused' : ''} ${inRange ? 'in-range' : ''}" data-focus="${t.id}">
-      <div class="spot-line-bar" style="background:${barColor};"></div>
-      <div class="spot-main">
-        <div class="spot-top">
-          <span class="spot-line-name">${meta.label}${branchLabel ? ' · ' + branchLabel : ''}</span>
-          ${t.cars.length > 1 ? `<span class="spot-car-count">${t.cars.length} cars</span>` : ''}
-        </div>
-        <div class="spot-sub">${t.cars.map(c => c.label).join(', ')}</div>
-      </div>
-      <span class="spot-dist ${inRange ? 'close' : ''}">${state.position ? formatDistance(t.dist) : '—'}</span>
-    </div>`;
-  }).join('');
+  const countText = withDist.length ? ` (${withDist.length})` : '';
+  document.getElementById('nearbyCount').textContent = countText;
+  document.getElementById('nearbyCountDesktop').textContent = countText;
 
-  list.querySelectorAll('[data-focus]').forEach(el => {
-    el.addEventListener('click', () => focusTrain(el.getAttribute('data-focus')));
+  const html = (() => {
+    if(!withDist.length){
+      return `<div class="empty-state"><span class="big">🚇</span>No live vehicles right now.</div>`;
+    }
+    const shown = state.position ? withDist : withDist.slice(0, 15);
+    return shown.map(t => {
+      const meta = LINE_META[t.displayLine] || LINE_META[t.idLine];
+      const inRange = t.dist != null && t.dist <= CAPTURE_RADIUS_M;
+      const isFocused = t.id === state.focusedTrainId;
+      const barColor = (t.branch && BRANCH_COLOR[t.branch]) || meta.color;
+      const branchLabel = t.branch === 'MATTAPAN' ? 'Mattapan' : (t.branch ? t.branch + ' Branch' : (t.routeName ? 'Route ' + t.routeName : ''));
+      return `<div class="spot-card ${isFocused ? 'focused' : ''} ${inRange ? 'in-range' : ''}" data-focus="${t.id}">
+        <div class="spot-line-bar" style="background:${barColor};"></div>
+        <div class="spot-main">
+          <div class="spot-top">
+            <span class="spot-line-name">${meta.label}${branchLabel ? ' · ' + branchLabel : ''}</span>
+            ${t.cars.length > 1 ? `<span class="spot-car-count">${t.cars.length} cars</span>` : ''}
+          </div>
+          <div class="spot-sub">${t.cars.map(c => c.label).join(', ')}</div>
+        </div>
+        <span class="spot-dist ${inRange ? 'close' : ''}">${state.position ? formatDistance(t.dist) : '—'}</span>
+      </div>`;
+    }).join('');
+  })();
+
+  ['spotList', 'spotListDesktop'].forEach(id => {
+    const list = document.getElementById(id);
+    list.innerHTML = html;
+    list.querySelectorAll('[data-focus]').forEach(el => {
+      el.addEventListener('click', () => focusTrain(el.getAttribute('data-focus')));
+    });
   });
 }
 
@@ -1348,11 +1419,17 @@ function msUntilRecapturable(cardId){
   const elapsed = Date.now() - existing.lastCapturedAt.toMillis();
   return Math.max(0, RECAPTURE_COOLDOWN_MS - elapsed);
 }
-function renderCatchBar(t, car){
+// The catch button is now a small circle in the bottom nav, so there's no
+// room for the old status text ("Get closer — 300 ft away", etc). Instead
+// each non-ready state sets a distinct data-state (for color/icon via CSS)
+// and, where there's something useful to say, an onclick that surfaces it
+// as a toast rather than performing a catch.
+function renderCatchButton(t, car){
   const btn = document.getElementById('catchBtn');
   if(!t || !car){
     btn.disabled = true;
-    btn.textContent = 'No vehicle selected';
+    btn.dataset.state = 'empty';
+    btn.title = 'Select a vehicle to catch';
     btn.onclick = null;
     return;
   }
@@ -1360,26 +1437,30 @@ function renderCatchBar(t, car){
   const inRange = t.dist != null && t.dist <= CAPTURE_RADIUS_M;
   if(state.capturing[cardId]){
     btn.disabled = true;
-    btn.innerHTML = `<span class="spinner"></span> Catching…`;
+    btn.dataset.state = 'catching';
+    btn.title = 'Catching…';
     btn.onclick = null;
     return;
   }
   const cooldownMs = msUntilRecapturable(cardId);
   if(cooldownMs > 0){
-    btn.disabled = true;
+    btn.disabled = false;
+    btn.dataset.state = 'cooldown';
     const minsLeft = Math.ceil(cooldownMs / 60000);
-    btn.textContent = `Caught — try again in ${minsLeft}m`;
-    btn.onclick = null;
+    btn.title = `Caught — try again in ${minsLeft}m`;
+    btn.onclick = () => showToast('⏳', `${car.label} was just caught — try again in ${minsLeft}m`);
     return;
   }
   if(!inRange){
-    btn.disabled = true;
-    btn.textContent = state.position ? `Get closer — ${formatDistance(t.dist)} away` : 'Waiting for your location…';
-    btn.onclick = null;
+    btn.disabled = false;
+    btn.dataset.state = 'out-of-range';
+    btn.title = state.position ? `Get closer — ${formatDistance(t.dist)} away` : 'Waiting for your location…';
+    btn.onclick = () => showToast('📍', state.position ? `Get closer — ${formatDistance(t.dist)} away` : 'Waiting for your location…');
     return;
   }
   btn.disabled = false;
-  btn.textContent = `Catch ${car.label}`;
+  btn.dataset.state = 'ready';
+  btn.title = `Catch ${car.label}`;
   btn.onclick = () => captureCarNow(t, car);
 }
 
