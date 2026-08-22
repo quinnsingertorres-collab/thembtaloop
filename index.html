@@ -3623,6 +3623,14 @@ async function saveDestinationOverride(v, destination){
   };
   if(firebaseReady){
     try{ await fbDb.collection('destination_overrides').doc(v.id).set(payload); }catch(e){ console.error(e); }
+    // Update the in-memory cache directly rather than waiting on the
+    // callers' fire-and-forget refreshDestinationOverrideCache() to finish —
+    // that's a real network round-trip, and showCarModal() re-renders
+    // immediately after this resolves, reading straight from the cache. Left
+    // to just the background refresh, the modal would reopen still showing
+    // the OLD destination for a moment (or the whole 60s poll cycle, on a
+    // slow connection), which read as "updating destination doesn't work."
+    destinationOverrideCache[v.id] = payload;
     logEdit(state.userName, state.uid, `Reported destination change from ${v.headsign || 'Unknown'} to ${destination} for car ${formatCarNumberForDisplay(v.label)} on the ${lineDisplayName(state.activeLine)} Line`);
     return payload;
   }
@@ -3637,6 +3645,10 @@ async function saveDestinationOverride(v, destination){
 async function deleteDestinationOverride(vehicleId){
   if(firebaseReady){
     try{ await fbDb.collection('destination_overrides').doc(vehicleId).delete(); }catch(e){ console.error(e); }
+    // Same reasoning as saveDestinationOverride above — update the cache
+    // synchronously instead of relying on a caller's background refetch to
+    // land before the modal re-renders.
+    delete destinationOverrideCache[vehicleId];
     return;
   }
   try{
