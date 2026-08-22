@@ -493,9 +493,37 @@ async function sendToFilteredSubscribersWithThreshold(prefField, thresholdField,
   await deliverToSubscriptionSnapshot({ empty: false, docs: qualifying }, payload);
 }
 
+// Firestore-triggered Cloud Functions (Eventarc under the hood) use
+// "at-least-once" delivery — the same underlying write can occasionally
+// invoke the same trigger a second time (a transient retry), which without
+// a guard means the same push goes out twice for one real event. This was
+// reported directly: an identical "Destination change reported" push
+// arriving back to back for the same car/destination. event.id is stable
+// across redeliveries of the same event (it's the SAME event being
+// redelivered, not a new one), so a plain create() — which throws if the
+// doc already exists — doubles as an atomic "has this exact delivery
+// already been handled" check: the first delivery wins the create and
+// proceeds, any redelivery loses it and returns early. Swept clean every
+// minute by syncLastSeenCars below (any redelivery lands within seconds to
+// low single-digit minutes of the original at the absolute most, so 10
+// minutes of retention is generous headroom), so this never grows
+// unbounded the way an un-pruned collection would.
+async function claimPushEvent(eventId){
+  if(!eventId) return true; // no id to dedupe on (shouldn't happen) — fail open rather than silently drop a real push
+  try{
+    await db.collection('bot_state').doc('push_event_dedupe').collection('events').doc(eventId).create({ ts: Date.now() });
+    return true;
+  }catch(e){
+    if(e.code === 6) return false; // ALREADY_EXISTS — genuine duplicate delivery
+    console.error('claimPushEvent check failed, sending anyway:', e);
+    return true; // fail open on any other error — a possible rare duplicate beats a silently dropped real push
+  }
+}
+
 exports.sendPushOnModAlert = onDocumentCreated(
   { document: 'mod_alerts/{alertId}', secrets: [VAPID_PRIVATE_KEY] },
   async (event) => {
+    if(!(await claimPushEvent(event.id))) return;
     const data = event.data.data();
     if(!data || !data.text) return;
     await sendToAllSubscribers({
@@ -509,6 +537,7 @@ exports.sendPushOnModAlert = onDocumentCreated(
 exports.sendPushOnModNotification = onDocumentCreated(
   { document: 'mod_notifications/{notifId}', secrets: [VAPID_PRIVATE_KEY] },
   async (event) => {
+    if(!(await claimPushEvent(event.id))) return;
     const data = event.data.data();
     if(!data || !data.subject) return;
     await sendToAllSubscribers({
@@ -527,6 +556,7 @@ exports.sendPushOnModNotification = onDocumentCreated(
 exports.sendPushOnDestinationOverride = onDocumentWritten(
   { document: 'destination_overrides/{vehicleId}', secrets: [VAPID_PRIVATE_KEY] },
   async (event) => {
+    if(!(await claimPushEvent(event.id))) return;
     if(!event.data.after.exists) return;
     const data = event.data.after.data();
     if(!data || !data.destination) return;
@@ -545,6 +575,7 @@ exports.sendPushOnDestinationOverride = onDocumentWritten(
 exports.sendPushOnLineChange = onDocumentWritten(
   { document: 'branch_reassignments/{vehicleId}', secrets: [VAPID_PRIVATE_KEY] },
   async (event) => {
+    if(!(await claimPushEvent(event.id))) return;
     if(!event.data.after.exists) return;
     const data = event.data.after.data();
     if(!data || !data.correctBranch) return;
@@ -577,6 +608,7 @@ exports.sendPushOnLineChange = onDocumentWritten(
 exports.sendPushOnCarOutOfService = onDocumentCreated(
   { document: 'car_out_of_service/{carNum}', secrets: [VAPID_PRIVATE_KEY] },
   async (event) => {
+    if(!(await claimPushEvent(event.id))) return;
     const data = event.data.data();
     if(!data || !data.outOfService) return;
     if(data.suppressPush) return;
@@ -707,6 +739,7 @@ const SERVICE_ALERTS_STATE_REF = () => db.collection('bot_state').doc('service_a
 exports.sendPushOnCommunityAlert = onDocumentCreated(
   { document: 'community_alerts/{alertId}', secrets: [VAPID_PRIVATE_KEY] },
   async (event) => {
+    if(!(await claimPushEvent(event.id))) return;
     const data = event.data.data();
     if(!data || !data.route) return;
     const where = (data.fromStation && data.toStation)
@@ -738,6 +771,7 @@ exports.sendPushOnCommunityAlert = onDocumentCreated(
 exports.sendPushOnCommunityAlertEnd = onDocumentDeleted(
   { document: 'community_alerts/{alertId}', secrets: [VAPID_PRIVATE_KEY] },
   async (event) => {
+    if(!(await claimPushEvent(event.id))) return;
     const data = event.data.data();
     if(!data || !data.route) return;
     const where = (data.fromStation && data.toStation)
@@ -1487,6 +1521,26 @@ exports.syncLastSeenCars = onSchedule({ schedule: 'every 1 minutes', secrets: [V
     }
   }catch(e){
     console.error('Expired diversion cleanup failed:', e);
+  }
+
+  // ---- push_event_dedupe cleanup (see claimPushEvent above) ----
+  // A redelivery of the same Firestore trigger event only ever lands within
+  // seconds to low single-digit minutes of the original at the absolute
+  // most, so anything older than 10 minutes here has done its job and can
+  // go — keeps this collection small and self-cleaning instead of growing
+  // forever.
+  try{
+    const dedupeSnap = await db.collection('bot_state').doc('push_event_dedupe').collection('events').get();
+    const staleRefs = [];
+    dedupeSnap.forEach(doc => {
+      const ts = doc.data().ts;
+      if(!ts || (now - ts) > 10 * 60 * 1000) staleRefs.push(doc.ref);
+    });
+    if(staleRefs.length){
+      await Promise.all(staleRefs.map(ref => ref.delete().catch(e => console.error(e))));
+    }
+  }catch(e){
+    console.error('push_event_dedupe cleanup failed:', e);
   }
 
   await pairStateRef.set({
