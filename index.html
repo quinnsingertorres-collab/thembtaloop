@@ -2191,7 +2191,7 @@ const PAGES = {
   C: {
     hex:'#7CE094', label:'Cleveland Circle',
     stops: ["Government Center","Park Street","Boylston","Arlington","Copley","Hynes Convention Center",
-      "Kenmore","St. Mary's Street","Hawes Street","Kent Street","St. Paul Street","Coolidge Corner",
+      "Kenmore","Saint Mary's Street","Hawes Street","Kent Street","Saint Paul Street","Coolidge Corner",
       "Summit Avenue","Brandon Hall","Fairbanks Street","Washington Square","Tappan Street","Dean Road",
       "Englewood Avenue","Cleveland Circle"]
   },
@@ -2310,10 +2310,10 @@ const ABBREVIATIONS = {
   "Newton Highlands":"Nwtn Highlands",
   "Brookline Village":"Brkline Village",
   "Brookline Hills":"Brkline Hills",
-  "St. Mary's Street":"St. Mary's",
+  "Saint Mary's Street":"St. Mary's",
   "Hawes Street":"Hawes",
   "Kent Street":"Kent",
-  "St. Paul Street":"St. Paul",
+  "Saint Paul Street":"St. Paul",
   "Coolidge Corner":"Coolidge Cnr",
   "Summit Avenue":"Summit Ave",
   "Fairbanks Street":"Fairbanks",
@@ -11333,15 +11333,27 @@ function searchForCar(){
   }
   const { match, matchedCar } = result;
 
-  note.textContent = `Found car ${matchedCar} on the ${getDisplayBranch(match.branch)} line.`;
   switchPage(match.branch);
 
   const bubble = Array.from(document.querySelectorAll('.train-bubble'))
     .find(el => (el.dataset.cars || '').split(',').includes(matchedCar));
 
   if(bubble){
+    note.textContent = `Found car ${matchedCar} on the ${getDisplayBranch(match.branch)} line.`;
     bubble.classList.add('bubble-search-highlight');
     setTimeout(()=>{ bubble.classList.remove('bubble-search-highlight'); }, 5000);
+  }else{
+    // The vehicle is in the live feed (findMatchingCarVehicle found it) but
+    // isn't rendering as a bubble anywhere — most likely its reported stop
+    // name doesn't match anything in this branch's own station list (a
+    // mismatch between MBTA's live feed and our own PAGES data, the same
+    // class of bug "Saint Mary's Street"/"Saint Paul Street" turned out to
+    // be — MBTA spells those out in full while ours used to abbreviate
+    // "St."). Rather than silently saying "Found" with nothing visible to
+    // show for it, say so honestly so it's obvious this is a data glitch,
+    // not a missed tap.
+    note.textContent = `Car ${matchedCar} is in the live feed but isn't currently showing on the map (likely a temporary stop-name mismatch) — try again in a moment.`;
+    note.classList.add('error');
   }
 }
 
