@@ -752,10 +752,10 @@ function formatDistance(m){
   if(ft < 1000) return Math.round(ft) + ' ft';
   return (ft / 5280).toFixed(1) + ' mi';
 }
-const CAPTURE_RADIUS_FT = 1600; // ~0.3 mi — roughly "at or near the platform"
+const CAPTURE_RADIUS_FT = 21120; // ~4 mi — TEMP widened for testing, dial back to 1600 (~0.3mi) before shipping
 const CAPTURE_RADIUS_M = CAPTURE_RADIUS_FT / 3.28084;
 document.getElementById('introTip').innerHTML =
-  `📡 GPS is weakest underground — capturing works best above ground, at outdoor stations, or on the surface branches (Green B/C/D/E, Mattapan, and the outdoor ends of Red/Orange/Blue). You need to be within about ${CAPTURE_RADIUS_FT.toLocaleString()} ft of a vehicle to catch it.`;
+  `📡 GPS is weakest underground — capturing works best above ground, at outdoor stations, or on the surface branches (Green B/C/D/E, Mattapan, and the outdoor ends of Red/Orange/Blue). You need to be within about ${formatDistance(CAPTURE_RADIUS_M)} of a vehicle to catch it.`;
 
 /* ============================================================
    State
@@ -920,7 +920,7 @@ function renderLocBanner(){
   if(state.position){
     dot.classList.add('live');
     const accFt = Math.round(metersToFeet(state.position.accuracy || 0));
-    text.innerHTML = `<b>Location on</b> — accurate to ~${accFt.toLocaleString()} ft. Get within ${CAPTURE_RADIUS_FT.toLocaleString()} ft of a vehicle to catch it.`;
+    text.innerHTML = `<b>Location on</b> — accurate to ~${accFt.toLocaleString()} ft. Get within ${formatDistance(CAPTURE_RADIUS_M)} of a vehicle to catch it.`;
   } else {
     dot.classList.remove('live');
     text.textContent = 'Requesting location…';
