@@ -866,6 +866,26 @@ function startLocation(){
     return;
   }
   if(watchId != null) return;
+  // A high-accuracy GPS lock can take a long time to acquire without wifi
+  // assisting it (wifi-based positioning is near-instant; a cold GPS fix
+  // can take 15-30+ seconds, longer if you're underground or between
+  // buildings) — which left the catch button showing "waiting for your
+  // location" for that whole stretch. Fire a fast, low-accuracy fix first
+  // (cell-tower based, works fine off wifi) so distance/catchability has
+  // SOMETHING to work with immediately, then let the precise watch below
+  // refine it in the background.
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      if(!state.position){
+        state.position = { lat: pos.coords.latitude, lon: pos.coords.longitude, accuracy: pos.coords.accuracy };
+        state.posError = null;
+        renderLocBanner();
+        renderAll();
+      }
+    },
+    () => {}, // the precise watch below will report its own error if this also fails
+    { enableHighAccuracy:false, maximumAge:60000, timeout:8000 }
+  );
   watchId = navigator.geolocation.watchPosition(
     pos => {
       state.position = { lat: pos.coords.latitude, lon: pos.coords.longitude, accuracy: pos.coords.accuracy };
@@ -990,6 +1010,22 @@ async function fetchRouteShapes(routeId){
       .filter(pts => pts.length > 1);
   }catch(e){ return []; }
 }
+// A single specific shape by ID — the exact alignment a given bus's current
+// trip is following, vs. every historical variant fetchRouteShapes(routeId)
+// returns for the whole route. Used by updateFocusRouteLine() so tapping a
+// bus highlights only the pattern it's actually on.
+async function fetchShapeById(shapeId){
+  try{
+    const url = withMbtaKey(`https://api-v3.mbta.com/shapes/${shapeId}?fields[shape]=polyline`);
+    const res = await fetch(url, { headers: MBTA_HEADERS });
+    if(!res.ok) return [];
+    const json = await res.json();
+    const poly = json.data && json.data.attributes && json.data.attributes.polyline;
+    if(!poly) return [];
+    const pts = decodePolyline(poly);
+    return pts.length > 1 ? [pts] : [];
+  }catch(e){ return []; }
+}
 const CORE_LINE_ROUTES = [
   { routeId: 'Red',      color: LINE_META.red.color },
   { routeId: 'Orange',   color: LINE_META.orange.color },
@@ -1077,20 +1113,36 @@ function snappedPositionFor(t){
   return driftM <= SNAP_MAX_DRIFT_M ? snapped : [t.lat, t.lon];
 }
 let focusRouteLayer = null;
-const busRouteShapeCache = {}; // routeId -> decoded shapes (or [] on failure)
+const busRouteShapeCache = {}; // routeId -> decoded shapes, every variant (fallback only)
+const busShapeCache = {}; // shapeId -> decoded shape, the one this trip actually runs
 async function updateFocusRouteLine(t){
   if(!leafletMap) return;
   if(focusRouteLayer){ leafletMap.removeLayer(focusRouteLayer); focusRouteLayer = null; }
   if(!t || t.idLine !== 'bus' || !t.routeId) return;
-  const routeId = t.routeId, trainId = t.id;
-  let shapes = busRouteShapeCache[routeId];
-  if(!shapes){
-    shapes = await fetchRouteShapes(routeId);
-    busRouteShapeCache[routeId] = shapes;
+  const routeId = t.routeId, trainId = t.id, shapeId = t.shapeId;
+  let shapes = null;
+  if(shapeId){
+    shapes = busShapeCache[shapeId];
+    if(!shapes){
+      shapes = await fetchShapeById(shapeId);
+      busShapeCache[shapeId] = shapes;
+    }
+    // The fetch is async — bail if the user moved on to a different (or no)
+    // focus while it was in flight, so a stale route doesn't get drawn.
+    if(state.focusedTrainId !== trainId) return;
   }
-  // The fetch is async — bail if the user moved on to a different (or no)
-  // focus while it was in flight, so a stale route doesn't get drawn.
-  if(!shapes.length || state.focusedTrainId !== trainId) return;
+  // No trip/shape on file for this vehicle (e.g. a charter shuttle with no
+  // matching GTFS trip) — fall back to every shape MBTA has for the route
+  // rather than showing no highlight at all.
+  if(!shapes || !shapes.length){
+    shapes = busRouteShapeCache[routeId];
+    if(!shapes){
+      shapes = await fetchRouteShapes(routeId);
+      busRouteShapeCache[routeId] = shapes;
+    }
+    if(state.focusedTrainId !== trainId) return;
+  }
+  if(!shapes.length) return;
   focusRouteLayer = L.layerGroup(shapes.map(latlngs =>
     L.polyline(latlngs, { color:'#ffffff', weight:5, opacity:0.85, interactive:false })
   )).addTo(leafletMap);
@@ -1274,7 +1326,12 @@ async function fetchLine(routeFilter, idLine, typeFn){
 }
 
 async function fetchBuses(){
-  const url = withMbtaKey(`https://api-v3.mbta.com/vehicles?filter[route_type]=3&include=route,stop&fields[vehicle]=current_status,label,latitude,longitude,updated_at,bearing&fields[route]=short_name,long_name&fields[stop]=name`);
+  // include=trip (with an empty trip fieldset — attributes aren't needed,
+  // just the relationship) so each vehicle's specific shape_id comes along
+  // for free: that's what lets updateFocusRouteLine() highlight only the
+  // one pattern this bus is actually running instead of every variant
+  // MBTA has on file for the route.
+  const url = withMbtaKey(`https://api-v3.mbta.com/vehicles?filter[route_type]=3&include=route,stop,trip&fields[vehicle]=current_status,label,latitude,longitude,updated_at,bearing&fields[route]=short_name,long_name&fields[stop]=name&fields[trip]=`);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 9000);
   let json;
@@ -1286,13 +1343,22 @@ async function fetchBuses(){
   }catch(e){ clearTimeout(timeout); return []; }
 
   const included = {};
-  (json.included || []).forEach(item => { included[item.type + ':' + item.id] = item.attributes; });
+  const tripShapeIds = {}; // trip id -> shape id
+  (json.included || []).forEach(item => {
+    included[item.type + ':' + item.id] = item.attributes;
+    if(item.type === 'trip'){
+      const shapeRel = item.relationships && item.relationships.shape && item.relationships.shape.data;
+      tripShapeIds[item.id] = shapeRel ? shapeRel.id : null;
+    }
+  });
 
   return (json.data || []).map(v => {
     const routeRel = v.relationships && v.relationships.route && v.relationships.route.data;
     const routeInfo = routeRel ? (included['route:' + routeRel.id] || {}) : {};
     const stopRel = v.relationships && v.relationships.stop && v.relationships.stop.data;
     const stopName = stopRel ? (included['stop:' + stopRel.id] || {}).name : null;
+    const tripRel = v.relationships && v.relationships.trip && v.relationships.trip.data;
+    const shapeId = tripRel ? (tripShapeIds[tripRel.id] || null) : null;
     const label = String(v.attributes.label || v.id);
     const silverLine = isSilverLineRoute(routeInfo.short_name, routeInfo.long_name);
     const modelInfo = getBusModelInfo(label);
@@ -1310,6 +1376,7 @@ async function fetchBuses(){
       idLine: 'bus', displayLine: isCharterShuttle ? 'shuttle' : (silverLine ? 'silverline' : 'bus'), branch: null,
       routeId: routeRel ? routeRel.id : null,
       routeName: routeInfo.short_name || (routeRel ? routeRel.id : null),
+      shapeId,
       status: v.attributes.current_status,
       lat: v.attributes.latitude,
       lon: v.attributes.longitude,
@@ -1564,6 +1631,18 @@ function renderCatchButton(t, car){
 /* ============================================================
    Capture + Firestore
    ============================================================ */
+// Races a promise against a timeout so a stalled request on a slow/flaky
+// connection (cellular with no wifi assist, a dead spot underground, etc.)
+// fails fast with a retryable error instead of leaving the catch button
+// stuck on its spinner indefinitely — Firestore's own SDK has no built-in
+// deadline for these calls, so without this a bad connection can hang the
+// button forever with nothing for the user to do but reload the page.
+function withTimeout(promise, ms, message){
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(message)), ms))
+  ]);
+}
 async function captureCarNow(t, car){
   if(!state.user || !firebaseReady) return;
   const cardId = cardIdFor(t.idLine, car.label);
@@ -1573,44 +1652,48 @@ async function captureCarNow(t, car){
     return;
   }
   state.capturing[cardId] = true;
-  renderCatchBar(t, car);
+  renderCatchButton(t, car);
   try{
-    const ref = fbDb.collection('users').doc(state.user.uid).collection('cards').doc(cardId);
-    const snap = await ref.get();
-    const nowFieldValue = firebase.firestore.FieldValue.serverTimestamp();
-    const commonFields = {
-      idLine: t.idLine,
-      displayLine: t.displayLine,
-      branch: t.branch,
-      label: car.label,
-      carType: car.carType,
-      yearBuilt: car.yearBuilt || null,
-      isPride: car.isPride,
-      rarity: car.rarity,
-      lastCapturedAt: nowFieldValue,
-      lastLat: t.lat,
-      lastLon: t.lon,
-      lastStopName: t.stopName || null
-    };
-    if(snap.exists){
-      await ref.set(Object.assign({}, commonFields, {
-        captureCount: firebase.firestore.FieldValue.increment(1)
-      }), { merge: true });
-      showToast(car.isPride ? '🌈' : '📸', `Spotted again — ${vehicleNoun(t.idLine).toLowerCase()} ${car.label}`);
-    } else {
-      await ref.set(Object.assign({}, commonFields, {
-        firstCapturedAt: nowFieldValue,
-        firstLat: t.lat,
-        firstLon: t.lon,
-        firstStopName: t.stopName || null,
-        captureCount: 1
-      }));
-      const rarity = RARITY_META[car.rarity];
-      showToast('🎉', `New card! ${displayCarType(t.idLine, car)} ${vehicleNoun(t.idLine).toLowerCase()} ${car.label} — ${rarity.label}`);
-    }
-    await loadCollection();
+    await withTimeout((async () => {
+      const ref = fbDb.collection('users').doc(state.user.uid).collection('cards').doc(cardId);
+      const snap = await ref.get();
+      const nowFieldValue = firebase.firestore.FieldValue.serverTimestamp();
+      const commonFields = {
+        idLine: t.idLine,
+        displayLine: t.displayLine,
+        branch: t.branch,
+        label: car.label,
+        carType: car.carType,
+        yearBuilt: car.yearBuilt || null,
+        isPride: car.isPride,
+        rarity: car.rarity,
+        lastCapturedAt: nowFieldValue,
+        lastLat: t.lat,
+        lastLon: t.lon,
+        lastStopName: t.stopName || null
+      };
+      if(snap.exists){
+        await ref.set(Object.assign({}, commonFields, {
+          captureCount: firebase.firestore.FieldValue.increment(1)
+        }), { merge: true });
+        showToast(car.isPride ? '🌈' : '📸', `Spotted again — ${vehicleNoun(t.idLine).toLowerCase()} ${car.label}`);
+      } else {
+        await ref.set(Object.assign({}, commonFields, {
+          firstCapturedAt: nowFieldValue,
+          firstLat: t.lat,
+          firstLon: t.lon,
+          firstStopName: t.stopName || null,
+          captureCount: 1
+        }));
+        const rarity = RARITY_META[car.rarity];
+        showToast('🎉', `New card! ${displayCarType(t.idLine, car)} ${vehicleNoun(t.idLine).toLowerCase()} ${car.label} — ${rarity.label}`);
+      }
+      await loadCollection();
+    })(), 15000, 'capture-timeout');
   } catch(e){
-    showToast('⚠️', 'Could not save that catch — try again');
+    showToast('⚠️', e && e.message === 'capture-timeout'
+      ? 'Taking too long — check your connection and try again'
+      : 'Could not save that catch — try again');
   } finally {
     delete state.capturing[cardId];
     renderAll();
