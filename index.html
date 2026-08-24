@@ -2716,6 +2716,21 @@ function getRedLineBranch(v){
   return fallbackGuess;
 }
 
+// This vehicle's own real route, in physical stop order — used both as the
+// base for getValidStopsForVehicle below and, unlike that function, always
+// the *actual* route regardless of any destination override (needed for
+// figuring out what this train has and hasn't passed yet, where "somewhere,
+// who knows" isn't a usable answer the way it is for picking stations off a
+// list).
+function getOwnRouteStopsForVehicle(v){
+  if(state.activeLine === 'red'){
+    const branch = getRedLineBranch(v);
+    return PAGES[branch === 'ashmont' ? 'REDASHMONT' : 'REDBRAINTREE'].stops;
+  }
+  if(v.branch && PAGES[v.branch]) return PAGES[v.branch].stops;
+  return PAGES[state.activeLine === 'orange' ? 'ORANGE' : state.activeLine === 'blue' ? 'BLUE' : 'B'].stops;
+}
+
 // Which stations a "standing by" or "express" report can validly name for a
 // given vehicle — restricted to that train's own real route (using the same
 // branch-resolution logic used elsewhere) so a report can't be filed against
@@ -2729,12 +2744,25 @@ function getRedLineBranch(v){
 // apply the exact same rule.
 function getValidStopsForVehicle(v){
   if(destinationOverrideCache[v.id]) return ALL_STATIONS;
-  if(state.activeLine === 'red'){
-    const branch = getRedLineBranch(v);
-    return PAGES[branch === 'ashmont' ? 'REDASHMONT' : 'REDBRAINTREE'].stops;
-  }
-  if(v.branch && PAGES[v.branch]) return PAGES[v.branch].stops;
-  return PAGES[state.activeLine === 'orange' ? 'ORANGE' : state.activeLine === 'blue' ? 'BLUE' : 'B'].stops;
+  return getOwnRouteStopsForVehicle(v);
+}
+
+// Standing by only makes sense for a station this train hasn't reached yet —
+// letting someone report it standing by somewhere it already left behind is
+// just wrong data. Mirrors the exact same curIdx/targetIdx/direction
+// comparison clearStaleDestinationOverrides already uses to auto-clear a
+// report once the train passes its reported station, just run ahead of time
+// at submission instead of after the fact. Returns false (i.e. don't block)
+// whenever position can't be reliably determined — a destination-overridden
+// train's real route is unknown, so there's nothing trustworthy to compare
+// against; better to allow the report than to wrongly reject a valid one.
+function hasVehiclePassedStation(v, stationName){
+  if(destinationOverrideCache[v.id]) return false;
+  const ownStops = getOwnRouteStopsForVehicle(v);
+  const curIdx = findStopIndexInList(ownStops, v.stopName);
+  const targetIdx = findStopIndexInList(ownStops, stationName);
+  if(curIdx === null || targetIdx === null) return false;
+  return v.direction === 0 ? curIdx > targetIdx : curIdx < targetIdx;
 }
 
 function getRedCarType(label){
@@ -5691,7 +5719,7 @@ async function showCarModal(v){
           ${validStopsForThisVehicle.map(s => `<option value="${s.replace(/"/g,'&quot;')}">`).join('')}
           ${validStopsForThisVehicle.filter(s => ABBREVIATIONS[s]).map(s => `<option value="${ABBREVIATIONS[s].replace(/"/g,'&quot;')}">`).join('')}
         </datalist>
-        <input type="text" class="roster-input" id="standingByStation" list="standingByStationsDatalist" data-enter-target="reportStandingByBtn" placeholder="Start typing a station&hellip;" autocomplete="off" style="margin-top:6px;">
+        <input type="text" class="roster-input" id="standingByStation" list="standingByStationsDatalist" data-enter-target="reportStandingByBtn" placeholder="Start typing a station&hellip;" autocomplete="off" value="${v.stopName ? v.stopName.replace(/"/g,'&quot;') : ''}" style="margin-top:6px;">
         <input type="number" class="roster-input" id="standingByMinutes" data-enter-target="reportStandingByBtn" placeholder="Expected hold time in minutes (optional)" min="0">
         <label style="display:flex; align-items:center; gap:6px; margin:6px 0 2px; font-size:13px; color:var(--text-dim);">
           <input type="checkbox" id="standingByUntilRelease" style="width:auto;">
@@ -6084,6 +6112,10 @@ async function showCarModal(v){
       const station = findStopMatchingInput(validStopsForThisVehicle, stationTyped);
       if(!station){
         note.textContent = "That doesn't match a real station on this train's route \u2014 pick one from the suggestions.";
+        return;
+      }
+      if(hasVehiclePassedStation(v, station)){
+        note.textContent = `This train has already passed ${displayName(station)} \u2014 pick a station it hasn't reached yet.`;
         return;
       }
       await saveStandingByReport(v, station, minutes ? parseInt(minutes, 10) : null, notes, untilRelease);
@@ -11915,6 +11947,19 @@ function setupQuickReportDrawer(){
     return null;
   }
 
+  // As soon as the typed car number resolves to a real vehicle, prefill the
+  // standing-by station with wherever that train currently is (or is next
+  // approaching — v.stopName already covers both, same as the car modal's
+  // own version of this field defaults). Only fires for standing-by (not
+  // express, which has no single "current station" concept) and only when
+  // the field is still untouched, so it never clobbers something already
+  // typed in.
+  carInput.addEventListener('blur', ()=>{
+    if(activeType !== 'standingby' || stationInput.value.trim()) return;
+    const v = resolveTypedCar(carInput.value);
+    if(v && v.stopName) stationInput.value = v.stopName;
+  });
+
   function resetForm(){
     carInput.value = '';
     stationInput.value = '';
@@ -11947,6 +11992,10 @@ function setupQuickReportDrawer(){
       const station = findStopMatchingInput(validStops, stationTyped);
       if(!station){
         note.textContent = `That doesn't match a real station on car ${formatCarNumberForDisplay(v.label)}'s route — pick one from the suggestions.`;
+        return;
+      }
+      if(hasVehiclePassedStation(v, station)){
+        note.textContent = `Car ${formatCarNumberForDisplay(v.label)} has already passed ${displayName(station)} — pick a station it hasn't reached yet.`;
         return;
       }
       await saveStandingByReport(v, station, minutes ? parseInt(minutes, 10) : null, notes, untilRelease);
