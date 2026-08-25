@@ -131,6 +131,8 @@ a{color:inherit;}
 .focus-dist{font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:var(--text-dim);flex-shrink:0;}
 .focus-dist.close{color:#34D399;font-weight:700;}
 .focus-status{font-size:11px;color:var(--text-faint);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.focus-garage{font-size:10.5px;color:var(--text-faint);margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.focus-garage::before{content:'🏢 ';}
 .car-chip-row{display:flex;gap:6px;overflow-x:auto;margin-top:9px;padding-bottom:2px;-ms-overflow-style:none;scrollbar-width:none;}
 .car-chip-row::-webkit-scrollbar{display:none;}
 .car-chip{flex-shrink:0;display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:10px;border:1.5px solid var(--border);background:rgba(255,255,255,0.03);color:var(--text-dim);font-family:'IBM Plex Mono',monospace;font-size:11.5px;cursor:pointer;}
@@ -299,7 +301,11 @@ a{color:inherit;}
   .intro-card{padding:16px;}
   .intro-card h2{font-size:17px;}
   .map-wrap{height:calc(100dvh - 56px);}
-  .map-overlay-top{top:10px;left:10px;right:10px;max-width:300px;gap:6px;}
+  /* right:54px (not 10px) leaves room for Leaflet's top-right zoom control
+     (~44px wide including its own margin) so the focus card/location banner
+     never slide under it on narrow phones — 10px was fine down to ~360px
+     but started overlapping the zoom buttons below that. */
+  .map-overlay-top{top:10px;left:10px;right:54px;gap:6px;}
   /* Focus card ("current vehicle") is deliberately compact on phones so it
      doesn't eat into the map — smaller type, tighter spacing, and the
      status/stop-name line clipped to one line instead of wrapping. */
@@ -312,6 +318,7 @@ a{color:inherit;}
   .focus-meta-row{margin-top:6px;gap:7px;flex-wrap:nowrap;}
   .focus-dist{font-size:11px;flex-shrink:0;}
   .focus-status{font-size:10.5px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .focus-garage{font-size:10px;margin-top:3px;}
   .car-chip-row{margin-top:8px;gap:5px;}
   .car-chip{padding:5px 9px;font-size:11px;}
   .status-banner.compact{padding:8px 10px;font-size:11.5px;}
@@ -395,7 +402,7 @@ a{color:inherit;}
         </div>
         <div class="status-banner compact hidden" id="locDeniedBanner">
           <div class="status-dot"></div>
-          <div style="flex:1;">Location access is off. <span style="text-decoration:underline;cursor:pointer;" id="retryLocBtn">Try again</span> — if your browser asks every time you open Play, choose "Always Allow" / "Allow While Using App" instead of "Allow Once" so it sticks.</div>
+          <div style="flex:1;">Location access is off. <span style="text-decoration:underline;cursor:pointer;" id="retryLocBtn">Try again</span><br><span style="color:var(--text-faint);font-size:11.5px;">Keeps asking? Pick "Always Allow" to stop it.</span></div>
         </div>
         <div id="focusCard" class="focus-card"><div class="focus-empty">Loading live vehicles…</div></div>
       </div>
@@ -1604,8 +1611,9 @@ function renderFocusCard(t){
     <div class="focus-subtitle">${displayCarType(t.idLine, car)} · <span class="rarity-pill" style="color:${rarity.color};background:color-mix(in srgb, ${rarity.color} 16%, transparent);">${rarity.label}</span></div>
     <div class="focus-meta-row">
       <span class="focus-dist ${inRange ? 'close' : ''}">${state.position ? formatDistance(t.dist) : '—'} away</span>
-      <span class="focus-status">${(STATUS_LABELS[t.status] || 'Near')}${t.stopName ? ' ' + t.stopName : ''}${t.idLine === 'bus' && car.garage ? ' · ' + car.garage : ''}</span>
+      <span class="focus-status">${(STATUS_LABELS[t.status] || 'Near')}${t.stopName ? ' ' + t.stopName : ''}</span>
     </div>
+    ${t.idLine === 'bus' && car.garage ? `<div class="focus-garage">${car.garage}</div>` : ''}
     ${chipsHtml}
   `;
 
