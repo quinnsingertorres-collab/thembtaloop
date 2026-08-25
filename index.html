@@ -2620,6 +2620,37 @@ function ensureTripBranchLookup(tripId){
     .finally(()=>{ delete tripBranchInFlight[tripId]; });
 }
 
+// Generic realtime Firestore collection cache. A single onSnapshot listener
+// is attached once (start() is idempotent — safe to call repeatedly, e.g.
+// from the existing startGatedPoll 60s ticks below, which now just become
+// harmless no-ops after the first successful attach). Firestore bills the
+// initial listen as one read per existing doc, then only actually changed
+// docs after that — a huge reduction from the old pattern of a full
+// collection re-`.get()` (billed for every doc, every single time) on every
+// 60s poll, and updates now arrive in real time instead of up to 60s stale.
+//
+// Some of these caches also filter on wall-clock time (expiresAt, "today"
+// rollover) — a transition like an entry expiring wouldn't be picked up by
+// the listener alone if nothing else in that collection changes around the
+// same moment. reapply() re-runs the same filter against the already-cached
+// docs with no network read, so a periodic local-only tick (see the
+// setInterval further down that calls reapply() on the handful of caches
+// that need it) still catches those purely time-based transitions.
+function makeSnapshotCache(collectionName, applyFn){
+  let lastDocs = null;
+  let unsub = null;
+  return {
+    start(){
+      if(!firebaseReady || unsub) return;
+      unsub = fbDb.collection(collectionName).onSnapshot(snap=>{
+        lastDocs = snap.docs;
+        applyFn(lastDocs);
+      }, e => console.error(e));
+    },
+    reapply(){ if(lastDocs) applyFn(lastDocs); }
+  };
+}
+
 // Persistent, cross-session log of which branch each car (by number) most
 // recently originated from. In-session memory alone resets on every reload
 // and isn't shared between users, so a northbound train that's already past
@@ -2628,15 +2659,12 @@ function ensureTripBranchLookup(tripId){
 // car's most recent known assignment, not a permanent fact — a given car
 // number can run on either branch on different days.
 let redOriginLogCache = {};
-async function refreshRedOriginLogCache(){
-  if(!firebaseReady) return;
-  try{
-    const snap = await fbDb.collection('red_line_car_origins').get();
-    const map = {};
-    snap.forEach(doc => { map[doc.id] = doc.data(); });
-    redOriginLogCache = map;
-  }catch(e){ console.error(e); }
-}
+const redOriginLogCacheCtl = makeSnapshotCache('red_line_car_origins', (docs)=>{
+  const map = {};
+  docs.forEach(doc => { map[doc.id] = doc.data(); });
+  redOriginLogCache = map;
+});
+function refreshRedOriginLogCache(){ redOriginLogCacheCtl.start(); }
 function logRedCarOrigin(carNum, branch){
   if(!firebaseReady) return;
   fbDb.collection('red_line_car_origins').doc(carNum).set({ branch, ts: Date.now() })
@@ -2810,15 +2838,12 @@ function getBlueCarType(label){
 // Users can manually confirm a solo Type 7 is legitimately in service,
 // overriding the auto-detection for this specific vehicle/trip.
 let soloType7OverrideCache = {};
-async function refreshSoloType7OverrideCache(){
-  if(!firebaseReady) return;
-  try{
-    const snap = await fbDb.collection('solo_type7_overrides').get();
-    const map = {};
-    snap.forEach(doc => { map[doc.id] = true; });
-    soloType7OverrideCache = map;
-  }catch(e){ console.error(e); }
-}
+const soloType7OverrideCacheCtl = makeSnapshotCache('solo_type7_overrides', (docs)=>{
+  const map = {};
+  docs.forEach(doc => { map[doc.id] = true; });
+  soloType7OverrideCache = map;
+});
+function refreshSoloType7OverrideCache(){ soloType7OverrideCacheCtl.start(); }
 async function markSoloType7InService(vehicleId){
   if(!firebaseReady) return;
   try{
@@ -3449,33 +3474,27 @@ function carSetKey(label){
 // Cache of carSetKey -> corrected label, kept in sync so train bubbles on the
 // track map reflect community consist corrections, not just the car modal.
 let consistOverrideCache = {};
-async function refreshConsistOverrideCache(){
-  if(!firebaseReady) return;
-  try{
-    const snap = await fbDb.collection('consist_corrections').get();
-    const map = {};
-    const now = Date.now();
-    snap.forEach(doc=>{
-      const d = doc.data();
-      if(!d.expiresAt || d.expiresAt > now) map[doc.id] = d.label;
-    });
-    consistOverrideCache = map;
-  }catch(e){ console.error(e); }
-}
+const consistOverrideCacheCtl = makeSnapshotCache('consist_corrections', (docs)=>{
+  const map = {};
+  const now = Date.now();
+  docs.forEach(doc=>{
+    const d = doc.data();
+    if(!d.expiresAt || d.expiresAt > now) map[doc.id] = d.label;
+  });
+  consistOverrideCache = map;
+});
+function refreshConsistOverrideCache(){ consistOverrideCacheCtl.start(); }
 
 // Cache of vehicleId -> true for any train currently carrying a
 // community-reported destination override, so the bubble on the track map
 // can flag it with a small warning badge (not just inside the modal).
 let destinationOverrideCache = {};
-async function refreshDestinationOverrideCache(){
-  if(!firebaseReady) return;
-  try{
-    const snap = await fbDb.collection('destination_overrides').get();
-    const map = {};
-    snap.forEach(doc => { map[doc.id] = doc.data(); });
-    destinationOverrideCache = map;
-  }catch(e){ console.error(e); }
-}
+const destinationOverrideCacheCtl = makeSnapshotCache('destination_overrides', (docs)=>{
+  const map = {};
+  docs.forEach(doc => { map[doc.id] = doc.data(); });
+  destinationOverrideCache = map;
+});
+function refreshDestinationOverrideCache(){ destinationOverrideCacheCtl.start(); }
 
 async function loadConsistOverride(v){
   const key = carSetKey(v.label);
@@ -3542,15 +3561,12 @@ const DESTINATION_KEY = 'destination_overrides_v1';
 // station and the trip it was made on; auto-clears the moment the train's
 // live position moves on from that station, or it starts a new trip.
 let standingByCache = {};
-async function refreshStandingByCache(){
-  if(!firebaseReady) return;
-  try{
-    const snap = await fbDb.collection('standing_by_reports').get();
-    const map = {};
-    snap.forEach(doc => { map[doc.id] = doc.data(); });
-    standingByCache = map;
-  }catch(e){ console.error(e); }
-}
+const standingByCacheCtl = makeSnapshotCache('standing_by_reports', (docs)=>{
+  const map = {};
+  docs.forEach(doc => { map[doc.id] = doc.data(); });
+  standingByCache = map;
+});
+function refreshStandingByCache(){ standingByCacheCtl.start(); }
 async function saveStandingByReport(v, stationName, holdMinutes, notes, untilRelease){
   if(!firebaseReady) return;
   const payload = {
@@ -3596,15 +3612,12 @@ async function clearStandingByReport(vehicleId, isManualCancel){
 // reported start and end station. Auto-clears once the train reaches/passes
 // the end station, starts a new trip, or goes untracked.
 let expressReportCache = {};
-async function refreshExpressReportCache(){
-  if(!firebaseReady) return;
-  try{
-    const snap = await fbDb.collection('express_reports').get();
-    const map = {};
-    snap.forEach(doc => { map[doc.id] = doc.data(); });
-    expressReportCache = map;
-  }catch(e){ console.error(e); }
-}
+const expressReportCacheCtl = makeSnapshotCache('express_reports', (docs)=>{
+  const map = {};
+  docs.forEach(doc => { map[doc.id] = doc.data(); });
+  expressReportCache = map;
+});
+function refreshExpressReportCache(){ expressReportCacheCtl.start(); }
 async function saveExpressReport(v, startStation, endStation, intermediateStop){
   if(!firebaseReady) return;
   const payload = {
@@ -4985,22 +4998,19 @@ function todayDateString(){
 // Cache of car numbers currently marked out of service (today only), so
 // train bubbles can show "OOS" without an async lookup per render.
 let outOfServiceCarsCache = {};
-async function refreshOutOfServiceCache(){
-  if(!firebaseReady) return;
-  try{
-    const snap = await fbDb.collection('car_out_of_service').get();
-    const map = {};
-    const today = todayDateString();
-    const staleDocs = [];
-    snap.forEach(doc=>{
-      const d = doc.data();
-      if(d.date === today && d.outOfService) map[doc.id] = { reason: d.reason || '', markedBy: d.markedBy || '' };
-      else staleDocs.push(doc.ref);
-    });
-    outOfServiceCarsCache = map;
-    staleDocs.forEach(ref => ref.delete().catch(e => console.error(e)));
-  }catch(e){ console.error(e); }
-}
+const outOfServiceCacheCtl = makeSnapshotCache('car_out_of_service', (docs)=>{
+  const map = {};
+  const today = todayDateString();
+  const staleDocs = [];
+  docs.forEach(doc=>{
+    const d = doc.data();
+    if(d.date === today && d.outOfService) map[doc.id] = { reason: d.reason || '', markedBy: d.markedBy || '' };
+    else staleDocs.push(doc.ref);
+  });
+  outOfServiceCarsCache = map;
+  staleDocs.forEach(ref => ref.delete().catch(e => console.error(e)));
+});
+function refreshOutOfServiceCache(){ outOfServiceCacheCtl.start(); }
 
 async function loadCarOutOfService(carNum){
   if(!firebaseReady) return null;
@@ -5024,22 +5034,19 @@ async function loadCarOutOfService(carNum){
 // (both strong signals the "hide" no longer applies to whatever's really
 // happening), or naturally expires at the start of a new service day.
 let hiddenTrainsCache = {};
-async function refreshHiddenTrainsCache(){
-  if(!firebaseReady) return;
-  try{
-    const snap = await fbDb.collection('hidden_trains').get();
-    const map = {};
-    const today = todayDateString();
-    const staleDocs = [];
-    snap.forEach(doc=>{
-      const d = doc.data();
-      if(d.date === today) map[doc.id] = d;
-      else staleDocs.push(doc.ref);
-    });
-    hiddenTrainsCache = map;
-    staleDocs.forEach(ref => ref.delete().catch(e => console.error(e)));
-  }catch(e){ console.error(e); }
-}
+const hiddenTrainsCacheCtl = makeSnapshotCache('hidden_trains', (docs)=>{
+  const map = {};
+  const today = todayDateString();
+  const staleDocs = [];
+  docs.forEach(doc=>{
+    const d = doc.data();
+    if(d.date === today) map[doc.id] = d;
+    else staleDocs.push(doc.ref);
+  });
+  hiddenTrainsCache = map;
+  staleDocs.forEach(ref => ref.delete().catch(e => console.error(e)));
+});
+function refreshHiddenTrainsCache(){ hiddenTrainsCacheCtl.start(); }
 async function hideTrainForToday(v){
   if(!firebaseReady) return;
   try{
@@ -5144,18 +5151,15 @@ async function saveVehicleOperator(vehicleId, carNum, operator){
 // Not surfaced anywhere in the UI on purpose — lets the car search box also
 // match on an operator's name/badge, without documenting or hinting at it.
 let operatorSearchCache = [];
-async function refreshOperatorSearchCache(){
-  if(!firebaseReady) return;
-  try{
-    const snap = await fbDb.collection('vehicle_operators').get();
-    const list = [];
-    snap.forEach(doc=>{
-      const d = doc.data();
-      if(d.operator && d.vehicleId) list.push({ operator: d.operator, vehicleId: d.vehicleId });
-    });
-    operatorSearchCache = list;
-  }catch(e){ console.error(e); }
-}
+const operatorSearchCacheCtl = makeSnapshotCache('vehicle_operators', (docs)=>{
+  const list = [];
+  docs.forEach(doc=>{
+    const d = doc.data();
+    if(d.operator && d.vehicleId) list.push({ operator: d.operator, vehicleId: d.vehicleId });
+  });
+  operatorSearchCache = list;
+});
+function refreshOperatorSearchCache(){ operatorSearchCacheCtl.start(); }
 async function deleteVehicleOperator(vehicleId, carNum){
   if(!firebaseReady) return;
   try{ await fbDb.collection('vehicle_operators').doc(operatorDocId(vehicleId, carNum)).delete(); }catch(e){ console.error(e); }
@@ -6538,22 +6542,19 @@ async function saveCarPrediction(tripId, carNumber){
 // trip ID — see showTerminusSchedule, which treats a live match as
 // overriding a drop, since that's real confirmation the trip does exist.
 let droppedTripsCache = {};
-async function refreshDroppedTripsCache(){
-  if(!firebaseReady) return;
-  try{
-    const snap = await fbDb.collection('dropped_trips').get();
-    const map = {};
-    const today = todayDateString();
-    const staleDocs = [];
-    snap.forEach(doc=>{
-      const d = doc.data();
-      if(d.date === today) map[doc.id] = d;
-      else staleDocs.push(doc.ref);
-    });
-    droppedTripsCache = map;
-    staleDocs.forEach(ref => ref.delete().catch(e => console.error(e)));
-  }catch(e){ console.error(e); }
-}
+const droppedTripsCacheCtl = makeSnapshotCache('dropped_trips', (docs)=>{
+  const map = {};
+  const today = todayDateString();
+  const staleDocs = [];
+  docs.forEach(doc=>{
+    const d = doc.data();
+    if(d.date === today) map[doc.id] = d;
+    else staleDocs.push(doc.ref);
+  });
+  droppedTripsCache = map;
+  staleDocs.forEach(ref => ref.delete().catch(e => console.error(e)));
+});
+function refreshDroppedTripsCache(){ droppedTripsCacheCtl.start(); }
 async function dropTrip(tripId){
   if(!firebaseReady) return;
   try{
@@ -7138,26 +7139,23 @@ function stopsForRoute(route){
 // the same red-X treatment on the track map as a planned closure, without a
 // page reload — the next ladder rebuild (trains repoll every 10s) just picks
 // up whatever's in this array.
-async function refreshLiveDiversionBypassCache(){
-  if(!firebaseReady) return;
-  try{
-    const snap = await fbDb.collection('community_alerts').get();
-    const now = Date.now();
-    const entries = [];
-    snap.forEach(doc=>{
-      const d = doc.data();
-      if(d.expiresAt && d.expiresAt < now) return; // expired — fetchCommunityAlerts() handles actually deleting these
-      if(!d.fromStation || !d.toStation) return; // pre-migration docs (old free-text-only shape) — nothing to render
-      const pageKeys = ALERT_ROUTE_TO_PAGE_KEYS[d.route] || [];
-      if(!pageKeys.length) return;
-      const notesHtml = d.notes ? `: ${escapeHtml(d.notes)}` : '';
-      const reason = `Diversion reported by ${escapeHtml(d.postedBy || 'a member')}${notesHtml}.`;
-      entries.push(...buildRangeClosure(pageKeys, d.fromStation, d.toStation, { reason, communityDiversionId: doc.id },
-        diversionExcludeOpts(pageKeys, d.fromStation, d.toStation)));
-    });
-    liveDiversionBypassStops = entries;
-  }catch(e){ console.error(e); }
-}
+const liveDiversionBypassCacheCtl = makeSnapshotCache('community_alerts', (docs)=>{
+  const now = Date.now();
+  const entries = [];
+  docs.forEach(doc=>{
+    const d = doc.data();
+    if(d.expiresAt && d.expiresAt < now) return; // expired — fetchCommunityAlerts() handles actually deleting these
+    if(!d.fromStation || !d.toStation) return; // pre-migration docs (old free-text-only shape) — nothing to render
+    const pageKeys = ALERT_ROUTE_TO_PAGE_KEYS[d.route] || [];
+    if(!pageKeys.length) return;
+    const notesHtml = d.notes ? `: ${escapeHtml(d.notes)}` : '';
+    const reason = `Diversion reported by ${escapeHtml(d.postedBy || 'a member')}${notesHtml}.`;
+    entries.push(...buildRangeClosure(pageKeys, d.fromStation, d.toStation, { reason, communityDiversionId: doc.id },
+      diversionExcludeOpts(pageKeys, d.fromStation, d.toStation)));
+  });
+  liveDiversionBypassStops = entries;
+});
+function refreshLiveDiversionBypassCache(){ liveDiversionBypassCacheCtl.start(); }
 
 function allKnownStopNames(){
   const names = new Set();
@@ -7869,15 +7867,12 @@ function checkTrainNotifications(vehicles){
 // which branch a train belongs to. Orange, Blue, and Mattapan don't
 // branch, so there's nothing to reassign there.
 let branchReassignmentCache = {}; // vehicleId -> { line, correctBranch, reassignedBy, reassignedByUid, ts }
-async function refreshBranchReassignmentCache(){
-  if(!firebaseReady) return;
-  try{
-    const snap = await fbDb.collection('branch_reassignments').get();
-    const map = {};
-    snap.forEach(doc => { map[doc.id] = doc.data(); });
-    branchReassignmentCache = map;
-  }catch(e){ console.error(e); }
-}
+const branchReassignmentCacheCtl = makeSnapshotCache('branch_reassignments', (docs)=>{
+  const map = {};
+  docs.forEach(doc => { map[doc.id] = doc.data(); });
+  branchReassignmentCache = map;
+});
+function refreshBranchReassignmentCache(){ branchReassignmentCacheCtl.start(); }
 // Takes the full vehicle object (not just its id) so the record can carry
 // carLabel — needed by the "line changes" push notification (see
 // functions/index.js's sendPushOnLineChange) to say which car it's about
@@ -12590,6 +12585,31 @@ async function init(){
   startGatedPoll(refreshBranchReassignmentCache, 60000, { staggerMs: 48000 });
   startGatedPoll(refreshStandingByCache, 60000, { staggerMs: 52000 });
   startGatedPoll(refreshExpressReportCache, 60000, { staggerMs: 56000 });
+
+  // All of the refresh*Cache functions above (except refreshDisruptionModeCache,
+  // which has its own 1-hour wall-clock timeout logic and stays on a plain
+  // 60s .get() poll — a single doc, so not worth the added complexity) are
+  // now backed by a live onSnapshot listener (see makeSnapshotCache) instead
+  // of a full collection re-`.get()` every 60s — Firestore only bills the
+  // initial read plus actual changes after that, and updates arrive in real
+  // time instead of up to 60s stale. The startGatedPoll calls above still
+  // fire every 60s as before, but now just attach the listener once (every
+  // call after the first is a no-op).
+  //
+  // A handful of those caches also filter on wall-clock time (an expiresAt
+  // timestamp passing, or "today" rolling over at midnight) — a transition
+  // like that wouldn't be picked up by the listener alone if nothing else in
+  // that collection happens to change at the same moment. This re-runs just
+  // those caches' filters against their own already-cached snapshot data
+  // (no network read) on the same 60s cadence the old poll used, so that
+  // stays correct too.
+  setInterval(()=>{
+    outOfServiceCacheCtl.reapply();
+    hiddenTrainsCacheCtl.reapply();
+    droppedTripsCacheCtl.reapply();
+    consistOverrideCacheCtl.reapply();
+    liveDiversionBypassCacheCtl.reapply();
+  }, 60000);
 
   routeOnLoad();
 }
