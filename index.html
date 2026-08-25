@@ -21,6 +21,18 @@
       if(vp) vp.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no');
     }
   })();
+  // Flags real Apple mobile hardware (iPhone/iPad/iPod, in Safari or any
+  // other iOS/iPadOS browser — not just Safari, and not desktop Mac).
+  // iPadOS 13+ reports as "MacIntel" in the UA string to get desktop sites
+  // by default, so a plain UA sniff alone would miss iPads entirely — the
+  // maxTouchPoints check catches those (a real Mac reports 0). Runs
+  // synchronously before first paint (same as the zoom check above) so the
+  // CSS below can key off this class with no flash of the buttons first.
+  (function(){
+    var isAppleMobile = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    if(isAppleMobile) document.documentElement.classList.add('apple-mobile');
+  })();
 </script>
 <title>In the Loop</title>
 <meta name="description" content="In the Loop is a transit enthusiast built train tracker for all MBTA Subway lines with many community features to increase accuracy and reliability">
@@ -561,6 +573,15 @@ body.dark .discord-banner{background:#5865F2; border-color:#5865F2; color:#fff;}
   }
   body.track-map-page.quick-report-available .mobile-quick-report-open-tab{display:flex;}
   body.mobile-quick-report-open .mobile-quick-report-open-tab{display:none;}
+  /* Apple mobile only (see the apple-mobile class set synchronously in
+     <head>) — hides both edge tabs that open the trains/quick-report
+     drawers. The drawers themselves still open via swipe, this just drops
+     the visible on-screen tab affordance for iPhone/iPad specifically,
+     leaving it in place on Android/other mobile. */
+  html.apple-mobile .mobile-trains-open-tab,
+  html.apple-mobile .mobile-quick-report-open-tab{
+    display:none !important;
+  }
 }
 .mobile-quick-report-panel{display:none;}
 @media (max-width:899px){ .mobile-quick-report-panel{display:block;} }
