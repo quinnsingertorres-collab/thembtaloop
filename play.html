@@ -395,7 +395,7 @@ a{color:inherit;}
         </div>
         <div class="status-banner compact hidden" id="locDeniedBanner">
           <div class="status-dot"></div>
-          <div style="flex:1;">Location access is off. <span style="text-decoration:underline;cursor:pointer;" id="retryLocBtn">Try again</span></div>
+          <div style="flex:1;">Location access is off. <span style="text-decoration:underline;cursor:pointer;" id="retryLocBtn">Try again</span> — if your browser asks every time you open Play, choose "Always Allow" / "Allow While Using App" instead of "Allow Once" so it sticks.</div>
         </div>
         <div id="focusCard" class="focus-card"><div class="focus-empty">Loading live vehicles…</div></div>
       </div>
@@ -632,6 +632,34 @@ function getBusModelInfo(label){
   }
   return null;
 }
+// Garage assignments, from the MBTA Vehicle Inventory ("fleet roster") doc's
+// "Bus Assignments" section, current as of 08/23/2026. Same range-lookup
+// shape as BUS_MODEL_RANGES above, plus a handful of individual fleet
+// numbers for garages that also got a batch of older leftover buses mixed
+// in. Buses 3000-3005 are MBTA-owned but contracted out to Paul Revere
+// Transportation for the 712/713 Winthrop shuttle, so they show that
+// operator instead of an MBTA garage; 0800 and 0844 are listed as stored/
+// out of service rather than garage-assigned.
+const BUS_GARAGES = [
+  { name: 'Albany St. Garage', ranges: [[3200,3299]], nums: [840,845,846,851,853,856,860,861,862,863,864,869,870,872,880,885,886,888,900,901] },
+  { name: 'Arborway Garage', ranges: [[1600,1719]] },
+  { name: 'Cabot Garage', ranges: [[1720,1774],[1775,1924]] },
+  { name: 'Charlestown Garage', ranges: [[1925,2087],[2089,2118],[3130,3159],[4200,4231],[4300,4304]] },
+  { name: 'Fellsway Garage', ranges: [[1400,1459]], nums: [841,843,847,850,852,854,865,868,875,879,883,884,893,895,897,898,899] },
+  { name: 'Lynn Garage', ranges: [[3100,3129],[3300,3359]], nums: [2088] },
+  { name: 'Quincy Garage', ranges: [[756,799],[801,836],[902,909]], nums: [889,890,892,894] },
+  { name: 'Southampton St. Garage', ranges: [[1200,1224],[1250,1293],[1295,1299],[1300,1344]], nums: [837,838,839,848,849,855,857,858,859,866,867,871,874,876,877,878,881,882,887,896,910,1294] },
+  { name: 'Paul Revere Transportation (Chelsea)', ranges: [[3000,3005]], nums: [842,873,891] },
+  { name: 'Stored — not in service', ranges: [], nums: [800,844] }
+];
+function getBusGarage(label){
+  const n = parseInt(String(label), 10);
+  if(Number.isNaN(n)) return null;
+  for(const g of BUS_GARAGES){
+    if((g.nums && g.nums.includes(n)) || g.ranges.some(([lo,hi]) => n >= lo && n <= hi)) return g.name;
+  }
+  return null;
+}
 // User-facing type text: buses show "2014 XDE40" (delivery year + real
 // model) when we know the specific fleet number's year; everything else
 // (trains, and buses we couldn't match to a fleet range) just shows carType.
@@ -859,37 +887,77 @@ document.getElementById('sidebarExpandBtn').addEventListener('click', () => {
    Geolocation
    ============================================================ */
 let watchId = null;
+let locationRequestStarted = false; // guards against a second getCurrentPosition firing before the first one resolves
+// Remember the last good fix across app opens so the map/list have
+// something real to show instantly instead of sitting on "Requesting
+// location…" every single time the app is opened — some browsers/WebViews
+// (Safari's "Allow Once" option in particular) don't persist a geolocation
+// grant between launches, so re-requesting on open is unavoidable, but the
+// app doesn't have to look like it's starting from zero while that plays out.
+const LAST_POS_STORAGE_KEY = 'play_last_position_v1';
+function loadCachedPosition(){
+  try{
+    const cached = JSON.parse(localStorage.getItem(LAST_POS_STORAGE_KEY) || 'null');
+    if(!cached || typeof cached.lat !== 'number' || typeof cached.lon !== 'number') return null;
+    return cached;
+  }catch(e){ return null; }
+}
+function cachePosition(pos){
+  try{ localStorage.setItem(LAST_POS_STORAGE_KEY, JSON.stringify({ lat: pos.lat, lon: pos.lon, accuracy: pos.accuracy })); }catch(e){}
+}
 function startLocation(){
   if(!('geolocation' in navigator)){
     state.posError = 'unsupported';
     renderLocBanner();
     return;
   }
-  if(watchId != null) return;
-  // A high-accuracy GPS lock can take a long time to acquire without wifi
-  // assisting it (wifi-based positioning is near-instant; a cold GPS fix
-  // can take 15-30+ seconds, longer if you're underground or between
-  // buildings) — which left the catch button showing "waiting for your
-  // location" for that whole stretch. Fire a fast, low-accuracy fix first
-  // (cell-tower based, works fine off wifi) so distance/catchability has
-  // SOMETHING to work with immediately, then let the precise watch below
-  // refine it in the background.
+  if(watchId != null || locationRequestStarted) return;
+  locationRequestStarted = true;
+  // Show a last-known fix immediately, flagged `stale` so nothing treats it
+  // as close enough to catch (see renderAll()) — it's for instant map
+  // centering/context only, replaced the moment a real fix comes in.
+  if(!state.position){
+    const cached = loadCachedPosition();
+    if(cached){
+      state.position = { lat: cached.lat, lon: cached.lon, accuracy: cached.accuracy, stale: true };
+      renderLocBanner();
+      renderAll();
+    }
+  }
+  // Some browsers/WebViews prompt separately for each distinct geolocation
+  // call made while permission is still undecided — firing getCurrentPosition
+  // and watchPosition at the same time (as this used to) could show two
+  // permission prompts back-to-back on a single launch. Ask exactly once,
+  // and only start the continuous watch after that first call resolves, so
+  // there's ever only one prompt per launch.
   navigator.geolocation.getCurrentPosition(
     pos => {
-      if(!state.position){
-        state.position = { lat: pos.coords.latitude, lon: pos.coords.longitude, accuracy: pos.coords.accuracy };
-        state.posError = null;
-        renderLocBanner();
-        renderAll();
-      }
+      state.position = { lat: pos.coords.latitude, lon: pos.coords.longitude, accuracy: pos.coords.accuracy };
+      state.posError = null;
+      cachePosition(state.position);
+      renderLocBanner();
+      renderAll();
+      beginLocationWatch();
     },
-    () => {}, // the precise watch below will report its own error if this also fails
+    err => {
+      state.posError = err.code === 1 ? 'denied' : 'unavailable';
+      renderLocBanner();
+      renderAll();
+      // Only an outright denial should stop here — a timeout/unavailable
+      // result might still resolve via the watch below, which allows more
+      // time and a fresher (non-cached) fix.
+      if(err.code !== 1) beginLocationWatch();
+    },
     { enableHighAccuracy:false, maximumAge:60000, timeout:8000 }
   );
+}
+function beginLocationWatch(){
+  if(watchId != null) return;
   watchId = navigator.geolocation.watchPosition(
     pos => {
       state.position = { lat: pos.coords.latitude, lon: pos.coords.longitude, accuracy: pos.coords.accuracy };
       state.posError = null;
+      cachePosition(state.position);
       renderLocBanner();
       renderAll();
     },
@@ -903,6 +971,7 @@ function startLocation(){
 }
 document.getElementById('retryLocBtn').addEventListener('click', () => {
   watchId = null;
+  locationRequestStarted = false;
   startLocation();
 });
 function renderLocBanner(){
@@ -917,7 +986,11 @@ function renderLocBanner(){
   }
   denied.classList.add('hidden');
   banner.classList.remove('hidden');
-  if(state.position){
+  if(state.position && state.position.stale){
+    dot.classList.remove('live');
+    const accFt = Math.round(metersToFeet(state.position.accuracy || 0));
+    text.innerHTML = `<b>Last known location</b> — accurate to ~${accFt.toLocaleString()} ft as of your last visit. Confirming your current spot…`;
+  } else if(state.position){
     dot.classList.add('live');
     const accFt = Math.round(metersToFeet(state.position.accuracy || 0));
     text.innerHTML = `<b>Location on</b> — accurate to ~${accFt.toLocaleString()} ft. Get within ${formatDistance(CAPTURE_RADIUS_M)} of a vehicle to catch it.`;
@@ -1370,7 +1443,10 @@ async function fetchBuses(){
     const isCharterShuttle = isShuttleRoute && !modelInfo;
     const carType = isCharterShuttle ? 'Charter Shuttle' : (modelInfo ? modelInfo.model : (silverLine ? 'Articulated Bus' : 'Standard Bus'));
     const yearBuilt = modelInfo ? modelInfo.year : null;
-    const cars = [{ label, carType, yearBuilt, isPride:false, rarity: getRarity('bus', carType, false) }];
+    // A charter shuttle coach isn't an MBTA-owned bus, so it was never in
+    // the fleet roster's garage-assignment table — leave garage unset for it.
+    const garage = isCharterShuttle ? null : getBusGarage(label);
+    const cars = [{ label, carType, yearBuilt, garage, isPride:false, rarity: getRarity('bus', carType, false) }];
     return {
       id: v.id,
       idLine: 'bus', displayLine: isCharterShuttle ? 'shuttle' : (silverLine ? 'silverline' : 'bus'), branch: null,
@@ -1434,7 +1510,13 @@ function renderAll(){
   }
 
   const withDist = state.trains.map(t => {
-    const dist = state.position ? haversineMeters(state.position.lat, state.position.lon, t.lat, t.lon) : null;
+    // A cached last-known position (see startLocation()) is only for
+    // showing the map roughly centered while a real fix comes in — it must
+    // NOT make anything look catchable, since it could be stale enough that
+    // the player has actually moved away. Treat dist as unknown until a
+    // real fix lands.
+    const dist = (state.position && !state.position.stale)
+      ? haversineMeters(state.position.lat, state.position.lon, t.lat, t.lon) : null;
     return Object.assign({}, t, { dist });
   });
   withDist.sort((a, b) => {
@@ -1522,7 +1604,7 @@ function renderFocusCard(t){
     <div class="focus-subtitle">${displayCarType(t.idLine, car)} · <span class="rarity-pill" style="color:${rarity.color};background:color-mix(in srgb, ${rarity.color} 16%, transparent);">${rarity.label}</span></div>
     <div class="focus-meta-row">
       <span class="focus-dist ${inRange ? 'close' : ''}">${state.position ? formatDistance(t.dist) : '—'} away</span>
-      <span class="focus-status">${(STATUS_LABELS[t.status] || 'Near')}${t.stopName ? ' ' + t.stopName : ''}</span>
+      <span class="focus-status">${(STATUS_LABELS[t.status] || 'Near')}${t.stopName ? ' ' + t.stopName : ''}${t.idLine === 'bus' && car.garage ? ' · ' + car.garage : ''}</span>
     </div>
     ${chipsHtml}
   `;
@@ -1665,6 +1747,7 @@ async function captureCarNow(t, car){
         label: car.label,
         carType: car.carType,
         yearBuilt: car.yearBuilt || null,
+        garage: car.garage || null,
         isPride: car.isPride,
         rarity: car.rarity,
         lastCapturedAt: nowFieldValue,
@@ -1847,6 +1930,7 @@ function openCardModal(id){
             <div class="detail-row"><span class="k">${vehicleNoun(c.idLine)} type</span><span class="v">${c.carType}</span></div>
             <div class="detail-row"><span class="k">Builder</span><span class="v">${info.builder}</span></div>
             <div class="detail-row"><span class="k">Built</span><span class="v">${c.yearBuilt || info.year}</span></div>
+            ${c.idLine === 'bus' && c.garage ? `<div class="detail-row"><span class="k">Garage</span><span class="v">${c.garage}</span></div>` : ''}
             <div class="detail-row"><span class="k">Length</span><span class="v">${info.length ?? '—'}</span></div>
             <div class="detail-row"><span class="k">Width</span><span class="v">${info.width ?? '—'}</span></div>
             <div class="detail-row"><span class="k">Seats</span><span class="v">${info.seats ?? '—'}</span></div>
