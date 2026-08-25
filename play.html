@@ -1911,6 +1911,10 @@ function openCardModal(id){
   const meta = LINE_META[c.displayLine] || LINE_META[c.idLine];
   const rarity = RARITY_META[c.rarity];
   const info = CAR_INFO[c.carType] || CAR_INFO.Unknown;
+  // Cards caught before garage assignments were added to Play don't have a
+  // `garage` field saved on their Firestore doc — fall back to computing it
+  // from the fleet number so old catches show it too, not just new ones.
+  const garage = c.idLine === 'bus' ? (c.garage || getBusGarage(c.label)) : null;
   const root = document.getElementById('modalRoot');
   root.innerHTML = `
     <div class="modal-backdrop" id="modalBackdrop">
@@ -1930,7 +1934,7 @@ function openCardModal(id){
             <div class="detail-row"><span class="k">${vehicleNoun(c.idLine)} type</span><span class="v">${c.carType}</span></div>
             <div class="detail-row"><span class="k">Builder</span><span class="v">${info.builder}</span></div>
             <div class="detail-row"><span class="k">Built</span><span class="v">${c.yearBuilt || info.year}</span></div>
-            ${c.idLine === 'bus' && c.garage ? `<div class="detail-row"><span class="k">Garage</span><span class="v">${c.garage}</span></div>` : ''}
+            ${garage ? `<div class="detail-row"><span class="k">Garage</span><span class="v">${garage}</span></div>` : ''}
             <div class="detail-row"><span class="k">Length</span><span class="v">${info.length ?? '—'}</span></div>
             <div class="detail-row"><span class="k">Width</span><span class="v">${info.width ?? '—'}</span></div>
             <div class="detail-row"><span class="k">Seats</span><span class="v">${info.seats ?? '—'}</span></div>
