@@ -5025,7 +5025,7 @@ const outOfServiceCacheCtl = makeSnapshotCache('car_out_of_service', (docs)=>{
   const staleDocs = [];
   docs.forEach(doc=>{
     const d = doc.data();
-    if(d.date === today && d.outOfService) map[doc.id] = { reason: d.reason || '', markedBy: d.markedBy || '' };
+    if(d.date === today && d.outOfService) map[doc.id] = { reason: d.reason || '', markedBy: d.markedBy || '', setLabel: d.setLabel || null };
     else staleDocs.push(doc.ref);
   });
   outOfServiceCarsCache = map;
@@ -5095,21 +5095,82 @@ async function unhideTrain(vehicleId){
 // one combined "Cars A-B marked out of service" push — only the doc with
 // isFirst:true triggers it, the rest carry suppressPush instead. A lone
 // call with no pushBatch (the single-car button) behaves exactly as before.
-async function markCarOutOfService(carNum, reason, pushBatch){
+//
+// setLabel (optional — the full consist label, e.g. "3907-3918", the car was
+// running as at the moment it was marked) is stored (order-independently, via
+// carSetKey) so checkOOSSetChanges can later tell if this car has since
+// reappeared paired differently — see that function for why that's treated
+// as the report going stale.
+async function markCarOutOfService(carNum, reason, pushBatch, setLabel){
   if(!firebaseReady) return;
   try{
     const payload = {
       outOfService: true, reason: reason || '', markedBy: state.userName, markedByUid: state.uid || null,
       ts: Date.now(), date: todayDateString()
     };
+    if(setLabel) payload.setLabel = carSetKey(setLabel);
     if(pushBatch){
       if(pushBatch.isFirst) payload.pushLabel = pushBatch.label;
       else payload.suppressPush = true;
     }
     await fbDb.collection('car_out_of_service').doc(carNum).set(payload);
-    outOfServiceCarsCache[carNum] = { reason: reason || '', markedBy: state.userName };
+    outOfServiceCarsCache[carNum] = { reason: reason || '', markedBy: state.userName, setLabel: payload.setLabel || null };
     logEdit(state.userName, state.uid, `Marked car ${carNum} out of service${reason ? `: "${reason.slice(0,60)}"` : ''}`);
   }catch(e){ console.error(e); }
+}
+// Auto-clear path for checkOOSSetChanges — distinct from the manual
+// clearCarOutOfService above so the edit log and car_back_in_service entry
+// correctly show this as a system action (no signed-in user actually
+// clicked anything), matching the same "Auto (...)" attribution pattern
+// refreshDisruptionModeCache's 1-hour timeout already uses.
+async function autoClearOOSForSetChange(carNum){
+  if(!firebaseReady) return;
+  try{
+    await fbDb.collection('car_out_of_service').doc(carNum).delete();
+    await fbDb.collection('car_back_in_service').add({
+      carNum, clearedBy: 'Auto (set changed)', clearedByUid: null, ts: Date.now(), date: todayDateString()
+    });
+    logEdit('Auto (set changed)', null, `Auto-cleared Out of Service for car ${carNum} — it's now running in a different set, assumed back in regular service`);
+  }catch(e){ console.error(e); }
+  delete outOfServiceCarsCache[carNum];
+}
+// Runs on every live vehicle poll (see refreshVehicles). If a car currently
+// marked OOS shows up running in a different consist than the one it was
+// marked OOS as part of, that's a strong signal the report's stale — a car
+// with a real unresolved problem doesn't get sent back out freshly paired
+// with a different unit, so the far more likely explanation is that
+// whatever was wrong got fixed and the car was simply reshuffled into a new
+// pairing afterward. Only acts on records that actually have a setLabel
+// (older records from before this existed are left alone — nothing to
+// compare against).
+//
+// Requires the SAME new pairing to show up on two consecutive polls (10s
+// apart) before actually clearing anything — MBTA's feed occasionally drops
+// one car from a multi-car report for a single cycle, and that alone
+// shouldn't be enough to wipe out a real OOS report.
+let oosSetChangeCandidates = {};
+function checkOOSSetChanges(){
+  const seenThisPoll = new Set();
+  state.vehicles.forEach(v=>{
+    const currentSetKey = carSetKey(v.label);
+    String(v.label).split('-').map(s => s.trim()).filter(Boolean).forEach(carNum=>{
+      const entry = outOfServiceCarsCache[carNum];
+      if(!entry || !entry.setLabel || entry.setLabel === currentSetKey) return;
+      seenThisPoll.add(carNum);
+      const prior = oosSetChangeCandidates[carNum];
+      if(prior && prior.setKey === currentSetKey){
+        autoClearOOSForSetChange(carNum);
+        delete oosSetChangeCandidates[carNum];
+      }else{
+        oosSetChangeCandidates[carNum] = { setKey: currentSetKey };
+      }
+    });
+  });
+  // Drop candidates not seen again this poll — the feed reverted back to the
+  // old pairing, or the report was already cleared some other way.
+  Object.keys(oosSetChangeCandidates).forEach(carNum=>{
+    if(!seenThisPoll.has(carNum)) delete oosSetChangeCandidates[carNum];
+  });
 }
 async function clearCarOutOfService(carNum){
   if(!firebaseReady) return;
@@ -6211,7 +6272,7 @@ async function showCarModal(v){
         // pushBatch comment) instead of one per car — only the first car's doc
         // is flagged to actually trigger the notification, using the full
         // consist label (e.g. "3907-3918") in its body.
-        await Promise.all(carParts.map((c, i) => markCarOutOfService(c, reason, { isFirst: i === 0, label: v.label })));
+        await Promise.all(carParts.map((c, i) => markCarOutOfService(c, reason, { isFirst: i === 0, label: v.label }, v.label)));
         awardPoints(1);
       }
       showCarModal(v);
@@ -6231,7 +6292,7 @@ async function showCarModal(v){
       }else{
         const reasonInput = document.querySelector(`[data-oos-car-reason="${carNum}"]`);
         const reason = reasonInput ? reasonInput.value.trim() : '';
-        await markCarOutOfService(carNum, reason);
+        await markCarOutOfService(carNum, reason, null, v.label);
         awardPoints(1);
       }
       showCarModal(v);
@@ -8346,6 +8407,7 @@ async function refreshVehicles(){
   if(state.live){
     state.vehicles.forEach(v => { vehicleLastSeenTs[v.id] = now; });
     clearStaleDestinationOverrides(now);
+    checkOOSSetChanges();
   }
 
   // Keep a vehicle on screen for a short grace period after MBTA's feed
