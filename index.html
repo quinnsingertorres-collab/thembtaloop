@@ -585,6 +585,16 @@ body.dark .discord-banner{background:#5865F2; border-color:#5865F2; color:#fff;}
 }
 .mobile-quick-report-panel{display:none;}
 @media (max-width:899px){ .mobile-quick-report-panel{display:block;} }
+/* Base fallback for the open-tab button itself — .mobile-quick-report-panel
+   above already forces the drawer closed outside the mobile breakpoint, but
+   the tab that opens it had no equivalent default, so outside that media
+   query it fell through to a bare unstyled <button> (default browser
+   chrome, static in-flow position) instead of actually disappearing —
+   visible as a stray box on desktop widths that did nothing when clicked,
+   since the drawer it opened was already force-hidden. Mirrors the
+   .mobile-trains-open-tab{display:none;} fallback its sibling tab already
+   had (see near the top of this file). */
+.mobile-quick-report-open-tab{display:none;}
 /* Standing By / Express toggle inside the quick-report drawer. */
 .quick-report-type-toggle{display:flex; gap:6px; margin:10px 0 14px;}
 .quick-report-type-btn{
