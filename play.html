@@ -517,14 +517,15 @@ document.getElementById('pwInput').addEventListener('keydown', e => { if(e.key =
 })();
 
 /* ============================================================
-   Firebase — same project as the main In the Loop app
+   Firebase — Play's own dedicated project (separate from In the Loop)
    ============================================================ */
 const FIREBASE_CONFIG = {
-  apiKey: 'AIzaSyANU0lbRMitHGm0_5D29KWqbR3RKYfW8Zk',
-  authDomain: 'auth.thembtaloop.com',
-  projectId: 'green-o',
-  storageBucket: 'green-o.firebasestorage.app',
-  messagingSenderId: '1017947498804'
+  apiKey: 'AIzaSyB7jHb8Na3Ef_1JVOeiAOEXP2N8HTe1Q9I',
+  authDomain: 'green-monster-1ad4c.firebaseapp.com',
+  projectId: 'green-monster-1ad4c',
+  storageBucket: 'green-monster-1ad4c.firebasestorage.app',
+  messagingSenderId: '563068731673',
+  appId: '1:563068731673:web:a565edfd0ee85f86a7c588'
 };
 let fbAuth = null, fbDb = null, firebaseReady = false;
 try{
