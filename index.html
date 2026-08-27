@@ -4398,6 +4398,15 @@ function switchPage(key){
 function buildLadder(){
   const key = state.currentPage;
   const page = PAGES[key];
+  // Not every page has a ladder (Roster, Car Detail, Settings, ...) — this
+  // used to assume it was always called while looking at an actual track
+  // map, which held everywhere else it's called from, but not the
+  // revealApp() -> ensureStopIdMap().then() follow-up, which runs
+  // unconditionally on every page load/line switch regardless of which page
+  // a direct link landed on. Deep-linking straight to e.g. /green/roster or
+  // a car detail page threw here every time (page.stops.length on an
+  // undefined page) the moment that promise resolved.
+  if(!page || !page.stops) return;
   const ladder = document.getElementById('ladder');
   ladder.innerHTML = '';
 
@@ -9253,6 +9262,20 @@ function initOrUpdateCarDetailMap(v, leader, follower){
   const container = document.getElementById('carDetailMapContainer');
   if(!container || typeof L === 'undefined') return; // Leaflet failed to load — degrade to just the button/text above
   container.style.display = 'block';
+
+  // buildCarDetailPanel() re-renders #carDetailBody's whole innerHTML on
+  // several async follow-ups after the initial page load (most commonly
+  // completeSignIn()/resetSignedOutUI() once Firebase Auth resolves, a beat
+  // after the page's first synchronous render already stood up a map here)
+  // — each rebuild mints a brand new #carDetailMapContainer element. Without
+  // this check, a map created against the *previous* container just kept
+  // living on, detached from the DOM, updating a node nobody could see,
+  // while the new (empty) container sat there forever showing nothing. If
+  // the container has changed out from under the existing instance, tear it
+  // down here so the code below creates a fresh one against the real node.
+  if(carDetailMapInstance && carDetailMapInstance.getContainer() !== container){
+    destroyCarDetailMap();
+  }
 
   if(!carDetailMapInstance){
     const map = L.map(container, { attributionControl: true, zoomControl: true }).setView([v.lat, v.lon], 15);
