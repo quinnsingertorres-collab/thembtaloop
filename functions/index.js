@@ -1272,7 +1272,16 @@ exports.syncLastSeenCars = onSchedule({ schedule: 'every 1 minutes', secrets: [V
       // timed out and was reset below — this run counts as a fresh
       // "pull out."
       nextActive[key] = { lastActiveAt: now, trackingDay: today, firstTrackedToday: now };
-      rosterPatches[key] = Object.assign({}, rosterPatches[key], { firstTrackedToday: now, trackingDay: today });
+      // Also clears any "Last known location" (yard/storage) reported while
+      // this car was out of service — the moment it's tracking again, that
+      // report is stale by definition, and leaving it in place would show a
+      // car as still sitting in a yard it just pulled out of. Harmless to
+      // send on every fresh pull-out even for cars that never had one set;
+      // deleting an already-absent field is a no-op.
+      rosterPatches[key] = Object.assign({}, rosterPatches[key], {
+        firstTrackedToday: now, trackingDay: today,
+        lastLocation: admin.firestore.FieldValue.delete()
+      });
       // prior.lastActiveAt (when it exists) is exactly how long ago this
       // car was last confirmed active, however long that gap turns out to
       // be — a brief AVL blip, an overnight shutdown, or a genuine
