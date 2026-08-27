@@ -5125,7 +5125,7 @@ async function markCarOutOfService(carNum, reason, pushBatch, setLabel){
   try{
     const payload = {
       outOfService: true, reason: reason || '', markedBy: state.userName, markedByUid: state.uid || null,
-      ts: Date.now(), date: todayDateString()
+      ts: Date.now(), date: todayDateString(), line: state.activeLine
     };
     if(setLabel) payload.setLabel = carSetKey(setLabel);
     if(pushBatch){

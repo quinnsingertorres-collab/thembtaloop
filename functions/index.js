@@ -560,7 +560,7 @@ exports.sendPushOnDestinationOverride = onDocumentWritten(
     if(!event.data.after.exists) return;
     const data = event.data.after.data();
     if(!data || !data.destination) return;
-    const car = data.carLabel ? `Car ${data.carLabel}` : 'A train';
+    const car = data.carLabel ? `Car ${padCarNumForPush(data.line, data.carLabel)}` : 'A train';
     const was = data.originalHeadsign ? ` (was ${data.originalHeadsign})` : '';
     await sendToFilteredSubscribers('notifyDestinationChange', {
       title: 'Destination change reported',
@@ -582,7 +582,7 @@ exports.sendPushOnLineChange = onDocumentWritten(
     const branchLabel = data.line === 'green'
       ? data.correctBranch
       : (data.correctBranch === 'ashmont' ? 'Ashmont' : 'Braintree');
-    const car = data.carLabel ? `Car ${data.carLabel}` : 'A train';
+    const car = data.carLabel ? `Car ${padCarNumForPush(data.line, data.carLabel)}` : 'A train';
     await sendToFilteredSubscribers('notifyLineChange', {
       title: 'Train reassigned to a different branch',
       body: `${car} corrected to the ${branchLabel} branch`,
@@ -614,7 +614,7 @@ exports.sendPushOnCarOutOfService = onDocumentCreated(
     if(data.suppressPush) return;
     const carNum = event.params.carNum;
     const reason = data.reason ? `: ${data.reason.slice(0, 100)}` : '';
-    const label = data.pushLabel || carNum;
+    const label = padCarNumForPush(data.line, data.pushLabel || carNum);
     const isMultiCar = String(label).includes('-');
     await sendToFilteredSubscribers('notifyOutOfService', {
       title: isMultiCar ? 'Train marked out of service' : 'Car marked out of service',
@@ -787,6 +787,18 @@ exports.sendPushOnCommunityAlertEnd = onDocumentDeleted(
 
 function rosterStorageKey(line, carNum){
   return line === 'green' ? String(carNum) : `${line}-${carNum}`;
+}
+
+// Push-only cosmetic formatting: Red Line cars are officially numbered with
+// a leading zero (a car MBTA's feed and this app both call "1825" reads
+// "01825" on the actual side of the car), but that leading zero isn't part
+// of the feed data anywhere in this app — so it's added back in just for
+// the text of push notifications, without touching roster keys or anything
+// else. Handles multi-car labels like "1825-1826" by padding each segment.
+// No-op for every other line, which don't have this convention.
+function padCarNumForPush(line, carNum){
+  if(line !== 'red' || carNum === undefined || carNum === null) return carNum;
+  return String(carNum).split('-').map(n => /^\d+$/.test(n) ? n.padStart(5, '0') : n).join('-');
 }
 
 // Same logic as index.html's getCarNumbersForVehicle: prefer the full
@@ -1316,7 +1328,7 @@ exports.syncLastSeenCars = onSchedule({ schedule: 'every 1 minutes', secrets: [V
         const gapText = `${days} day${days === 1 ? '' : 's'}`;
         return sendToFilteredSubscribersWithThreshold('notifyLongGapReturn', 'longGapThresholdDays', c.gapDays, {
           title: 'Car back in service',
-          body: `Car ${c.carNum} is tracking again after ${gapText} untracked${caveat}`,
+          body: `Car ${padCarNumForPush(c.line, c.carNum)} is tracking again after ${gapText} untracked${caveat}`,
           url: './'
         });
       });
