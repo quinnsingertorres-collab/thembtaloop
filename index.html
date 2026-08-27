@@ -9291,8 +9291,13 @@ function initOrUpdateCarDetailMap(v, leader, follower){
     // PASTE_YOUR_CARTO_KEY_HERE needs to be swapped for a real key —
     // request one (free, no CARTO account, instant) at
     // carto.com/basemaps/apikey using the thembtaloop.com domain, then edit
-    // this line directly rather than pasting the key anywhere else.
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?api_key=PASTE_YOUR_CARTO_KEY_HERE', {
+    // this line directly rather than pasting the key anywhere else. The
+    // parameter is named "key" — CARTO's own docs and every example show
+    // `?key=YOUR_KEY`, not `?api_key=`; an earlier version of this line
+    // used api_key by mistake, which CARTO's tile server just silently
+    // ignores (falls back to the unauthenticated/watermarked response)
+    // instead of erroring, so it looked identical to having no key at all.
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?key=PASTE_YOUR_CARTO_KEY_HERE', {
       attribution: '&copy; OpenStreetMap &copy; CARTO &middot; Tracks: MassGIS',
       maxZoom: 19
     }).addTo(map);
