@@ -1258,7 +1258,17 @@ exports.syncLastSeenCars = onSchedule({ schedule: 'every 1 minutes', secrets: [V
     currentKeys.add(key);
     nextStops[key] = stopName;
     if(priorStops[key] !== stopName){
-      rosterPatches[key] = Object.assign({}, rosterPatches[key], { lastSeenAt: now, lastSeenStop: stopName });
+      // Also clears lastLocation here, not just in the fresh-pull-out branch
+      // below — a car can still be sitting inside its FIRST_TRACKED_GRACE_MS
+      // window (so trackingDay stays "today" and the pull-out branch never
+      // fires) while genuinely moving to a new stop, which is just as
+      // strong a signal that any previously-reported yard/storage location
+      // is now stale. Piggybacks on a write that's already happening here
+      // rather than adding a new one, so this doesn't cost anything extra.
+      rosterPatches[key] = Object.assign({}, rosterPatches[key], {
+        lastSeenAt: now, lastSeenStop: stopName,
+        lastLocation: admin.firestore.FieldValue.delete()
+      });
     }
 
     const prior = priorActive[key];

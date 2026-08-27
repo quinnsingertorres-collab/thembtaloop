@@ -12786,13 +12786,21 @@ async function init(){
   // those caches' filters against their own already-cached snapshot data
   // (no network read) on the same 60s cadence the old poll used, so that
   // stays correct too.
-  setInterval(()=>{
+  // Also registered with gatedPollTicks (see startGatedPoll's own comment)
+  // so switching back to the app after being backgrounded re-runs these
+  // same wall-clock filters immediately instead of waiting up to another
+  // 60s — this is a pure local re-filter of already-cached data (no
+  // network read), so there's no cost to also running it right away on
+  // every visibility restore, same as everything else gatedPollTicks fires.
+  const reapplyWallClockCaches = ()=>{
     outOfServiceCacheCtl.reapply();
     hiddenTrainsCacheCtl.reapply();
     droppedTripsCacheCtl.reapply();
     consistOverrideCacheCtl.reapply();
     liveDiversionBypassCacheCtl.reapply();
-  }, 60000);
+  };
+  gatedPollTicks.push(reapplyWallClockCaches);
+  setInterval(reapplyWallClockCaches, 60000);
 
   routeOnLoad();
 }
