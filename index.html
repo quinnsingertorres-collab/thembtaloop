@@ -1411,6 +1411,17 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
 #carDetailMapContainer{height:240px; border-radius:10px; overflow:hidden; margin-bottom:14px; background:var(--panel); isolation:isolate;}
 #carDetailMapContainer .leaflet-control-attribution{background:rgba(11,20,32,0.75); color:var(--text-faint); font-size:9px;}
 #carDetailMapContainer .leaflet-control-attribution a{color:var(--text-faint);}
+/* The tile layer itself is real (bright, standard-cartography) OpenStreetMap
+   imagery — OSM doesn't serve a dark style, so this inverts it into one with
+   a CSS filter instead. Scoped to .leaflet-tile-pane specifically (the pane
+   Leaflet puts tile images in) rather than the whole map, so it doesn't also
+   invert .leaflet-overlay-pane (our own drawn line-color track polyline) or
+   .leaflet-marker-pane (the car/leader/follower dots) sitting in the panes
+   above it — those keep their real intended colors. hue-rotate corrects the
+   worst of invert()'s color-swapping side effects (water etc. would
+   otherwise come out orange); brightness/contrast tone the result down
+   closer to the app's own panel background instead of a harsh pure invert. */
+#carDetailMapContainer .leaflet-tile-pane{filter:invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%);}
 </style>
 <!-- Leaflet's CSS stays here in the document head (stylesheets are meant
      to load early so the map's own layout/controls aren't unstyled for a
@@ -9286,20 +9297,19 @@ function initOrUpdateCarDetailMap(v, leader, follower){
     const map = L.map(container, { attributionControl: true, zoomControl: true }).setView([v.lat, v.lon], 15);
     carDetailMapInstance = map;
     // Esri's tile scheme orders these {z}/{y}/{x} (row before column) —
-    // easy to get backwards, it's the opposite of the {z}/{x}/{y} convention
-    // CARTO/OSM XYZ tiles use. Real distinct tiles only go up to level 16;
-    // maxNativeZoom stops new tile requests there and just upscales those
-    // same tiles for anything past it (maxZoom), instead of requesting
-    // tiles that don't exist. Two layers stacked — Base (the shaded
-    // landmass/water) has no text at all, Reference (transparent PNG) is
-    // just the road lines/labels/place names on top of it — matching what
-    // was one single flattened dark_all raster tile from CARTO before.
-    L.tileLayer('https://server.arcgisonline.com/arcgis/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
-      attribution: '&copy; Esri &copy; HERE &copy; Garmin &copy; OpenStreetMap contributors &middot; Tracks: MassGIS',
-      maxZoom: 19, maxNativeZoom: 16
-    }).addTo(map);
-    L.tileLayer('https://server.arcgisonline.com/arcgis/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}', {
-      maxZoom: 19, maxNativeZoom: 16
+    // Real OpenStreetMap tiles (the standard bright cartography — OSM
+    // itself doesn't serve a dark style), inverted to dark via a CSS filter
+    // on just the tile pane (see #carDetailMapContainer .leaflet-tile-pane
+    // in the stylesheet) rather than a differently-styled backend. No key,
+    // no signup — but this is genuinely the official OSM tile server, whose
+    // own usage policy is written for light/personal use, not standing
+    // third-party production traffic. If that ever becomes a problem (rate
+    // limiting, a block), the earlier Esri Canvas/World_Dark_Gray tiles
+    // (also free, no key, but with usage terms that actually cover this)
+    // are the fallback — see this file's git history.
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &middot; Tracks: MassGIS',
+      maxZoom: 19
     }).addTo(map);
     drawLineTracksOnMap(map);
     // Was hardcoded to Green's own hex regardless of which line's car
