@@ -9372,8 +9372,8 @@ function updateCarDetailLiveState(){
 // roster list. onAfterSave re-renders just this page (buildCarDetailPanel),
 // not the whole roster list.
 function wireCarDetailEvents(entry, container){
-  const POINTS_BY_FIELD = { status:5, livery:8, rebuildStatus:15 };
-  const EDITABLE_FIELDS = ['status', 'scrapDate', 'workCarType', 'rebuildStatus', 'livery', 'notes'];
+  const POINTS_BY_FIELD = { status:5, livery:8, rebuildStatus:15, lastLocation:5 };
+  const EDITABLE_FIELDS = ['status', 'scrapDate', 'workCarType', 'rebuildStatus', 'livery', 'notes', 'lastLocation'];
 
   const submitBtn = container.querySelector('[data-submit]');
   if(submitBtn){
@@ -9582,6 +9582,28 @@ async function buildCarDetailPanel(){
 
   const liveInfo = getCarDetailLiveInfo(entry, activeSet);
 
+  // Lets anyone report where a not-currently-running Green Line car actually
+  // is, once it's known to be out of active service (liveInfo.isActive is
+  // false — same signal the "Not currently in service" badge above already
+  // uses). A fixed list rather than free text, since these are the real
+  // storage/yard locations cars sit in between runs — keeps reports
+  // consistent and searchable instead of a dozen different spellings of the
+  // same yard. Green Line only: every option here is a Green Line location,
+  // and the other lines don't have an equivalent yard-reporting need yet.
+  const LAST_LOCATION_OPTIONS = [
+    'Medford/Tufts Storage', 'Innerbelt Yard', 'Riverside Yard',
+    'Reservoir Yard', 'Boston College Yard', 'Cleveland Circle Storage'
+  ];
+  const locationField = (!liveInfo.isActive && state.activeLine === 'green') ? `
+      <div class="roster-field-label">Last known location</div>
+      ${state.signedIn
+        ? `<select class="roster-input" data-car="${entry.car}" data-field="lastLocation" data-old-value="${data.lastLocation||''}">
+             <option value="" ${!data.lastLocation ? 'selected' : ''}>Not reported</option>
+             ${LAST_LOCATION_OPTIONS.map(opt => `<option value="${opt}" ${data.lastLocation===opt ? 'selected' : ''}>${opt}</option>`).join('')}
+           </select>`
+        : `<div class="roster-readonly">${data.lastLocation ? data.lastLocation : '<span style="opacity:.5;">Not reported</span>'}</div>`}
+    ` : '';
+
   // Most recent spotting photo of this car, sourced from mbtapics.vercel.app
   // ("Trackside", Quinn's other app) via getFleetPhotos — see loadFleetPhotos
   // above for the CORS-proxy explanation. photo is undefined for the vast
@@ -9619,6 +9641,7 @@ async function buildCarDetailPanel(){
       ${specsField}
       <div class="roster-field-label">Status</div>
       ${statusField}
+      ${locationField}
       ${scrapDateField}
       ${workCarTypeField}
       ${rebuildField}
