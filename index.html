@@ -1411,17 +1411,6 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
 #carDetailMapContainer{height:240px; border-radius:10px; overflow:hidden; margin-bottom:14px; background:var(--panel); isolation:isolate;}
 #carDetailMapContainer .leaflet-control-attribution{background:rgba(11,20,32,0.75); color:var(--text-faint); font-size:9px;}
 #carDetailMapContainer .leaflet-control-attribution a{color:var(--text-faint);}
-/* The tile layer itself is real (bright, standard-cartography) OpenStreetMap
-   imagery — OSM doesn't serve a dark style, so this inverts it into one with
-   a CSS filter instead. Scoped to .leaflet-tile-pane specifically (the pane
-   Leaflet puts tile images in) rather than the whole map, so it doesn't also
-   invert .leaflet-overlay-pane (our own drawn line-color track polyline) or
-   .leaflet-marker-pane (the car/leader/follower dots) sitting in the panes
-   above it — those keep their real intended colors. hue-rotate corrects the
-   worst of invert()'s color-swapping side effects (water etc. would
-   otherwise come out orange); brightness/contrast tone the result down
-   closer to the app's own panel background instead of a harsh pure invert. */
-#carDetailMapContainer .leaflet-tile-pane{filter:invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%);}
 </style>
 <!-- Leaflet's CSS stays here in the document head (stylesheets are meant
      to load early so the map's own layout/controls aren't unstyled for a
@@ -9192,12 +9181,10 @@ function renderCarDetailStatusDetail(info){
 }
 
 // ---- Leaflet mini-map (real geographic position, not the schematic ladder)
-// — Esri's free legacy "Canvas/World Dark Gray" tile set (base + reference-
-// label overlay), matches the app's own dark theme. Used to be CARTO's
-// dark_all raster tiles, but CARTO started requiring a paid-signup-free-but-
-// still-a-signup API key for that endpoint (see the "API key required"
-// watermark this replaced) — this Esri endpoint is a genuinely no-signup,
-// no-key alternative, still live and CORS-open as of when this was written.
+// — CARTO's Dark Matter (dark_all) raster tiles, matches the app's own dark
+// theme. Requires a free CARTO API key baked into the tile URL below (see
+// that line's own comment) — without one, CARTO serves every tile with a
+// repeating "API key required" watermark instead of blocking outright.
 // #carDetailMapContainer is a permanent DOM node created once in
 // buildCarDetailPanel's initial HTML and never replaced by the 10s poll
 // (unlike the badge/detail regions above it) — so the map + tile layer are
@@ -9296,19 +9283,17 @@ function initOrUpdateCarDetailMap(v, leader, follower){
   if(!carDetailMapInstance){
     const map = L.map(container, { attributionControl: true, zoomControl: true }).setView([v.lat, v.lon], 15);
     carDetailMapInstance = map;
-    // Esri's tile scheme orders these {z}/{y}/{x} (row before column) —
-    // Real OpenStreetMap tiles (the standard bright cartography — OSM
-    // itself doesn't serve a dark style), inverted to dark via a CSS filter
-    // on just the tile pane (see #carDetailMapContainer .leaflet-tile-pane
-    // in the stylesheet) rather than a differently-styled backend. No key,
-    // no signup — but this is genuinely the official OSM tile server, whose
-    // own usage policy is written for light/personal use, not standing
-    // third-party production traffic. If that ever becomes a problem (rate
-    // limiting, a block), the earlier Esri Canvas/World_Dark_Gray tiles
-    // (also free, no key, but with usage terms that actually cover this)
-    // are the fallback — see this file's git history.
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &middot; Tracks: MassGIS',
+    // CARTO's Dark Matter raster tiles — the same basemap the site used
+    // originally, before CARTO started requiring a free API key for this
+    // endpoint (see the "API key required" watermark this replaced, and the
+    // real-OSM-tiles-plus-CSS-filter version this replaced in turn — both
+    // still in this file's git history if this ever needs to change again).
+    // PASTE_YOUR_CARTO_KEY_HERE needs to be swapped for a real key —
+    // request one (free, no CARTO account, instant) at
+    // carto.com/basemaps/apikey using the thembtaloop.com domain, then edit
+    // this line directly rather than pasting the key anywhere else.
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?api_key=PASTE_YOUR_CARTO_KEY_HERE', {
+      attribution: '&copy; OpenStreetMap &copy; CARTO &middot; Tracks: MassGIS',
       maxZoom: 19
     }).addTo(map);
     drawLineTracksOnMap(map);
