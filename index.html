@@ -12552,18 +12552,45 @@ function isOnLiveTrackPage(){
 // after, firing a burst of a dozen+ simultaneous network requests (and a
 // dozen+ re-renders) every single minute instead of spreading that same
 // work out. See the staggerMs values passed in below.
+// Every startGatedPoll's tick function, so the visibilitychange listener
+// below can fire all of them at once — see that listener's own comment for
+// why this exists.
+const gatedPollTicks = [];
 function startGatedPoll(fn, ms, { scopeToLivePage = true, staggerMs = 0 } = {}){
   fn();
+  const tick = ()=>{
+    if(document.visibilityState === 'hidden') return;
+    if(scopeToLivePage && !isOnLiveTrackPage()) return;
+    fn();
+  };
+  gatedPollTicks.push(tick);
   const begin = ()=>{
-    setInterval(()=>{
-      if(document.visibilityState === 'hidden') return;
-      if(scopeToLivePage && !isOnLiveTrackPage()) return;
-      fn();
-    }, ms);
+    setInterval(tick, ms);
   };
   if(staggerMs > 0) setTimeout(begin, staggerMs);
   else begin();
 }
+// The interval ticks above already no-op while the tab/app is backgrounded
+// (document.visibilityState === 'hidden'), but that alone doesn't mean
+// they resume the instant it's foregrounded again — mobile browsers
+// (especially iOS Safari and installed PWAs) suspend JS timers almost
+// entirely while backgrounded rather than just slowing them down, so the
+// interval's internal countdown effectively freezes too. Without this,
+// switching back to the app after even a short time away could mean
+// waiting up to a full poll interval — up to 60s for some of the caches
+// above, though the visible symptom is really refreshVehicles' 10s one —
+// before anything on screen catches up, even though technically "the
+// interval was still running" the whole time. One shared listener rather
+// than one per startGatedPoll call (there are 15+ of them) fires every
+// registered tick immediately the moment the page becomes visible again,
+// so the very next thing that happens after switching back to the app is
+// a fresh fetch, not a wait. Each tick's own scopeToLivePage/hidden checks
+// still apply, so this is a no-op for anything that shouldn't actually run
+// right now.
+document.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState !== 'visible') return;
+  gatedPollTicks.forEach(tick => tick());
+});
 
 async function init(){
   const prefs = await loadPrefs();
