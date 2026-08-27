@@ -1386,7 +1386,7 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
 .pair-history-main strong{font-weight:700;}
 .pair-history-meta{font-size:10.5px; color:var(--text-faint); margin-top:1px;}
 .pair-history-row.current .pair-history-meta{color:var(--accent);}
-/* Car detail page's real geographic mini-map (Leaflet + CARTO dark tiles).
+/* Car detail page's real geographic mini-map (Leaflet + Esri dark tiles).
    Leaflet's own CSS handles the tile grid/marker positioning internally;
    this just gives the container a fixed height and rounds its corners to
    match the rest of the roster/car-detail cards. */
@@ -9181,8 +9181,13 @@ function renderCarDetailStatusDetail(info){
 }
 
 // ---- Leaflet mini-map (real geographic position, not the schematic ladder)
-// — CARTO's free dark tile set, no API key needed, matches the app's own
-// dark theme. #carDetailMapContainer is a permanent DOM node created once in
+// — Esri's free legacy "Canvas/World Dark Gray" tile set (base + reference-
+// label overlay), matches the app's own dark theme. Used to be CARTO's
+// dark_all raster tiles, but CARTO started requiring a paid-signup-free-but-
+// still-a-signup API key for that endpoint (see the "API key required"
+// watermark this replaced) — this Esri endpoint is a genuinely no-signup,
+// no-key alternative, still live and CORS-open as of when this was written.
+// #carDetailMapContainer is a permanent DOM node created once in
 // buildCarDetailPanel's initial HTML and never replaced by the 10s poll
 // (unlike the badge/detail regions above it) — so the map + tile layer are
 // created once and just have their markers moved on every poll, instead of
@@ -9280,9 +9285,21 @@ function initOrUpdateCarDetailMap(v, leader, follower){
   if(!carDetailMapInstance){
     const map = L.map(container, { attributionControl: true, zoomControl: true }).setView([v.lat, v.lon], 15);
     carDetailMapInstance = map;
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-      attribution: '&copy; OpenStreetMap &copy; CARTO &middot; Tracks: MassGIS',
-      maxZoom: 19
+    // Esri's tile scheme orders these {z}/{y}/{x} (row before column) —
+    // easy to get backwards, it's the opposite of the {z}/{x}/{y} convention
+    // CARTO/OSM XYZ tiles use. Real distinct tiles only go up to level 16;
+    // maxNativeZoom stops new tile requests there and just upscales those
+    // same tiles for anything past it (maxZoom), instead of requesting
+    // tiles that don't exist. Two layers stacked — Base (the shaded
+    // landmass/water) has no text at all, Reference (transparent PNG) is
+    // just the road lines/labels/place names on top of it — matching what
+    // was one single flattened dark_all raster tile from CARTO before.
+    L.tileLayer('https://server.arcgisonline.com/arcgis/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+      attribution: '&copy; Esri &copy; HERE &copy; Garmin &copy; OpenStreetMap contributors &middot; Tracks: MassGIS',
+      maxZoom: 19, maxNativeZoom: 16
+    }).addTo(map);
+    L.tileLayer('https://server.arcgisonline.com/arcgis/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}', {
+      maxZoom: 19, maxNativeZoom: 16
     }).addTo(map);
     drawLineTracksOnMap(map);
     // Was hardcoded to Green's own hex regardless of which line's car
