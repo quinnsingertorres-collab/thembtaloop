@@ -621,29 +621,6 @@ body.dark .discord-banner{background:#5865F2; border-color:#5865F2; color:#fff;}
 .panel-head{display:flex; flex-direction:column; align-items:center; text-align:center; gap:4px; margin-bottom:12px;}
 .panel-head h2{font-family:'Space Grotesk', sans-serif; font-size:14px; letter-spacing:0.02em; margin:0; color:var(--text);}
 .panel-head .note{font-size:11px; color:var(--text-faint); font-family:'IBM Plex Mono', monospace;}
-/* Track Map zoom buttons — a quick, discoverable alternative to the pinch/
-   ctrl+scroll gesture handling (see setupLadderZoom in JS) for anyone
-   without a trackpad or touchscreen handy. Small and out of the way since
-   this isn't the primary way most people will use the feature. */
-.ladder-zoom-controls{display:flex; gap:6px; margin-top:2px;}
-.ladder-zoom-btn{
-  width:26px; height:26px; border-radius:7px;
-  background:var(--panel-alt, rgba(255,255,255,0.05)); border:1px solid var(--border);
-  color:var(--text-dim); font-size:15px; line-height:1; font-weight:600;
-  display:flex; align-items:center; justify-content:center;
-  cursor:pointer; padding:0; transition:background 0.15s ease, color 0.15s ease;
-}
-.ladder-zoom-btn:hover{background:var(--accent); color:#fff;}
-.ladder-zoom-btn:active{transform:scale(0.95);}
-/* Mobile already has pinch-to-zoom on the ladder itself (see
-   setupLadderZoom in JS) — the buttons were only there as a substitute for
-   devices without a trackpad/touchscreen pinch gesture, so they're just
-   redundant clutter on a touchscreen phone. Same breakpoint isMobileLadder
-   uses for the ladder's own bubble sizing. */
-@media (max-width:640px){
-  .ladder-zoom-controls{display:none;}
-}
-
 .track-col-labels{
   display:flex; justify-content:space-between;
   font-family:'IBM Plex Mono', monospace; font-size:10px; color:var(--text-faint);
@@ -1211,6 +1188,11 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
 .settings-section.collapsed .section-body{display:none;}
 .settings-section .menu-row{padding:8px 2px;}
 .settings-section .menu-divider{margin:8px 0;}
+/* Sits below every settings-section tile, outside all of them — a plain
+   footer line rather than its own bordered section, since it's informational
+   only and not something anyone interacts with. Populated in JS from
+   APP_LAST_UPDATED (see that constant's own comment). */
+.settings-last-updated{text-align:center; font-size:10px; color:var(--text-faint); font-family:'IBM Plex Mono', monospace; margin-top:14px;}
 
 .filter-bar{display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap;}
 .filter-bar select, .filter-bar input{
@@ -1578,10 +1560,6 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
       <div class="panel-head">
         <h2>Track Map</h2>
         <span class="note" id="mapMeta">&mdash;</span>
-        <div class="ladder-zoom-controls" id="ladderZoomControls">
-          <button class="ladder-zoom-btn" id="ladderZoomOutBtn" title="Zoom out (shrink spacing between stations)" aria-label="Zoom out">&minus;</button>
-          <button class="ladder-zoom-btn" id="ladderZoomInBtn" title="Zoom in (spread out stations)" aria-label="Zoom in">+</button>
-        </div>
       </div>
       <div class="track-col-labels"><span id="westColLabel">Westbound</span><span id="eastColLabel">Eastbound</span></div>
       <div class="ladder" id="ladder"></div>
@@ -2125,6 +2103,7 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
         </div>
       </div>
     </div>
+    <div class="settings-last-updated" id="settingsLastUpdated"></div>
   </div>
 
 
@@ -2198,6 +2177,14 @@ window.addEventListener('popstate', ()=>{
 // unauthenticated default. Passed as a query param (not a custom header) so
 // it doesn't trigger a CORS preflight request, which could otherwise break
 // on MBTA's server if preflight isn't handled the same way as a plain GET.
+// Shown in small text at the bottom of the Settings page (see
+// #settingsLastUpdated, populated near the top of init()) so visitors have
+// a sense of how current the app's code is. This is NOT automatic — there's
+// no build step here to stamp a real deploy time into the file, so this
+// needs to be hand-updated to the current date/time whenever a real change
+// is deployed. Any ISO 8601 string with an offset works — init() renders it
+// in the visitor's own local time regardless of what offset is used here.
+const APP_LAST_UPDATED = '2026-08-28T00:57:10-04:00';
 const MBTA_API_KEY = '7171c5e6f11c447bb3591c1fc1f3b5a9';
 const MBTA_HEADERS = { 'Accept':'application/vnd.api+json' };
 function withMbtaKey(url){
@@ -4549,12 +4536,7 @@ function applyLadderZoom(newZoom, anchorViewportY, fast){
 
 (function setupLadderZoom(){
   const ladderEl = document.getElementById('ladder');
-  const zoomInBtn = document.getElementById('ladderZoomInBtn');
-  const zoomOutBtn = document.getElementById('ladderZoomOutBtn');
-  if(!ladderEl || !zoomInBtn || !zoomOutBtn) return;
-
-  zoomInBtn.addEventListener('click', ()=> applyLadderZoom(state.ladderZoom + 0.25));
-  zoomOutBtn.addEventListener('click', ()=> applyLadderZoom(state.ladderZoom - 0.25));
+  if(!ladderEl) return;
 
   let pinchStartDist = null;
   let pinchStartZoom = 1;
@@ -4563,7 +4545,19 @@ function applyLadderZoom(newZoom, anchorViewportY, fast){
   const touchDist = (touches) => Math.hypot(touches[0].clientX - touches[1].clientX, touches[0].clientY - touches[1].clientY);
   const touchMidY = (touches) => (touches[0].clientY + touches[1].clientY) / 2;
 
+  // Zoom is desktop-only for now — the on-screen +/- buttons have been
+  // removed (keyboard +/- below is the replacement), and touch pinch-zoom
+  // is disabled at mobile widths rather than deleted outright, so it's a
+  // one-line change to bring it back later if it's revisited. Same
+  // isDesktopWidth check used by the keyboard shortcut further down and by
+  // the 'f' fullscreen shortcut, so all of "desktop only" stays consistent
+  // in one place conceptually even though it's re-evaluated at each event
+  // (screen width can change between events on a resizable/foldable
+  // window, unlike a one-time check at setup).
+  const isDesktopWidth = () => window.innerWidth >= 900;
+
   ladderEl.addEventListener('touchstart', (e)=>{
+    if(!isDesktopWidth()) return;
     if(e.touches.length === 2){
       pinchStartDist = touchDist(e.touches);
       pinchStartZoom = state.ladderZoom;
@@ -4571,6 +4565,7 @@ function applyLadderZoom(newZoom, anchorViewportY, fast){
   }, { passive: true });
 
   ladderEl.addEventListener('touchmove', (e)=>{
+    if(!isDesktopWidth()) return;
     if(e.touches.length === 2 && pinchStartDist){
       e.preventDefault(); // touch-action:pan-y on .ladder already tells the browser to leave this gesture alone; this is belt-and-suspenders
       if(!rebuildQueued){
@@ -4590,9 +4585,14 @@ function applyLadderZoom(newZoom, anchorViewportY, fast){
 
   // Desktop trackpad pinch surfaces as a wheel event with ctrlKey set (the
   // same signal a literal Ctrl+scroll-wheel sends too, so both work the
-  // same way) — negative deltaY means pinching/scrolling to zoom in.
+  // same way) — negative deltaY means pinching/scrolling to zoom in. No
+  // isDesktopWidth() gate needed here in practice (this event only really
+  // fires from a mouse wheel or trackpad, both desktop input), but it's
+  // included anyway for the rare touchscreen-laptop case, so "desktop
+  // only" is enforced consistently rather than relying on the input method
+  // alone.
   ladderEl.addEventListener('wheel', (e)=>{
-    if(!e.ctrlKey) return;
+    if(!e.ctrlKey || !isDesktopWidth()) return;
     e.preventDefault();
     applyLadderZoom(state.ladderZoom - e.deltaY * 0.01, e.clientY);
   }, { passive: false });
@@ -7570,9 +7570,9 @@ document.addEventListener('keydown', (e)=>{
     location.reload();
   }else if((e.key === 'f' || e.key === 'F') && window.innerWidth >= 900 && (document.fullscreenEnabled || document.documentElement.requestFullscreen)){
     toggleFullscreen();
-  }else if(e.key === '+' || e.key === '='){
+  }else if((e.key === '+' || e.key === '=') && window.innerWidth >= 900){
     applyLadderZoom(state.ladderZoom + 0.25);
-  }else if(e.key === '-' || e.key === '_'){
+  }else if((e.key === '-' || e.key === '_') && window.innerWidth >= 900){
     applyLadderZoom(state.ladderZoom - 0.25);
   }
 });
@@ -12593,6 +12593,16 @@ document.addEventListener('visibilitychange', ()=>{
 });
 
 async function init(){
+  // Rendered in the visitor's own local time zone (toLocaleString with no
+  // explicit timeZone) rather than whatever offset APP_LAST_UPDATED itself
+  // happens to be written in — see that constant's own comment.
+  const lastUpdatedEl = document.getElementById('settingsLastUpdated');
+  if(lastUpdatedEl){
+    lastUpdatedEl.textContent = 'Last updated ' + new Date(APP_LAST_UPDATED).toLocaleString('en-US', {
+      month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit'
+    });
+  }
+
   const prefs = await loadPrefs();
   const hasSavedAbbrevPref = Object.prototype.hasOwnProperty.call(prefs, 'abbreviate');
   const isMobile = window.matchMedia('(max-width: 640px)').matches;
