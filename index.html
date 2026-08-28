@@ -5480,16 +5480,15 @@ async function showCarModal(v){
   // A destination override is tied to the specific trip it was reported on —
   // once the train's real headsign or direction changes (it terminated,
   // started a new trip, or reversed), the override no longer applies.
-  // Trip ID is checked too, since it's possible for a brand new trip to
-  // coincidentally have the same headsign/direction as the one the
-  // override was reported on (e.g. a normal D outbound trip after a
-  // one-time extension to North Station) — trip ID changing is a more
-  // reliable signal that it's genuinely a different trip now.
+  // Trip ID is deliberately NOT used as a clearing signal here: MBTA's feed
+  // frequently reassigns a vehicle's trip_id on its own (including as part
+  // of the exact short-turn/reroute scenario this feature exists to report)
+  // without touching the reported headsign or direction, which was wiping
+  // out valid overrides within moments of being set.
   let destinationOverride = destinationOverrideRaw;
   if(destinationOverride && (
     (destinationOverride.originalHeadsign && destinationOverride.originalHeadsign !== v.headsign) ||
-    (destinationOverride.originalDirection !== undefined && destinationOverride.originalDirection !== v.direction) ||
-    (destinationOverride.originalTripId && v.tripId && destinationOverride.originalTripId !== v.tripId)
+    (destinationOverride.originalDirection !== undefined && destinationOverride.originalDirection !== v.direction)
   )){
     await deleteDestinationOverride(v.id);
     refreshDestinationOverrideCache();
@@ -8314,17 +8313,14 @@ function clearStaleDestinationOverrides(now){
       delete destinationOverrideCache[vehicleId];
       return;
     }
-    // Also clear proactively (without waiting for anyone to open this
-    // train's modal) the moment its live trip ID has changed — a reliable
-    // sign it's genuinely moved on to a new trip, even if it happens to be
-    // running the same direction/headsign as before (e.g. back to a
-    // normal route after a one-time extension).
-    const override = destinationOverrideCache[vehicleId];
-    const liveVehicle = state.vehicles.find(v => v.id === vehicleId);
-    if(override.originalTripId && liveVehicle && liveVehicle.tripId && liveVehicle.tripId !== override.originalTripId){
-      deleteDestinationOverride(vehicleId);
-      delete destinationOverrideCache[vehicleId];
-    }
+    // Trip ID is deliberately NOT used as a proactive clearing signal here —
+    // see the matching comment in showCarModal(). MBTA's feed reassigns a
+    // vehicle's trip_id on its own often enough (including as part of the
+    // very short-turn/reroute events this feature reports) that clearing on
+    // trip_id change alone was wiping out valid overrides within moments of
+    // being set. Headsign/direction changes remain a reliable signal and are
+    // still checked in showCarModal() whenever that train's modal is open;
+    // the 5-minute not-seen check above is what proactively clears here.
   });
   // A branch reassignment should only last for the trip it was made
   // during — once its vehicle hasn't been seen in 5+ minutes, the trip has
