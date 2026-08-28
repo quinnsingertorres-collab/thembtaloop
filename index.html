@@ -8492,6 +8492,49 @@ async function refreshVehicles(){
   });
   state.vehicles = state.vehicles.filter(v => bestByLabel[String(v.label)] === v);
 
+  // Catch-all for the same bug the two passes above only catch in their own
+  // narrower shape (solo-vs-coupled, and an exact label string match): any
+  // two vehicle entries that share so much as ONE car number in common
+  // still can't be two real, distinct physical trains, even if their label
+  // strings don't match exactly — e.g. "3842" vs "3842-3713" (a car briefly
+  // missing from carriages data on one poll), or "3713-3842" vs "3842-3713"
+  // (same two cars, reported in a different order). This is what a
+  // keep-alive ghost (see keepAliveDurationFor above) most often looks
+  // like in practice when the physical train picks up a new vehicle/trip
+  // id mid-run: the old id's stale last-known position lingers on screen
+  // as an apparent second train showing the same car numbers, until this
+  // catches it. "Best" prefers whichever entry actually appeared in this
+  // poll's fresh fetch over a keep-alive ghost, then whichever reports more
+  // cars (the fuller, more complete report), then whichever was updated
+  // more recently.
+  (function dedupeOverlappingCarSets(){
+    const carSets = state.vehicles.map(v => new Set(String(v.label).split('-')));
+    const kept = [];
+    const keptCarSets = [];
+    state.vehicles.forEach((v, i)=>{
+      const vCars = carSets[i];
+      const overlapIdx = keptCarSets.findIndex(ks => {
+        for(const c of vCars) if(ks.has(c)) return true;
+        return false;
+      });
+      if(overlapIdx === -1){
+        kept.push(v);
+        keptCarSets.push(vCars);
+        return;
+      }
+      const existing = kept[overlapIdx];
+      const vFresh = vehicleLastSeenTs[v.id] === now;
+      const existingFresh = vehicleLastSeenTs[existing.id] === now;
+      let winner;
+      if(vFresh !== existingFresh) winner = vFresh ? v : existing;
+      else if(vCars.size !== keptCarSets[overlapIdx].size) winner = vCars.size > keptCarSets[overlapIdx].size ? v : existing;
+      else winner = new Date(v.updatedAt) > new Date(existing.updatedAt) ? v : existing;
+      kept[overlapIdx] = winner;
+      keptCarSets[overlapIdx] = winner === v ? vCars : keptCarSets[overlapIdx];
+    });
+    state.vehicles = kept;
+  })();
+
   // A Green Line fleet number (Type 7/8/9/10, PCC) showing up on Red,
   // Orange, or Blue is a data error, not a real train — car numbers don't
   // overlap between lines in reality.
