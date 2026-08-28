@@ -595,6 +595,15 @@ body.dark .discord-banner{background:#5865F2; border-color:#5865F2; color:#fff;}
    .mobile-trains-open-tab{display:none;} fallback its sibling tab already
    had (see near the top of this file). */
 .mobile-quick-report-open-tab{display:none;}
+/* Lets the "\" keyboard shortcut (see the keydown handler in JS) open this
+   drawer on desktop too, where the media query above otherwise keeps it
+   display:none regardless of the mobile-quick-report-open body class (only
+   the swipe-to-open tab is mobile-only — the drawer itself has no reason
+   not to work at any width once there's a keyboard-driven way to reach it).
+   Deliberately unconditional (outside any media query) so it overrides the
+   base display:none at any width, not just desktop, though in practice the
+   mobile media query above already wins under 899px anyway. */
+body.mobile-quick-report-open .mobile-quick-report-panel{display:block;}
 /* Standing By / Express toggle inside the quick-report drawer. */
 .quick-report-type-toggle{display:flex; gap:6px; margin:10px 0 14px;}
 .quick-report-type-btn{
@@ -11674,6 +11683,35 @@ document.addEventListener('keydown', (e)=>{
       if(note){ note.textContent = ''; note.classList.remove('error'); }
     }
     searchInput.focus();
+  }
+});
+
+// Pressing "\" anywhere opens the quick-report drawer (standing-by/express
+// reporting by car number) — the desktop equivalent of the mobile
+// swipe-right/edge-tab gesture (see setupQuickReportDrawer and the
+// body.mobile-quick-report-open CSS override added alongside this, which
+// makes the drawer actually render outside the mobile breakpoint). Sits
+// right next to the "/" search shortcut above on the keyboard as a
+// deliberate pairing. Requires being signed in, same as the drawer's own
+// forms (see updateQuickReportTabVisibility) — there's nothing to do in
+// there signed out, so the shortcut is a no-op rather than opening an
+// empty/broken-looking drawer. Toggles closed on a second press, same as
+// the mobile close button.
+document.addEventListener('keydown', (e)=>{
+  if(e.key !== '\\') return;
+  if(e.ctrlKey || e.metaKey || e.altKey) return;
+  const activeTag = (document.activeElement && document.activeElement.tagName) || '';
+  const isTyping = activeTag === 'INPUT' || activeTag === 'TEXTAREA' || (document.activeElement && document.activeElement.isContentEditable);
+  if(isTyping) return;
+  if(!state.signedIn) return;
+  e.preventDefault();
+  if(document.body.classList.contains('mobile-quick-report-open')){
+    document.body.classList.remove('mobile-quick-report-open');
+  }else{
+    document.body.classList.add('mobile-quick-report-open');
+    document.body.classList.remove('mobile-trains-open');
+    const carInput = document.getElementById('quickReportCarNumber');
+    if(carInput) carInput.focus();
   }
 });
 
