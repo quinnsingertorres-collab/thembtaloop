@@ -573,6 +573,13 @@ body.dark .discord-banner{background:#5865F2; border-color:#5865F2; color:#fff;}
   }
   body.track-map-page.quick-report-available .mobile-quick-report-open-tab{display:flex;}
   body.mobile-quick-report-open .mobile-quick-report-open-tab{display:none;}
+  /* Standalone /quickreport page (see quickReportPagePanel) reuses this same
+     .quick-report-available gate — signed out, show the sign-in prompt
+     instead of a form with nothing it can submit. */
+  #qrPageForm{display:none;}
+  #qrPageSignInNote{display:none;}
+  body.quick-report-available #qrPageForm{display:block;}
+  body:not(.quick-report-available) #qrPageSignInNote{display:block;}
   /* Apple mobile only (see the apple-mobile class set synchronously in
      <head>) — hides both edge tabs that open the trains/quick-report
      drawers. The drawers themselves still open via swipe, this just drops
@@ -595,15 +602,6 @@ body.dark .discord-banner{background:#5865F2; border-color:#5865F2; color:#fff;}
    .mobile-trains-open-tab{display:none;} fallback its sibling tab already
    had (see near the top of this file). */
 .mobile-quick-report-open-tab{display:none;}
-/* Lets the "\" keyboard shortcut (see the keydown handler in JS) open this
-   drawer on desktop too, where the media query above otherwise keeps it
-   display:none regardless of the mobile-quick-report-open body class (only
-   the swipe-to-open tab is mobile-only — the drawer itself has no reason
-   not to work at any width once there's a keyboard-driven way to reach it).
-   Deliberately unconditional (outside any media query) so it overrides the
-   base display:none at any width, not just desktop, though in practice the
-   mobile media query above already wins under 899px anyway. */
-body.mobile-quick-report-open .mobile-quick-report-panel{display:block;}
 /* Standing By / Express toggle inside the quick-report drawer. */
 .quick-report-type-toggle{display:flex; gap:6px; margin:10px 0 14px;}
 .quick-report-type-btn{
@@ -1889,6 +1887,63 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
    </div>
   </div>
 
+  <!-- Standalone page version of the mobile-only quick-report drawer above
+       (same "Quick report" form, reachable at /quickreport instead of only
+       via the mobile swipe gesture) — shares its saveStandingByReport/
+       saveExpressReport logic through initQuickReportForm (see JS), just
+       wired to these qrPage-prefixed element ids instead of the drawer's
+       quickReport-prefixed ones, since both DOM trees exist on the page at
+       once. Gated by the same .quick-report-available body class the
+       drawer's own open-tab already uses (see updateQuickReportTabVisibility)
+       — the form only makes sense signed in, so a signed-out visit shows
+       qrPageSignInNote instead via the CSS near that class's definition. -->
+  <div class="panel full-bleed" id="quickReportPagePanel" style="display:none;">
+   <div class="full-bleed-inner">
+    <div class="panel-head">
+      <h2>Quick Report</h2>
+      <span class="note">Type a car number from the set &mdash; no need to find the train first.</span>
+    </div>
+    <div class="back-link" id="quickReportPageBackBtn">&lsaquo; Back</div>
+    <div class="empty-state" id="qrPageSignInNote" style="text-align:left; padding:10px 4px; display:none;">
+      Sign in to file a standing-by or express report.
+    </div>
+    <div id="qrPageForm">
+      <div class="roster-field-label">Car number</div>
+      <input type="text" class="roster-input" id="qrPageCarNumber" placeholder="e.g. 1932" inputmode="numeric" autocomplete="off" style="margin-top:6px;">
+
+      <div class="quick-report-type-toggle">
+        <button type="button" class="quick-report-type-btn active" id="qrPageTypeStandingBy">Standing by</button>
+        <button type="button" class="quick-report-type-btn" id="qrPageTypeExpress">Running express</button>
+      </div>
+
+      <datalist id="qrPageStationsDatalist"></datalist>
+
+      <div id="qrPageStandingByFields">
+        <div class="roster-field-label">Station</div>
+        <input type="text" class="roster-input" id="qrPageStation" list="qrPageStationsDatalist" placeholder="Start typing a station&hellip;" autocomplete="off" style="margin-top:6px;">
+        <input type="number" class="roster-input" id="qrPageMinutes" placeholder="Expected hold time in minutes (optional)" min="0">
+        <label style="display:flex; align-items:center; gap:6px; margin:6px 0 2px; font-size:13px; color:var(--text-dim);">
+          <input type="checkbox" id="qrPageUntilRelease" style="width:auto;">
+          Standing by until release (no set time &mdash; holding for dispatch)
+        </label>
+        <textarea class="roster-textarea" id="qrPageNotes" placeholder="Notes (optional)" style="margin-top:8px;"></textarea>
+      </div>
+
+      <div id="qrPageExpressFields" style="display:none;">
+        <div class="roster-field-label">Express from</div>
+        <input type="text" class="roster-input" id="qrPageExpressStart" list="qrPageStationsDatalist" placeholder="Start typing a station&hellip;" autocomplete="off">
+        <div class="roster-field-label">Still stops at (optional)</div>
+        <input type="text" class="roster-input" id="qrPageExpressIntermediate" list="qrPageStationsDatalist" placeholder="Optional — enter only if the train makes one intermediate stop" autocomplete="off">
+        <div class="roster-field-label">Express to</div>
+        <input type="text" class="roster-input" id="qrPageExpressEnd" list="qrPageStationsDatalist" placeholder="Start typing a station&hellip;" autocomplete="off">
+      </div>
+
+      <button class="account-btn" id="qrPageSubmitBtn" style="margin-top:12px; width:100%;">Submit report</button>
+      <span class="roster-submit-note" id="qrPageNote"></span>
+    </div>
+   </div>
+  </div>
+
   <div class="panel full-bleed" id="carDetailPanel" style="display:none;">
    <div class="full-bleed-inner">
     <!-- No panel-head here on purpose: the outer header above already shows
@@ -2301,6 +2356,9 @@ const PAGES = {
   },
   SIGNIN: {
     hex:'#1F2937', label:'Sign In', isSignin:true
+  },
+  QUICKREPORT: {
+    hex:'#1F2937', label:'Quick Report', isQuickReport:true
   },
   CARDETAIL: {
     // No fixed label/hex — this page's identity (which car, which line) is
@@ -4245,7 +4303,7 @@ function switchPage(key){
   updateUrlForPage(state.activeLine, key);
   updateDocumentTitle(state.activeLine, key);
   const page = PAGES[key];
-  if(!page.isRoster && !page.isMembers && !page.isModNotifs && !page.isEditLogs && !page.isSettings && !page.isPoints && !page.isBugs && !page.isInspectors && !page.isCarDetail && !page.isSignin) state.lastMainPage = key;
+  if(!page.isRoster && !page.isMembers && !page.isModNotifs && !page.isEditLogs && !page.isSettings && !page.isPoints && !page.isBugs && !page.isInspectors && !page.isCarDetail && !page.isSignin && !page.isQuickReport) state.lastMainPage = key;
   // Car detail pages don't have a fixed label like every other page — the
   // header shows "Car <number>" built from whichever car is currently
   // being viewed (see state.viewingCarNumber, set just before this runs).
@@ -4282,6 +4340,7 @@ function switchPage(key){
   const settingsPanel = document.getElementById('settingsPanel');
   const carDetailPanel = document.getElementById('carDetailPanel');
   const signinPanel = document.getElementById('signinPanel');
+  const quickReportPagePanel = document.getElementById('quickReportPagePanel');
 
   mainGrid.style.display = 'none';
   const trainsPanelToggleBtn = document.getElementById('trainsPanelToggle');
@@ -4296,6 +4355,7 @@ function switchPage(key){
   settingsPanel.style.display = 'none';
   carDetailPanel.style.display = 'none';
   signinPanel.style.display = 'none';
+  quickReportPagePanel.style.display = 'none';
   // Any live Leaflet map instance is tied to a DOM node inside carDetailBody;
   // hiding the panel above doesn't tear it down, so explicitly destroy it on
   // every navigation. Harmless no-op if nothing's been created yet, and
@@ -4326,7 +4386,7 @@ function switchPage(key){
   // scheduleModalRefresh) — without this, a modal open when you navigate
   // away would silently reopen itself up to 15s later, on top of whatever
   // page you'd since moved to.
-  if(page.isRoster || page.isMembers || page.isModNotifs || page.isEditLogs || page.isPoints || page.isBugs || page.isInspectors || page.isSettings || page.isCarDetail || page.isSignin){
+  if(page.isRoster || page.isMembers || page.isModNotifs || page.isEditLogs || page.isPoints || page.isBugs || page.isInspectors || page.isSettings || page.isCarDetail || page.isSignin || page.isQuickReport){
     document.getElementById('carModalOverlay').classList.remove('show');
     modalRefreshToken++;
   }
@@ -4367,6 +4427,10 @@ function switchPage(key){
   }
   if(page.isSignin){
     signinPanel.style.display = 'block';
+    return;
+  }
+  if(page.isQuickReport){
+    quickReportPagePanel.style.display = 'block';
     return;
   }
   if(page.isInspectors){
@@ -10343,11 +10407,13 @@ const FLAT_ROUTE_TO_PAGE = {
   'moderation': 'MEMBERS',
   'pushalerts': 'MODNOTIFS',
   'editlog': 'EDITLOGS',
-  'signin': 'SIGNIN'
+  'signin': 'SIGNIN',
+  'quickreport': 'QUICKREPORT'
 };
 const PAGE_TO_FLAT_ROUTE = {
   SETTINGS:'setting', BUGS:'bugs', INSPECTORS:'greenlineinspectors', POINTS:'points',
-  MEMBERS:'moderation', MODNOTIFS:'pushalerts', EDITLOGS:'editlog', SIGNIN:'signin'
+  MEMBERS:'moderation', MODNOTIFS:'pushalerts', EDITLOGS:'editlog', SIGNIN:'signin',
+  QUICKREPORT:'quickreport'
 };
 function isTrackablePage(key){
   return Object.values(LINE_PAGE_KEYS).some(keys => keys.includes(key));
@@ -10992,6 +11058,7 @@ function showIdSignInModal(){
 document.getElementById('signinGoogleBtn').addEventListener('click', attemptSignIn);
 document.getElementById('signinIdBtn').addEventListener('click', showIdSignInModal);
 document.getElementById('signinBackBtn').addEventListener('click', ()=> switchPage(state.lastMainPage || 'B'));
+document.getElementById('quickReportPageBackBtn').addEventListener('click', ()=> switchPage(state.lastMainPage || 'B'));
 
 document.getElementById('menuBtn').addEventListener('click', async (e)=>{
   e.stopPropagation();
@@ -11692,25 +11759,23 @@ document.addEventListener('keydown', (e)=>{
 // body.mobile-quick-report-open CSS override added alongside this, which
 // makes the drawer actually render outside the mobile breakpoint). Sits
 // right next to the "/" search shortcut above on the keyboard as a
-// deliberate pairing. Requires being signed in, same as the drawer's own
-// forms (see updateQuickReportTabVisibility) — there's nothing to do in
-// there signed out, so the shortcut is a no-op rather than opening an
-// empty/broken-looking drawer. Toggles closed on a second press, same as
-// the mobile close button.
+// deliberate pairing. Navigates to the standalone /quickreport page (see
+// PAGES.QUICKREPORT) — that page itself handles the signed-out case with a
+// sign-in prompt (see #qrPageSignInNote), so this no longer needs its own
+// signed-in gate the way the old direct-drawer-toggle version did. Pressing
+// it again while already on that page just goes back, mirroring a toggle.
 document.addEventListener('keydown', (e)=>{
   if(e.key !== '\\') return;
   if(e.ctrlKey || e.metaKey || e.altKey) return;
   const activeTag = (document.activeElement && document.activeElement.tagName) || '';
   const isTyping = activeTag === 'INPUT' || activeTag === 'TEXTAREA' || (document.activeElement && document.activeElement.isContentEditable);
   if(isTyping) return;
-  if(!state.signedIn) return;
   e.preventDefault();
-  if(document.body.classList.contains('mobile-quick-report-open')){
-    document.body.classList.remove('mobile-quick-report-open');
+  if(state.currentPage === 'QUICKREPORT'){
+    switchPage(state.lastMainPage || 'B');
   }else{
-    document.body.classList.add('mobile-quick-report-open');
-    document.body.classList.remove('mobile-trains-open');
-    const carInput = document.getElementById('quickReportCarNumber');
+    switchPage('QUICKREPORT');
+    const carInput = document.getElementById('qrPageCarNumber');
     if(carInput) carInput.focus();
   }
 });
@@ -12103,29 +12168,40 @@ function updateQuickReportTabVisibility(){
 }
 updateQuickReportTabVisibility();
 
-// Mobile quick-report drawer — lets someone type any car number from a
+// Quick-report form logic — lets someone type any car number from a
 // train's set and file a standing-by/express report against it directly,
 // without needing to find and tap that specific train on the map first.
 // Unlike the car modal's own copies of these two forms (which already know
 // exactly which vehicle they're attached to), this one doesn't know which
 // vehicle it's targeting until the car number is typed in, so validation
 // and the actual save both happen together at submit time.
-function setupQuickReportDrawer(){
-  const carInput = document.getElementById('quickReportCarNumber');
-  const typeStandingByBtn = document.getElementById('quickReportTypeStandingBy');
-  const typeExpressBtn = document.getElementById('quickReportTypeExpress');
-  const standingByFields = document.getElementById('quickReportStandingByFields');
-  const expressFields = document.getElementById('quickReportExpressFields');
-  const untilReleaseCheckbox = document.getElementById('quickReportUntilRelease');
-  const minutesInput = document.getElementById('quickReportMinutes');
-  const stationInput = document.getElementById('quickReportStation');
-  const notesInput = document.getElementById('quickReportNotes');
-  const expressStartInput = document.getElementById('quickReportExpressStart');
-  const expressIntermediateInput = document.getElementById('quickReportExpressIntermediate');
-  const expressEndInput = document.getElementById('quickReportExpressEnd');
-  const note = document.getElementById('quickReportNote');
-  const submitBtn = document.getElementById('quickReportSubmitBtn');
-  const datalist = document.getElementById('quickReportStationsDatalist');
+//
+// Parameterized by idPrefix so the exact same logic can drive two separate
+// DOM trees that coexist on the page at once: the mobile swipe-drawer
+// (idPrefix 'quickReport', elements like #quickReportCarNumber) and the
+// standalone /quickreport page (idPrefix 'qrPage', elements like
+// #qrPageCarNumber) — every element id below this point is just
+// idPrefix + a fixed suffix, matching both trees' naming. onSuccess is
+// called after a successful submit/reset so each instance can do its own
+// post-submit behavior (the drawer closes itself; the page just resets in
+// place).
+function initQuickReportForm(idPrefix, onSuccess){
+  const id = suffix => idPrefix + suffix;
+  const carInput = document.getElementById(id('CarNumber'));
+  const typeStandingByBtn = document.getElementById(id('TypeStandingBy'));
+  const typeExpressBtn = document.getElementById(id('TypeExpress'));
+  const standingByFields = document.getElementById(id('StandingByFields'));
+  const expressFields = document.getElementById(id('ExpressFields'));
+  const untilReleaseCheckbox = document.getElementById(id('UntilRelease'));
+  const minutesInput = document.getElementById(id('Minutes'));
+  const stationInput = document.getElementById(id('Station'));
+  const notesInput = document.getElementById(id('Notes'));
+  const expressStartInput = document.getElementById(id('ExpressStart'));
+  const expressIntermediateInput = document.getElementById(id('ExpressIntermediate'));
+  const expressEndInput = document.getElementById(id('ExpressEnd'));
+  const note = document.getElementById(id('Note'));
+  const submitBtn = document.getElementById(id('SubmitBtn'));
+  const datalist = document.getElementById(id('StationsDatalist'));
   if(!carInput || !submitBtn) return;
 
   // Every system-wide station, not just the eventually-resolved car's own
@@ -12255,13 +12331,14 @@ function setupQuickReportDrawer(){
     }
     note.textContent = `Reported car ${formatCarNumberForDisplay(v.label)} — done!`;
     setTimeout(()=>{
-      document.body.classList.remove('mobile-quick-report-open');
+      if(onSuccess) onSuccess();
       resetForm();
       setType('standingby');
     }, 900);
   });
 }
-setupQuickReportDrawer();
+initQuickReportForm('quickReport', () => document.body.classList.remove('mobile-quick-report-open'));
+initQuickReportForm('qrPage', null);
 
 // Belt-and-suspenders backup for the standalone-only zoom lock set on the
 // viewport meta tag up in <head> (see viewportMeta) — that meta change
