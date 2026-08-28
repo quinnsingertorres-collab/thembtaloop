@@ -6242,6 +6242,7 @@ async function showCarModal(v){
       }
       if(!window.confirm(`Reassign this train to the ${correctBranch} \u2014 ${GREEN_BRANCH_NAMES[correctBranch]} branch?`)) return;
       await reassignVehicleBranch(v, 'green', correctBranch);
+      awardPoints(3);
       showCarModal(v);
     });
   }
@@ -6251,6 +6252,7 @@ async function showCarModal(v){
       const correctBranch = redBranchReassignBtn.dataset.branchTarget;
       if(!window.confirm(`Reassign this train to the ${RED_BRANCH_NAMES[correctBranch]} branch?`)) return;
       await reassignVehicleBranch(v, 'red', correctBranch);
+      awardPoints(3);
       showCarModal(v);
     });
   }
@@ -7033,6 +7035,7 @@ async function showTerminusSchedule(branchKey, stopName, directionId){
       const newDate = new Date();
       newDate.setHours(h, m, 0, 0);
       await saveDepartureTimeOverride(tripId, newDate.toISOString());
+      awardPoints(5);
       showTerminusSchedule(branchKey, stopName, directionId, true);
     });
   });
