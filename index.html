@@ -1444,7 +1444,7 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
 
 <div id="welcomeScreen" class="gate-screen" style="display:none;">
   <div class="gate-card">
-    <h1 id="welcomeText" class="welcome-text">Welcome!</h1>
+    <h1 id="welcomeText" class="welcome-text">Welcome</h1>
   </div>
 </div>
 
@@ -1452,7 +1452,7 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
   <div class="gate-card">
     <h1>Before you continue</h1>
     <p>Any edits you make (roster changes, GLTPS reports, notes, and more) are visible to everyone using this app, shown alongside your first name. You can change your display name anytime in Settings.</p>
-    <button id="privacyWarningDismissBtn" class="gate-signin-btn">Got it</button>
+    <button id="privacyWarningDismissBtn" class="gate-signin-btn">Continue</button>
   </div>
 </div>
 
@@ -1464,9 +1464,9 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
 
 <div id="accessDeniedScreen" class="gate-screen" style="display:none;">
   <div class="gate-card">
-    <h1>You don't have access</h1>
+    <h1>Access Restricted</h1>
     <p>This page is for signed-in moderators only.</p>
-    <button id="accessDeniedBackBtn" class="gate-signin-btn">Back to the app</button>
+    <button id="accessDeniedBackBtn" class="gate-signin-btn">Return to In the Loop</button>
   </div>
 </div>
 
@@ -1687,7 +1687,7 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
         <div class="roster-field-label">Express from</div>
         <input type="text" class="roster-input" id="quickReportExpressStart" list="quickReportStationsDatalist" placeholder="Start typing a station&hellip;" autocomplete="off">
         <div class="roster-field-label">Still stops at (optional)</div>
-        <input type="text" class="roster-input" id="quickReportExpressIntermediate" list="quickReportStationsDatalist" placeholder="Only if it makes one stop in between&hellip;" autocomplete="off">
+        <input type="text" class="roster-input" id="quickReportExpressIntermediate" list="quickReportStationsDatalist" placeholder="Optional — enter only if the train makes one intermediate stop" autocomplete="off">
         <div class="roster-field-label">Express to</div>
         <input type="text" class="roster-input" id="quickReportExpressEnd" list="quickReportStationsDatalist" placeholder="Start typing a station&hellip;" autocomplete="off">
       </div>
@@ -1809,7 +1809,7 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
       <div class="roster-row-head"><span class="roster-car-chip">Push a Notification</span></div>
       <div class="roster-edited-by">Sent to all users immediately when confirmed.</div>
       <div class="roster-field-label">Subject</div>
-      <input type="text" class="roster-input" id="modNotifSubject" placeholder="e.g. New feature: Mattapan tracking!">
+      <input type="text" class="roster-input" id="modNotifSubject" placeholder="e.g. New feature: Mattapan tracking">
       <div class="roster-field-label">Message</div>
       <textarea class="roster-textarea" id="modNotifBody" placeholder="Write the notification text here..."></textarea>
       <div class="roster-field-label">Expires in</div>
@@ -1940,21 +1940,21 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
             <svg class="section-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </div>
           <div class="section-body">
-            <div class="menu-note" style="margin-bottom:6px;">Shown next to any reports, edits, or roster changes you submit.</div>
+            <div class="menu-note" style="margin-bottom:6px;">This name appears next to any reports, edits, or roster changes you submit.</div>
             <input type="text" id="accountNameInput" class="account-input" placeholder="Display name">
             <button id="saveNameBtn" class="account-btn">Save name</button>
             <div class="menu-divider"></div>
             <div class="menu-row" style="flex-direction:column; align-items:flex-start; gap:4px;">
               <span>Your sign-in ID</span>
               <span class="menu-note" id="accountShortIdValue" style="font-family:'IBM Plex Mono', monospace; font-size:14px; color:var(--text);">&mdash;</span>
-              <span class="menu-note">Set a PIN below, then use this ID + PIN to sign in on another device without Google.</span>
+              <span class="menu-note">Set a PIN below to sign in on another device using this ID and PIN instead of Google.</span>
             </div>
             <input type="text" inputmode="numeric" pattern="[0-9]*" id="accountPinInput" class="account-input" placeholder="New PIN (4-6 digits)" maxlength="6" style="margin-top:8px;">
             <button id="setPinBtn" class="account-btn">Set PIN</button>
             <div class="menu-note" id="accountPinNote"></div>
             <div class="menu-divider"></div>
             <div class="menu-row">
-              <span>Remove snapshot watermark<span class="menu-note">(signed-in perk — affects Snapshot Map on the track map)</span></span>
+              <span>Remove snapshot watermark<span class="menu-note">(Available to signed-in users. Applies to the Snapshot Map feature on the track map.)</span></span>
               <div class="switch" id="hideSnapshotWatermarkSwitch"><div class="knob"></div></div>
             </div>
             <div class="menu-divider"></div>
@@ -2013,13 +2013,13 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
                first thing to set up rather than being buried after the
                in-app-only toggles it has nothing to do with. -->
           <div class="menu-row" style="flex-direction:column; align-items:flex-start; gap:8px;">
-            <span>Push notifications<span class="menu-note">(needed for anything marked "push" below to arrive when the app is closed)</span></span>
+            <span>Push notifications<span class="menu-note">(Required for any setting marked "push" below to be delivered while the app is closed.)</span></span>
             <button class="account-btn" id="pushEnableBtn" style="margin-top:0; width:100%;">Enable push notifications</button>
             <span class="signin-note" id="pushStatusNote"></span>
           </div>
           <div class="menu-divider"></div>
           <div class="menu-row" style="flex-direction:column; align-items:flex-start; gap:8px;">
-            <span>Browser notification permission<span class="menu-note">(needed for the toggles below to work)</span></span>
+            <span>Browser notification permission<span class="menu-note">(Required for the settings below to function.)</span></span>
             <button class="account-btn" id="notifPermissionBtn" style="margin-top:0; width:100%;">Allow notification permission</button>
             <span class="signin-note" id="notifPermissionNote"></span>
           </div>
@@ -2079,7 +2079,7 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
         </div>
         <div class="section-body">
           <div class="menu-row" style="flex-direction:column; align-items:flex-start; gap:2px;">
-            <span class="menu-note" style="margin-left:0;">Get a push notification the moment MBTA posts a new service alert for a line/branch &mdash; even with the app closed. Needs push notifications enabled above.</span>
+            <span class="menu-note" style="margin-left:0;">Receive a push notification as soon as the MBTA posts a new service alert for a line or branch, even while the app is closed. Requires push notifications to be enabled above.</span>
           </div>
           <div class="menu-divider"></div>
           <div class="menu-row">
@@ -2087,7 +2087,7 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
             <div class="switch" id="notifDiversionsSwitch"><div class="knob"></div></div>
           </div>
           <div class="menu-row" style="flex-direction:column; align-items:flex-start; gap:2px;">
-            <span class="menu-note" style="margin-left:0;">Fires for any diversion or closure &mdash; whether MBTA posts it or a moderator/trusted member reports it &mdash; regardless of which line-specific toggle below is on.</span>
+            <span class="menu-note" style="margin-left:0;">Applies to any diversion or closure, whether posted by the MBTA or reported by a moderator or trusted member, regardless of the line-specific settings below.</span>
           </div>
           <div class="menu-divider"></div>
           <div class="menu-row">
@@ -5486,7 +5486,7 @@ async function showCarModal(v){
       ${allCarsOOS
         ? `<div class="modal-row"><span>Status</span><strong style="color:#D64545;">Out of Service</strong></div>
            ${oosMarkedByEntry.reason ? `<div class="modal-row"><span>Reason</span><strong>${oosMarkedByEntry.reason.replace(/</g,'&lt;')}</strong></div>` : ''}
-           <span class="signin-note">Marked by ${liveName(oosMarkedByEntry.markedBy, oosMarkedByEntry.markedByUid, userInfoMap)} today \u2014 clears at end of service day</span>`
+           <span class="signin-note">Marked by ${liveName(oosMarkedByEntry.markedBy, oosMarkedByEntry.markedByUid, userInfoMap)} today. Clears automatically at the end of the service day.</span>`
         : (anyCarOOS ? `<div class="signin-note">Some but not all cars in this set are currently marked Out of Service.</div>` : '')}
       ${state.signedIn
         ? (allCarsOOS
@@ -5583,7 +5583,7 @@ async function showCarModal(v){
       : '';
     const carOOSNotesSection = carIsOOS
       ? `<div class="roster-field-label" style="margin-top:10px;">Notes</div>
-         ${carOOSNotesListHtml || `<div class="signin-note">No notes yet.</div>`}
+         ${carOOSNotesListHtml || `<div class="signin-note">No notes have been added yet.</div>`}
          ${state.signedIn
            ? `<textarea class="roster-textarea" id="oosNoteInput-${carNum}" placeholder="Add a note &mdash; e.g. parts status, latest sighting&hellip;" style="margin-top:6px;"></textarea>
               <button class="account-btn" id="oosNoteSaveBtn-${carNum}" data-oos-note-save="${carNum}" style="margin-top:6px;">Add note</button>`
@@ -5607,7 +5607,7 @@ async function showCarModal(v){
          ${carIsOOS
            ? `<div class="modal-row"><span>Status</span><strong style="color:#D64545;">Out of Service</strong></div>
               ${carOOSData.reason ? `<div class="modal-row"><span>Reason</span><strong>${carOOSData.reason.replace(/</g,'&lt;')}</strong></div>` : ''}
-              <span class="signin-note">Marked by ${liveName(carOOSData.markedBy, carOOSData.markedByUid, userInfoMap)} today — clears at end of service day</span>
+              <span class="signin-note">Marked by ${liveName(carOOSData.markedBy, carOOSData.markedByUid, userInfoMap)} today. Clears automatically at the end of the service day.</span>
               <button class="account-btn" data-oos-car="${carNum}" data-oos-car-current="1" style="margin-top:6px; background:#0F8A4B;">Mark this car back in service</button>
               ${carOOSNotesSection}`
            : `<input type="text" class="roster-input" data-oos-car-reason="${carNum}" data-enter-target="oosCarBtn-${carNum}" placeholder="Reason (optional) &mdash; e.g. mechanical issue, door problem" style="margin-top:6px;">
@@ -5769,7 +5769,7 @@ async function showCarModal(v){
           <div class="roster-edited-by">\u2014 <strong>${liveName(entry.author, entry.authorUid, userInfoMap)}</strong>, ${timeAgo(new Date(entry.ts).toISOString())}</div>
           ${canModerateReports ? `<button class="roster-reset-btn" data-remove-trip-note="${entry.ts}" style="margin-top:4px; font-size:11px; padding:4px 8px;">Remove</button>` : ''}
         </div>`).join('')
-    : `<div class="signin-note">No notes yet for this trip.</div>`;
+    : `<div class="signin-note">No notes have been added for this trip.</div>`;
 
   const tripNotesEditForm = state.signedIn
     ? `<textarea class="roster-textarea" id="tripNotesInput" placeholder="Add a note about this trip&hellip;"></textarea>
@@ -5778,7 +5778,7 @@ async function showCarModal(v){
 
   const soloType7Notice = isSoloType7(v)
     ? `<div class="modal-row"><span>Status</span><strong style="color:#D64545;">Out of Service (auto-detected)</strong></div>
-       <div class="signin-note">Type 7 cars don't normally run solo &mdash; this is likely a deadhead/maintenance move, so it's automatically flagged and shown gray on the track map.</div>
+       <div class="signin-note">Type 7 cars do not typically run solo. This is likely a deadhead or maintenance move, and is automatically flagged and shown gray on the track map.</div>
        ${state.signedIn ? `<button class="account-btn" id="soloType7InServiceBtn" style="margin-top:6px; background:#0F8A4B;">Mark this car in service</button>` : `<div class="signin-note">Sign in to mark this car in service.</div>`}`
     : '';
 
@@ -5856,7 +5856,7 @@ async function showCarModal(v){
         <div class="roster-field-label">Express from</div>
         <input type="text" class="roster-input" id="expressStartStation" list="expressStationsDatalist" data-enter-target="reportExpressBtn" placeholder="Start typing a station&hellip;" autocomplete="off">
         <div class="roster-field-label">Still stops at (optional)</div>
-        <input type="text" class="roster-input" id="expressIntermediateStop" list="expressStationsDatalist" data-enter-target="reportExpressBtn" placeholder="Only if it makes one stop in between&hellip;" autocomplete="off">
+        <input type="text" class="roster-input" id="expressIntermediateStop" list="expressStationsDatalist" data-enter-target="reportExpressBtn" placeholder="Optional — enter only if the train makes one intermediate stop" autocomplete="off">
         <div class="roster-field-label">Express to</div>
         <input type="text" class="roster-input" id="expressEndStation" list="expressStationsDatalist" data-enter-target="reportExpressBtn" placeholder="Start typing a station&hellip;" autocomplete="off">
         <button class="account-btn" id="reportExpressBtn" style="margin-top:8px;">Report running express</button>
@@ -6870,7 +6870,7 @@ async function showTerminusSchedule(branchKey, stopName, directionId){
       ? `<span class="signin-note" style="color:#0F8A4B;">Confirmed via MBTA API</span>`
       : (pred && pred.carNumber)
         ? `<span class="signin-note">By ${liveName(pred.editedBy, pred.editedByUid, userInfoMap)} \u2014 ${formatEditLogTimestamp(pred.ts)}</span>`
-        : `<span class="signin-note">No prediction yet \u2014 be the first to add one</span>`;
+        : `<span class="signin-note">No prediction has been submitted yet.</span>`;
     const predictionExample = isGreenLine ? carNumberExample() : carNumberExample().split('-')[0];
     const editControl = state.signedIn
       ? `<div class="modal-edit-row">
@@ -7604,13 +7604,13 @@ async function subscribeToPushNotifications(){
   const statusNote = document.getElementById('pushStatusNote');
   const btn = document.getElementById('pushEnableBtn');
   if(!('serviceWorker' in navigator) || !('PushManager' in window)){
-    statusNote.textContent = "Push notifications aren't supported in this browser.";
+    statusNote.textContent = "Push notifications are not supported in this browser.";
     return;
   }
   try{
     const permission = await Notification.requestPermission();
     if(permission !== 'granted'){
-      statusNote.textContent = "Permission wasn't granted — check your browser's notification settings for this site.";
+      statusNote.textContent = "Permission was not granted. Please check your browser's notification settings for this site.";
       return;
     }
     const registration = await navigator.serviceWorker.ready;
@@ -7637,10 +7637,10 @@ async function subscribeToPushNotifications(){
     }
     btn.textContent = 'Push notifications enabled';
     btn.disabled = true;
-    statusNote.textContent = "You'll now get moderator alerts, plus whichever train-spotting categories you've turned on above, even when the app is closed.";
+    statusNote.textContent = "You will now receive moderator alerts, along with any train-spotting categories enabled above, even while the app is closed.";
   }catch(e){
     console.error(e);
-    statusNote.textContent = 'Something went wrong enabling push notifications.';
+    statusNote.textContent = 'Push notifications could not be enabled. Please try again.';
   }
 }
 
@@ -7702,7 +7702,7 @@ async function checkPushSubscriptionStatus(){
     if(subscription){
       btn.textContent = 'Push notifications enabled';
       btn.disabled = true;
-      statusNote.textContent = "You'll get moderator alerts even when the app is closed.";
+      statusNote.textContent = "You will receive moderator alerts even while the app is closed.";
     }
   }catch(e){ console.error(e); }
 }
@@ -7728,7 +7728,7 @@ async function promptNotificationPermission(){
   const btn = document.getElementById('notifPermissionBtn');
   const note = document.getElementById('notifPermissionNote');
   if(typeof Notification === 'undefined'){
-    note.textContent = "This browser doesn't support notifications.";
+    note.textContent = "This browser does not support notifications.";
     btn.disabled = true;
     btn.textContent = 'Not supported in this browser';
     return;
@@ -7738,7 +7738,7 @@ async function promptNotificationPermission(){
     updateNotifPermissionUI(result);
   }catch(e){
     console.error(e);
-    note.textContent = 'Something went wrong requesting permission.';
+    note.textContent = 'The permission request could not be completed. Please try again.';
   }
 }
 
@@ -7749,12 +7749,12 @@ function updateNotifPermissionUI(permission){
     // Already granted \u2014 nothing left to ask for, so the button just goes
     // away instead of sitting there disabled with nothing to do.
     btn.style.display = 'none';
-    note.textContent = "You're all set \u2014 the toggles below can now show notifications.";
+    note.textContent = "Notifications are enabled. The settings below are now active.";
   }else if(permission === 'denied'){
     btn.style.display = '';
     btn.textContent = 'Allow notification permission';
     btn.disabled = false;
-    note.textContent = "Blocked \u2014 you'll need to allow notifications for this site in your browser's own settings, then reload.";
+    note.textContent = "Notifications are blocked. Enable them for this site in your browser settings, then reload the page.";
   }else{
     btn.style.display = '';
     btn.textContent = 'Allow notification permission';
@@ -9494,7 +9494,7 @@ async function buildCarDetailPanel(){
 
   const notesField = state.signedIn
     ? `<textarea class="roster-textarea" data-car="${entry.car}" data-field="notes" data-old-value="${(data.notes||'').replace(/"/g,'&quot;')}" placeholder="Notes about this car...">${data.notes || ''}</textarea>`
-    : `<div class="roster-readonly">${data.notes ? data.notes : '<span style="opacity:.5;">No notes yet</span>'}</div>`;
+    : `<div class="roster-readonly">${data.notes ? data.notes : '<span style="opacity:.5;">No notes have been added</span>'}</div>`;
 
   const statusField = state.signedIn
     ? `<select class="roster-input" data-car="${entry.car}" data-field="status" data-old-value="${effectiveStatus}" style="color:${statusColor};">
@@ -9805,7 +9805,7 @@ async function buildMembersPanel(){
     return;
   }
   if(!firebaseReady){
-    body.innerHTML = '<div class="empty-state">Admin tools need Firebase configured (see the setup comment near the top of the script) since they manage shared, cross-visitor data.</div>';
+    body.innerHTML = '<div class="empty-state">Admin tools require Firebase to be configured, since they manage data shared across all visitors.</div>';
     meta.textContent = '';
     return;
   }
@@ -9822,7 +9822,7 @@ async function buildMembersPanel(){
     ]);
   }catch(e){
     console.error(e);
-    body.innerHTML = '<div class="empty-state">Could not load users. Check the Firestore security rules described near the top of the script.</div>';
+    body.innerHTML = '<div class="empty-state">Unable to load users. Please check your Firestore security rules.</div>';
     return;
   }
 
@@ -9991,7 +9991,7 @@ async function buildPointsPanel(){
   const meta = document.getElementById('pointsMeta');
 
   if(!firebaseReady){
-    body.innerHTML = '<div class="empty-state">Points need Firebase configured, since they\'re shared, cross-visitor data.</div>';
+    body.innerHTML = '<div class="empty-state">Points require Firebase to be configured, since they are shared, cross-visitor data.</div>';
     meta.textContent = '';
     return;
   }
@@ -10003,7 +10003,7 @@ async function buildPointsPanel(){
     usersSnap = await fbDb.collection('users').get();
   }catch(e){
     console.error(e);
-    body.innerHTML = '<div class="empty-state">Could not load the leaderboard. Check the Firestore security rules.</div>';
+    body.innerHTML = '<div class="empty-state">Unable to load the leaderboard. Please check your Firestore security rules.</div>';
     return;
   }
 
@@ -10037,7 +10037,7 @@ async function buildPointsPanel(){
       </div>`;
   }).join('');
 
-  body.innerHTML = yourSummary + (rows || '<div class="empty-state">No points earned yet &mdash; be the first.</div>');
+  body.innerHTML = yourSummary + (rows || '<div class="empty-state">No points have been earned yet.</div>');
 }
 
 /* ---------------- Clock, date, weather ---------------- */
@@ -10152,7 +10152,7 @@ function showWelcomeScreen(name){
   hideAllGateScreens();
   const firstName = (name || '').trim().split(/\s+/)[0] || 'there';
   const el = document.getElementById('welcomeText');
-  el.textContent = `Welcome ${firstName}!`;
+  el.textContent = `Welcome, ${firstName}`;
   // restart the CSS animation in case this element was shown before
   el.classList.remove('welcome-text');
   void el.offsetWidth;
@@ -10735,7 +10735,7 @@ const SIGNIN_FUNCTIONS_BASE = 'https://us-central1-green-o.cloudfunctions.net';
 function renderAccountShortId(){
   const el = document.getElementById('accountShortIdValue');
   if(!el) return;
-  el.textContent = state.shortId ? state.shortId : 'Assigning… reopen this menu in a moment';
+  el.textContent = state.shortId ? state.shortId : 'Assigning ID — reopen this menu in a moment';
 }
 
 // The short ID doesn't exist until assignShortIdOnUserCreate's Firestore
@@ -10858,7 +10858,7 @@ document.getElementById('setPinBtn').addEventListener('click', async ()=>{
     return;
   }
   if(!firebaseReady || !fbAuth.currentUser){
-    note.textContent = 'Sign in with Google first, then set a PIN.';
+    note.textContent = 'Please sign in with Google before setting a PIN.';
     note.classList.add('error');
     return;
   }
@@ -10872,10 +10872,10 @@ document.getElementById('setPinBtn').addEventListener('click', async ()=>{
     const data = await res.json().catch(()=>({}));
     if(!res.ok) throw new Error(data.error || 'Could not save PIN');
     input.value = '';
-    note.textContent = 'PIN saved — you can now sign in with your ID + this PIN elsewhere.';
+    note.textContent = 'PIN saved. You can now sign in on another device using your ID and this PIN.';
   }catch(e){
     console.error(e);
-    note.textContent = e.message || 'Could not save PIN — try again.';
+    note.textContent = e.message || 'Unable to save PIN. Please try again.';
     note.classList.add('error');
   }
 });
@@ -10927,7 +10927,7 @@ function showIdSignInModal(){
       // onAuthStateChanged above handles the rest.
     }catch(e){
       console.error(e);
-      note.textContent = e.message || 'Sign-in failed — try again.';
+      note.textContent = e.message || 'Sign-in failed. Please try again.';
       note.classList.add('error');
     }
   });
@@ -11212,7 +11212,7 @@ async function loadDiversionsList(){
     });
   }catch(e){
     console.error(e);
-    body.innerHTML = '<div class="empty-state">Could not load diversions — check Firestore rules.</div>';
+    body.innerHTML = '<div class="empty-state">Unable to load diversions. Please check your Firestore security rules.</div>';
   }
 }
 
