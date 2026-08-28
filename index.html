@@ -1400,6 +1400,11 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
 #carDetailMapContainer{height:240px; border-radius:10px; overflow:hidden; margin-bottom:14px; background:var(--panel); isolation:isolate;}
 #carDetailMapContainer .leaflet-control-attribution{background:rgba(11,20,32,0.75); color:var(--text-faint); font-size:9px;}
 #carDetailMapContainer .leaflet-control-attribution a{color:var(--text-faint);}
+/* Quick Report page's own copy of the mini-map above (see qrPageMapContainer
+   comment in the JS) — identical sizing/styling, separate DOM node. */
+#qrPageMapContainer{height:240px; border-radius:10px; overflow:hidden; margin:10px 0 14px; background:var(--panel); isolation:isolate;}
+#qrPageMapContainer .leaflet-control-attribution{background:rgba(11,20,32,0.75); color:var(--text-faint); font-size:9px;}
+#qrPageMapContainer .leaflet-control-attribution a{color:var(--text-faint);}
 </style>
 <!-- Leaflet's CSS stays here in the document head (stylesheets are meant
      to load early so the map's own layout/controls aren't unstyled for a
@@ -1910,6 +1915,11 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
     <div id="qrPageForm">
       <div class="roster-field-label">Car number</div>
       <input type="text" class="roster-input" id="qrPageCarNumber" placeholder="e.g. 1932" inputmode="numeric" autocomplete="off" style="margin-top:6px;">
+      <!-- Shown once the typed car number resolves to a currently active
+           train (see updateQrPageMap) — same live Leaflet mini-map used on
+           the Fleet Roster car detail page (see #carDetailMapContainer),
+           just against this page's own separate map instance. -->
+      <div id="qrPageMapContainer" style="display:none;"></div>
 
       <div class="quick-report-type-toggle">
         <button type="button" class="quick-report-type-btn active" id="qrPageTypeStandingBy">Standing by</button>
@@ -4362,6 +4372,11 @@ function switchPage(key){
   // buildCarDetailPanel()/refreshCarDetailMap() will recreate it immediately
   // if the destination page is CARDETAIL again.
   if(typeof destroyCarDetailMap === 'function') destroyCarDetailMap();
+  // Same reasoning for the Quick Report page's own separate mini-map — also
+  // clears the resolved-car id so re-opening this page later doesn't
+  // silently show a map for whatever was last typed in.
+  if(typeof destroyQrPageMap === 'function') destroyQrPageMap();
+  qrPageResolvedVehicleId = null;
   // The top bar is only pinned (position:fixed on desktop) while the
   // track map itself is on screen — every other page (Settings, Fleet
   // Roster, etc.) removes this class and lets it scroll away normally,
@@ -8644,6 +8659,8 @@ async function refreshVehicles(){
     updateRosterLiveState();
   }else if(state.currentPage === 'CARDETAIL'){
     updateCarDetailLiveState();
+  }else if(state.currentPage === 'QUICKREPORT'){
+    updateQrPageMap();
   }else{
     renderTrainDots();
     renderVehicleList();
@@ -9350,10 +9367,15 @@ const LINE_TRACKS_GEOJSON_URL = {
 };
 const lineTracksGeoJSONCache = {};
 const lineTracksFetchPromises = {};
-function drawLineTracksOnMap(map){
+// isStillValid defaults to the car detail page's own map instance check —
+// pass a different predicate (see qrPage's mini-map below) for any other
+// map sharing this same geojson fetch/cache so a late-resolving fetch never
+// draws onto a map that's since been destroyed or swapped to a new line.
+function drawLineTracksOnMap(map, isStillValid){
   const line = state.activeLine;
   const url = LINE_TRACKS_GEOJSON_URL[line];
   if(!url) return;
+  const stillValid = isStillValid || (() => carDetailMapInstance === map && state.activeLine === line);
   if(lineTracksGeoJSONCache[line]){
     L.geoJSON(lineTracksGeoJSONCache[line], { style: carDetailTrackLineStyle() }).addTo(map);
     return;
@@ -9367,7 +9389,7 @@ function drawLineTracksOnMap(map){
     // The map may have been destroyed (user navigated away), or the line
     // switched, by the time this fetch resolves — only draw onto it if
     // it's still the live instance showing this same line.
-    if(carDetailMapInstance === map && state.activeLine === line){
+    if(stillValid()){
       L.geoJSON(data, { style: carDetailTrackLineStyle() }).addTo(map);
     }
   });
@@ -9459,6 +9481,70 @@ function refreshCarDetailMap(info){
   }else{
     destroyCarDetailMap();
     if(container) container.style.display = 'none';
+  }
+}
+
+// ---- Quick Report page's own mini-map (see #qrPageMapContainer) — same
+// live Leaflet map as the Fleet Roster car detail page above (dark CARTO
+// tiles + this line's real track overlay + a single marker for the
+// resolved car), just against a separate container/instance since the two
+// pages can't share carDetailMapInstance. No leader/follower markers here
+// — this page is a quick number-typing tool, not a full car detail view,
+// so it only needs to answer "is this really the train I think it is,
+// and where is it right now."
+let qrPageMapInstance = null;
+let qrPageMapMarker = null;
+// The car number currently resolved in the #qrPageCarNumber input (see
+// initQuickReportForm's 'input' listener below) — kept here, not just
+// read off the DOM each time, so updateQrPageMap() can also be called from
+// the main 10s vehicle-refresh poll (see refreshVehicles) to glide the
+// marker to fresh coordinates without re-resolving the typed text.
+let qrPageResolvedVehicleId = null;
+function destroyQrPageMap(){
+  if(qrPageMapInstance){
+    try{ qrPageMapInstance.remove(); }catch(e){ /* ignore */ }
+    qrPageMapInstance = null;
+    qrPageMapMarker = null;
+  }
+}
+function initOrUpdateQrPageMap(v){
+  const container = document.getElementById('qrPageMapContainer');
+  if(!container || typeof L === 'undefined') return;
+  container.style.display = 'block';
+  if(qrPageMapInstance && qrPageMapInstance.getContainer() !== container){
+    destroyQrPageMap();
+  }
+  if(!qrPageMapInstance){
+    const map = L.map(container, { attributionControl: true, zoomControl: true }).setView([v.lat, v.lon], 15);
+    qrPageMapInstance = map;
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?key=cb1_29q5_1_fea8b64796f4542a7326e68c', {
+      attribution: '&copy; OpenStreetMap &copy; CARTO &middot; Tracks: MassGIS',
+      maxZoom: 19
+    }).addTo(map);
+    drawLineTracksOnMap(map, () => qrPageMapInstance === map);
+    qrPageMapMarker = L.marker([v.lat, v.lon], { icon: makeCarDetailMarkerIcon(LINE_BRAND_HEX[state.activeLine] || '#0F8A4B', 20) }).addTo(map)
+      .bindPopup(`Car ${formatCarNumberForDisplay(v.label)}`);
+  }else{
+    qrPageMapMarker.setLatLng([v.lat, v.lon]).setPopupContent(`Car ${formatCarNumberForDisplay(v.label)}`);
+    qrPageMapInstance.panTo([v.lat, v.lon], { animate: true, duration: 0.5 });
+    // Leaflet mis-measures its container if it was ever hidden (display:none)
+    // between renders — same fix as the car detail map's own version.
+    qrPageMapInstance.invalidateSize();
+  }
+}
+// Looks up the currently-resolved vehicle fresh from state.vehicles (rather
+// than trusting a stale object) and shows/updates or hides/tears down the
+// map accordingly. Called both right after a car number resolves and on
+// every live vehicle-data poll while the Quick Report page is open.
+function updateQrPageMap(){
+  const container = document.getElementById('qrPageMapContainer');
+  if(!container) return;
+  const v = qrPageResolvedVehicleId ? state.vehicles.find(x => x.id === qrPageResolvedVehicleId) : null;
+  if(v && typeof v.lat === 'number' && typeof v.lon === 'number'){
+    initOrUpdateQrPageMap(v);
+  }else{
+    destroyQrPageMap();
+    container.style.display = 'none';
   }
 }
 
@@ -12267,6 +12353,20 @@ function initQuickReportForm(idPrefix, onSuccess){
     if(v && v.stopName) stationInput.value = v.stopName;
   });
 
+  // Standalone /quickreport page only (see qrPageMapContainer) — as soon as
+  // whatever's typed resolves to a live train, show it on the same kind of
+  // mini live map the Fleet Roster car detail page uses, so someone can
+  // confirm they've got the right car before filing a report against it.
+  // Not wired up for the mobile drawer instance — that's a cramped swipe
+  // panel meant for a fast single field, not a second live map.
+  if(idPrefix === 'qrPage'){
+    carInput.addEventListener('input', ()=>{
+      const v = resolveTypedCar(carInput.value);
+      qrPageResolvedVehicleId = v ? v.id : null;
+      updateQrPageMap();
+    });
+  }
+
   function resetForm(){
     carInput.value = '';
     stationInput.value = '';
@@ -12278,6 +12378,10 @@ function initQuickReportForm(idPrefix, onSuccess){
     expressIntermediateInput.value = '';
     expressEndInput.value = '';
     note.textContent = '';
+    if(idPrefix === 'qrPage'){
+      qrPageResolvedVehicleId = null;
+      updateQrPageMap();
+    }
   }
 
   submitBtn.addEventListener('click', async ()=>{
