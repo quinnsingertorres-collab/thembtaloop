@@ -1402,7 +1402,7 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
 #carDetailMapContainer .leaflet-control-attribution a{color:var(--text-faint);}
 /* Quick Report page's own copy of the mini-map above (see qrPageMapContainer
    comment in the JS) — identical sizing/styling, separate DOM node. */
-#qrPageMapContainer{height:240px; border-radius:10px; overflow:hidden; margin:10px 0 14px; background:var(--panel); isolation:isolate;}
+#qrPageMapContainer{height:240px; border-radius:10px; overflow:hidden; margin-bottom:14px; background:var(--panel); isolation:isolate;}
 #qrPageMapContainer .leaflet-control-attribution{background:rgba(11,20,32,0.75); color:var(--text-faint); font-size:9px;}
 #qrPageMapContainer .leaflet-control-attribution a{color:var(--text-faint);}
 </style>
@@ -1913,13 +1913,21 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
       Sign in to file a standing-by or express report.
     </div>
     <div id="qrPageForm">
+      <!-- Shown once the typed car number below resolves to a currently
+           active train (see updateQrPageMap) — same live Leaflet mini-map
+           used on the Fleet Roster car detail page (see
+           #carDetailMapContainer), just against this page's own separate
+           map instance. Sits above the car number field (rather than below
+           it, where the equivalent car-detail-page map lives) so it's the
+           first thing that updates as someone confirms they've typed the
+           right car, without pushing the rest of the form down further
+           each time it appears. Spans the same full width as the input
+           below it (matching this panel's own inner width — see
+           #qrPageMapContainer's CSS, no separate max-width of its own). -->
+      <div id="qrPageMapContainer" style="display:none;"></div>
+
       <div class="roster-field-label">Car number</div>
       <input type="text" class="roster-input" id="qrPageCarNumber" placeholder="e.g. 1932" inputmode="numeric" autocomplete="off" style="margin-top:6px;">
-      <!-- Shown once the typed car number resolves to a currently active
-           train (see updateQrPageMap) — same live Leaflet mini-map used on
-           the Fleet Roster car detail page (see #carDetailMapContainer),
-           just against this page's own separate map instance. -->
-      <div id="qrPageMapContainer" style="display:none;"></div>
 
       <div class="quick-report-type-toggle">
         <button type="button" class="quick-report-type-btn active" id="qrPageTypeStandingBy">Standing by</button>
@@ -12322,7 +12330,11 @@ function initQuickReportForm(idPrefix, onSuccess){
   // returns each vehicle's raw label parts), then a couple of normalized
   // variants (leading zeros stripped, or Blue Line's 4-digit-padded display
   // form) since someone typing quickly on a moving train might not match
-  // the feed's exact raw label on the first try.
+  // the feed's exact raw label on the first try. Finally, falls back to a
+  // trailing-digits match (e.g. "689" for car "3689") — riders often only
+  // catch the last few digits painted on the car — but only resolves if
+  // exactly one currently active car ends in those digits, so a short,
+  // ambiguous typo never silently attaches a report to the wrong train.
   function resolveTypedCar(carTyped){
     const trimmed = String(carTyped).trim();
     if(!trimmed) return null;
@@ -12337,6 +12349,12 @@ function initQuickReportForm(idPrefix, onSuccess){
       v = findActiveVehicleForCar(trimmed.padStart(4, '0'));
       if(v) return v;
     }
+    if(/^\d+$/.test(stripped) && stripped.length >= 2 && stripped.length < 6){
+      const matches = state.vehicles.filter(veh =>
+        getCarNumbersForVehicle(veh).some(c => c.length > stripped.length && c.endsWith(stripped))
+      );
+      if(matches.length === 1) return matches[0];
+    }
     return null;
   }
 
@@ -12346,8 +12364,10 @@ function initQuickReportForm(idPrefix, onSuccess){
   // own version of this field defaults). Only fires for standing-by (not
   // express, which has no single "current station" concept) and only when
   // the field is still untouched, so it never clobbers something already
-  // typed in.
-  carInput.addEventListener('blur', ()=>{
+  // typed in. Fires on every keystroke (not just on blur/losing focus) so
+  // the station fills in the moment the number resolves, without needing
+  // to tab or click away first.
+  carInput.addEventListener('input', ()=>{
     if(activeType !== 'standingby' || stationInput.value.trim()) return;
     const v = resolveTypedCar(carInput.value);
     if(v && v.stopName) stationInput.value = v.stopName;
