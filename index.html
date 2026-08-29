@@ -1925,6 +1925,10 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
            below it (matching this panel's own inner width — see
            #qrPageMapContainer's CSS, no separate max-width of its own). -->
       <div id="qrPageMapContainer" style="display:none;"></div>
+      <!-- Leader/this-car/follower box — same one shown on the Fleet Roster
+           car detail page (see renderLeaderFollowerBox), filled in right
+           alongside the map above once the car number resolves. -->
+      <div id="qrPageLeaderFollower" style="display:none;"></div>
 
       <div class="roster-field-label">Car number</div>
       <input type="text" class="roster-input" id="qrPageCarNumber" placeholder="e.g. 1932" inputmode="numeric" autocomplete="off" style="margin-top:6px;">
@@ -4382,9 +4386,12 @@ function switchPage(key){
   if(typeof destroyCarDetailMap === 'function') destroyCarDetailMap();
   // Same reasoning for the Quick Report page's own separate mini-map — also
   // clears the resolved-car id so re-opening this page later doesn't
-  // silently show a map for whatever was last typed in.
+  // silently show a map (or leader/follower box) for whatever was last
+  // typed in.
   if(typeof destroyQrPageMap === 'function') destroyQrPageMap();
   qrPageResolvedVehicleId = null;
+  const qrPageLeaderFollowerEl = document.getElementById('qrPageLeaderFollower');
+  if(qrPageLeaderFollowerEl){ qrPageLeaderFollowerEl.innerHTML = ''; qrPageLeaderFollowerEl.style.display = 'none'; }
   // The top bar is only pinned (position:fixed on desktop) while the
   // track map itself is on screen — every other page (Settings, Fleet
   // Roster, etc.) removes this class and lets it scroll away normally,
@@ -9295,9 +9302,12 @@ function renderCarDetailStatusBadge(info){
 // (#carDetailStatusDetail), refreshed on the same 10s poll as the badge but
 // separately from #carDetailMapContainer, which is never touched by an
 // innerHTML swap (see the map lifecycle notes below).
-function renderCarDetailStatusDetail(info){
-  if(!info.isActive || !info.v) return '';
-  const { v, leader, follower } = info;
+// The leader/this-car/follower box itself — shared by the Fleet Roster car
+// detail page (renderCarDetailStatusDetail below, which adds its own "View
+// on live track map" button after it) and the standalone Quick Report page
+// (see updateQrPageMap), so both show the exact same leader/follower info
+// in the exact same layout rather than two near-duplicate copies.
+function renderLeaderFollowerBox(v, leader, follower){
   const describeVehicle = (other) => `Car ${otherCarDetailLabel(other)} · near ${displayName(other.stopName || '—')}`;
   return `
     <div style="border:1px solid var(--border); border-radius:10px; padding:4px 12px; margin-bottom:12px;">
@@ -9316,6 +9326,12 @@ function renderCarDetailStatusDetail(info){
         <div style="font-size:13px;">${follower ? describeVehicle(follower) : 'None currently tracked behind'}</div>
       </div>
     </div>
+  `;
+}
+function renderCarDetailStatusDetail(info){
+  if(!info.isActive || !info.v) return '';
+  const { v, leader, follower } = info;
+  return renderLeaderFollowerBox(v, leader, follower) + `
     <button class="account-btn" id="carDetailViewMapBtn" style="margin-bottom:14px;">View on live track map ›</button>
   `;
 }
@@ -9542,10 +9558,14 @@ function initOrUpdateQrPageMap(v){
 }
 // Looks up the currently-resolved vehicle fresh from state.vehicles (rather
 // than trusting a stale object) and shows/updates or hides/tears down the
-// map accordingly. Called both right after a car number resolves and on
-// every live vehicle-data poll while the Quick Report page is open.
+// map AND the leader/follower box accordingly (see qrPageLeaderFollower,
+// renderLeaderFollowerBox) — both driven by the same resolved vehicle, so
+// they're kept together here rather than as two separate update functions.
+// Called both right after a car number resolves and on every live
+// vehicle-data poll while the Quick Report page is open.
 function updateQrPageMap(){
   const container = document.getElementById('qrPageMapContainer');
+  const leaderFollowerContainer = document.getElementById('qrPageLeaderFollower');
   if(!container) return;
   const v = qrPageResolvedVehicleId ? state.vehicles.find(x => x.id === qrPageResolvedVehicleId) : null;
   if(v && typeof v.lat === 'number' && typeof v.lon === 'number'){
@@ -9553,6 +9573,16 @@ function updateQrPageMap(){
   }else{
     destroyQrPageMap();
     container.style.display = 'none';
+  }
+  if(leaderFollowerContainer){
+    if(v){
+      const { leader, follower } = getLeaderAndFollower(v);
+      leaderFollowerContainer.innerHTML = renderLeaderFollowerBox(v, leader, follower);
+      leaderFollowerContainer.style.display = 'block';
+    }else{
+      leaderFollowerContainer.innerHTML = '';
+      leaderFollowerContainer.style.display = 'none';
+    }
   }
 }
 
