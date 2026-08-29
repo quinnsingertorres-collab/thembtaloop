@@ -5620,10 +5620,10 @@ async function showCarModal(v){
   // would just be a second, differently-worded button for the exact same
   // single car \u2014 skip it for that case rather than show both. Condition
   // matches soloType7Notice's own check (isSoloType7(v) alone) rather than
-  // also requiring carParts.length === 1 \u2014 a manual consist correction
-  // can make carParts longer than 1 while the raw MBTA feed (what
-  // isSoloType7 actually reads) still reports a single car, and that
-  // mismatch used to let this duplicate control slip back in.
+  // also requiring carParts.length === 1 \u2014 isSoloType7 itself already
+  // resolves any community consist correction before deciding "solo" (see
+  // its own definition), so the two stay in agreement; kept as a separate
+  // check here rather than folded into carParts.length === 1 for clarity.
   const consolidatedOOSSection = isSoloType7(v) ? '' : `
     <div class="modal-section">
       <h4>Out of service</h4>
@@ -5741,10 +5741,11 @@ async function showCarModal(v){
     // what's really the same single car, so skip it for that case entirely
     // and let the auto-detected notice be the one place to act on it.
     // Condition matches soloType7Notice's own check (isSoloType7(v) alone)
-    // rather than also requiring carParts.length === 1 — a manual consist
-    // correction can make carParts longer than 1 while the raw MBTA feed
-    // (what isSoloType7 actually reads) still reports a single car, and
-    // that mismatch used to let this duplicate control slip back in.
+    // rather than also requiring carParts.length === 1 — isSoloType7 itself
+    // already resolves any community consist correction before deciding
+    // "solo" (see its own definition), so the two stay in agreement; kept
+    // as a separate check here rather than folded into carParts.length
+    // === 1 for clarity.
     const isSoleAutoDetectedType7Car = isSoloType7(v);
     const carOOSBlock = isSoleAutoDetectedType7Car ? '' : (state.signedIn
       ? `<div class="modal-row-spacer"></div>
@@ -8558,6 +8559,18 @@ function isLongDwellAtTerminus(v, now){
     delete terminusDwellTracker[v.id];
     return false;
   }
+  // A community "standing by" report — including an explicit, uncapped
+  // "until release" hold (see saveStandingByReport) — means someone
+  // specifically knows/is watching this train hold here, same reasoning
+  // keepAliveDurationFor already applies to the ordinary feed-gap keep-
+  // alive window above. Exempt for as long as the report is active, and
+  // don't accumulate dwell time while exempt (delete rather than freeze
+  // the tracker entry), so the 45-minute clock starts fresh once the
+  // report clears instead of removing the train the instant it does.
+  if(standingByCache[v.id]){
+    delete terminusDwellTracker[v.id];
+    return false;
+  }
   const entry = terminusDwellTracker[v.id];
   const changed = !entry || entry.stopName !== v.stopName || entry.headsign !== v.headsign || entry.direction !== v.direction;
   if(changed){
@@ -8655,8 +8668,22 @@ async function refreshVehicles(){
 
   // Trains that have been sitting continuously at Boston College, Cleveland
   // Circle, Riverside, or Medford/Tufts for 45+ minutes — see
-  // isLongDwellAtTerminus above.
-  state.vehicles = state.vehicles.filter(v => !isLongDwellAtTerminus(v, now));
+  // isLongDwellAtTerminus above. Also sweeps terminusDwellTracker for any
+  // vehicle id that isn't even part of this poll's list anymore (truly gone
+  // from the feed, not just filtered out by this very check) — otherwise a
+  // train that dwelled at one of these stops and then genuinely vanished
+  // for good would leave its tracker entry behind forever, growing
+  // terminusDwellTracker unbounded over a long-running session. A vehicle
+  // that's dwelling and gets filtered OUT right here is still present in
+  // this poll's list beforehand, so its entry is correctly kept — that's
+  // what lets it come back once it actually moves or gets re-signed.
+  {
+    const evaluatedIds = new Set(state.vehicles.map(v => v.id));
+    state.vehicles = state.vehicles.filter(v => !isLongDwellAtTerminus(v, now));
+    Object.keys(terminusDwellTracker).forEach(id=>{
+      if(!evaluatedIds.has(id)) delete terminusDwellTracker[id];
+    });
+  }
 
   // A train someone chose to hide for the rest of the service day — kept
   // out of state.vehicles entirely for everyone, so every downstream view
