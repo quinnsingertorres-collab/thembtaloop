@@ -2974,6 +2974,20 @@ function isSoloType7(v){
 }
 const SOLO_TYPE7_GRAY = '#6B7280';
 
+// Same "is this train OOS" test the ladder's own occupied-dot coloring and
+// bubble "OOS" label already use (see renderTrainDots) — a vehicle counts
+// as out of service if it's an auto-detected solo Type 7, or if ANY car in
+// its (possibly community-corrected) consist has been marked out of
+// service today. Pulled out as its own helper so getLeaderAndFollower can
+// exclude these trains from being counted as a leader/follower, same as it
+// already never sees hidden trains (those are filtered out of
+// state.vehicles entirely — see refreshVehicles' hiddenTrainsCache pass).
+function isVehicleOutOfService(v){
+  if(isSoloType7(v)) return true;
+  const carParts = String(consistOverrideCache[carSetKey(v.label)] || v.label).split('-');
+  return carParts.some(c => outOfServiceCarsCache[c]);
+}
+
 // Type 9 cars can't safely open their doors at Fenwood Road, Mission Park,
 // Riverway, or Back of the Hill (no stop sign), so a Type 9 anywhere in
 // that stretch of the E branch (Brigham Circle through Heath Street) gets
@@ -9256,6 +9270,14 @@ function getLeaderAndFollower(v){
   const ownIdx = findStopIndex(pageKey, v.stopName);
   if(ownIdx === null) return { leader:null, follower:null };
 
+  // Hidden trains never make it into state.vehicles in the first place
+  // (refreshVehicles filters them via hiddenTrainsCache before this runs),
+  // so they're already excluded from both leader and follower candidacy.
+  // Out-of-service trains still show up in state.vehicles, so exclude them
+  // here — specifically from FOLLOWER candidacy (a stalled/OOS train
+  // shouldn't be reported as the one "behind" you), while still allowing
+  // one to appear as a leader (still useful to know a train is ahead even
+  // if it's OOS).
   const pool = state.vehicles.filter(other=>{
     if(other.id === v.id) return false;
     const otherBranch = getEffectiveBranchForToggle(other);
@@ -9263,6 +9285,7 @@ function getLeaderAndFollower(v){
     return otherPageKey === pageKey;
   }).map(other => ({ v: other, idx: findStopIndex(pageKey, other.stopName) }))
     .filter(x => x.idx !== null);
+  const followerEligible = new Set(pool.filter(x => !isVehicleOutOfService(x.v)).map(x => x.v.id));
 
   const loopMode = LEADER_FOLLOWER_LOOP_ENDS[pageKey];
   if(!loopMode){
@@ -9270,13 +9293,14 @@ function getLeaderAndFollower(v){
     // lower stop index to higher, so "ahead" means a higher index;
     // direction 1 runs the other way, so "ahead" means lower.
     const samePool = pool.filter(x => x.v.direction === v.direction);
+    const followerPool = samePool.filter(x => followerEligible.has(x.v.id));
     let ahead, behind;
     if(v.direction === 0){
       ahead = samePool.filter(x => x.idx > ownIdx).sort((a,b) => a.idx - b.idx);
-      behind = samePool.filter(x => x.idx < ownIdx).sort((a,b) => b.idx - a.idx);
+      behind = followerPool.filter(x => x.idx < ownIdx).sort((a,b) => b.idx - a.idx);
     }else{
       ahead = samePool.filter(x => x.idx < ownIdx).sort((a,b) => b.idx - a.idx);
-      behind = samePool.filter(x => x.idx > ownIdx).sort((a,b) => a.idx - b.idx);
+      behind = followerPool.filter(x => x.idx > ownIdx).sort((a,b) => a.idx - b.idx);
     }
     return { leader: ahead[0] ? ahead[0].v : null, follower: behind[0] ? behind[0].v : null };
   }
@@ -9286,13 +9310,22 @@ function getLeaderAndFollower(v){
   // terminus, then continuing to climb past lastIdx back down through the
   // same stops for direction 1 — so far-terminus reversal falls out of
   // plain linear ordering with no special-casing needed.
-  const loopPositionOf = (direction, idx) => direction === 0 ? idx : (2 * lastIdx - idx);
+  // The +0.5 on direction 1 breaks the exact tie that otherwise happens
+  // right at a reversal point: a still-arriving direction-0 train and a
+  // just-reversed direction-1 train sitting at the very same stop (e.g.
+  // two trains both dwelling at Boston College) land on the identical
+  // loopPos without it, so neither ever shows up as the other's
+  // leader/follower even though they're literally at the same spot — the
+  // direction-1 train (already turned around) is treated as very
+  // slightly further along than the direction-0 train (not yet turned).
+  const loopPositionOf = (direction, idx) => direction === 0 ? idx : (2 * lastIdx - idx + 0.5);
   const withPos = pool.map(x => ({ v: x.v, loopPos: loopPositionOf(x.v.direction, x.idx) }));
+  const withPosFollowerEligible = withPos.filter(x => followerEligible.has(x.v.id));
   const ownLoopPos = loopPositionOf(v.direction, ownIdx);
 
   if(loopMode === 'last'){
     const ahead = withPos.filter(x => x.loopPos > ownLoopPos).sort((a,b) => a.loopPos - b.loopPos);
-    const behind = withPos.filter(x => x.loopPos < ownLoopPos).sort((a,b) => b.loopPos - a.loopPos);
+    const behind = withPosFollowerEligible.filter(x => x.loopPos < ownLoopPos).sort((a,b) => b.loopPos - a.loopPos);
     return { leader: ahead[0] ? ahead[0].v : null, follower: behind[0] ? behind[0].v : null };
   }
 
@@ -9306,8 +9339,10 @@ function getLeaderAndFollower(v){
   let bestBehind = null, bestBehindDist = Infinity;
   withPos.forEach(x=>{
     const fwd = ((x.loopPos - ownLoopPos) % totalLen + totalLen) % totalLen;
-    const back = ((ownLoopPos - x.loopPos) % totalLen + totalLen) % totalLen;
     if(fwd > 0 && fwd < bestAheadDist){ bestAheadDist = fwd; bestAhead = x.v; }
+  });
+  withPosFollowerEligible.forEach(x=>{
+    const back = ((ownLoopPos - x.loopPos) % totalLen + totalLen) % totalLen;
     if(back > 0 && back < bestBehindDist){ bestBehindDist = back; bestBehind = x.v; }
   });
   return { leader: bestAhead, follower: bestBehind };
