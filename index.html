@@ -9248,6 +9248,17 @@ function findActiveVehicleForCar(carNum){
 //     confirmed the way B/C/D/E/Mattapan have.
 const LEADER_FOLLOWER_LOOP_ENDS = { B:'last', C:'last', E:'both', MATTAPAN:'both' };
 
+// For 'last'-mode branches (B/C), a cross-direction match is only valid
+// right at the reversal itself — a direction-1 train that reversed at
+// Boston College/Cleveland Circle and has since travelled many stops back
+// down the line isn't meaningfully "in front of" a direction-0 train still
+// approaching that terminus, even though the loop-position math would
+// otherwise still connect them (see getLeaderAndFollower). Both the
+// querying train and the opposite-direction candidate have to be within
+// this many stops of the branch's own terminus for the cross-direction
+// link to count; same-direction comparisons are never affected by this.
+const TERMINUS_ZONE_STOPS = 3;
+
 // Given a live vehicle, finds the nearest other vehicle on the same branch
 // that's ahead of it (the "leader") and behind it (the "follower").
 //
@@ -9319,13 +9330,20 @@ function getLeaderAndFollower(v){
   // direction-1 train (already turned around) is treated as very
   // slightly further along than the direction-0 train (not yet turned).
   const loopPositionOf = (direction, idx) => direction === 0 ? idx : (2 * lastIdx - idx + 0.5);
-  const withPos = pool.map(x => ({ v: x.v, loopPos: loopPositionOf(x.v.direction, x.idx) }));
+  const withPos = pool.map(x => ({ v: x.v, idx: x.idx, loopPos: loopPositionOf(x.v.direction, x.idx) }));
   const withPosFollowerEligible = withPos.filter(x => followerEligible.has(x.v.id));
   const ownLoopPos = loopPositionOf(v.direction, ownIdx);
 
   if(loopMode === 'last'){
-    const ahead = withPos.filter(x => x.loopPos > ownLoopPos).sort((a,b) => a.loopPos - b.loopPos);
-    const behind = withPosFollowerEligible.filter(x => x.loopPos < ownLoopPos).sort((a,b) => b.loopPos - a.loopPos);
+    // Cross-direction candidates only count if both this train and the
+    // candidate are within TERMINUS_ZONE_STOPS of the terminus — see the
+    // comment on TERMINUS_ZONE_STOPS above. Same-direction candidates are
+    // always allowed, at any distance, same as before.
+    const nearTerminus = idx => idx >= lastIdx - TERMINUS_ZONE_STOPS;
+    const crossDirValid = nearTerminus(ownIdx);
+    const eligibleForLoop = x => x.v.direction === v.direction || (crossDirValid && nearTerminus(x.idx));
+    const ahead = withPos.filter(x => x.loopPos > ownLoopPos && eligibleForLoop(x)).sort((a,b) => a.loopPos - b.loopPos);
+    const behind = withPosFollowerEligible.filter(x => x.loopPos < ownLoopPos && eligibleForLoop(x)).sort((a,b) => b.loopPos - a.loopPos);
     return { leader: ahead[0] ? ahead[0].v : null, follower: behind[0] ? behind[0].v : null };
   }
 
