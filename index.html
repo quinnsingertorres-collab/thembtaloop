@@ -8532,20 +8532,36 @@ function isAtInnerbeltYard(v){
 // Tracked independently of which page is currently open — this runs
 // inside refreshVehicles() on every 10s poll regardless of page (see
 // scopeToLivePage:false on its startGatedPoll registration), unlike the
-// ladder's own per-render stopArrivalTracker. The tracked "since" resets
-// the moment the train is no longer stopped at that same stop, so only
-// genuinely continuous dwell time counts.
+// ladder's own per-render stopArrivalTracker. Once a train IS removed here,
+// it isn't gone for good — a vehicle the live feed is still reporting keeps
+// coming back through this same check on every poll (state.vehicles is
+// rebuilt from a fresh fetch each time; nothing "remembers" it as removed),
+// so the instant any of these reset conditions trip, it's back on the map
+// immediately, no different from a train that was never filtered.
+//
+// The dwell clock resets — i.e. the train reappears and dwell starts over
+// from 0 — the moment any of:
+//   - it actually moves (stopName no longer matches, or status is no
+//     longer STOPPED_AT — including passing through a non-tracked status
+//     like IN_TRANSIT_TO/INCOMING_AT even at the same stop)
+//   - it gets signed for a new trip while still sitting there: headsign or
+//     direction change (both cheap, reliable "this is genuinely a new
+//     trip" signals — unlike trip_id, which MBTA's feed reassigns on its
+//     own often enough, even with nothing real changing, that other code
+//     in this file deliberately avoids keying off it for the same reason;
+//     see the destination-override clearing logic above)
+let terminusDwellTracker = {}; // vehicleId -> { stopName, headsign, direction, since }
 const LONG_DWELL_TERMINI = ['Boston College', 'Cleveland Circle', 'Riverside', 'Medford/Tufts'];
 const LONG_DWELL_REMOVE_MS = 45 * 60 * 1000; // 45 minutes
-let terminusDwellTracker = {}; // vehicleId -> { stopName, since }
 function isLongDwellAtTerminus(v, now){
   if(v.status !== 'STOPPED_AT' || !v.stopName || !LONG_DWELL_TERMINI.some(s => normName(s) === normName(v.stopName))){
     delete terminusDwellTracker[v.id];
     return false;
   }
   const entry = terminusDwellTracker[v.id];
-  if(!entry || entry.stopName !== v.stopName){
-    terminusDwellTracker[v.id] = { stopName: v.stopName, since: now };
+  const changed = !entry || entry.stopName !== v.stopName || entry.headsign !== v.headsign || entry.direction !== v.direction;
+  if(changed){
+    terminusDwellTracker[v.id] = { stopName: v.stopName, headsign: v.headsign, direction: v.direction, since: now };
     return false;
   }
   return (now - entry.since) > LONG_DWELL_REMOVE_MS;
