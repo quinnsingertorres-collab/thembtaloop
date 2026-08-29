@@ -50,8 +50,16 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="In the Loop">
 <link rel="manifest" href="/manifest.json">
+<!-- Google Fonts as preconnect + a real <link rel="stylesheet"> instead of
+     an @import inside the <style> block below: an @import has to be
+     fetched and parsed before the browser can even finish parsing the
+     rest of that stylesheet, and it's invisible to the browser's preload
+     scanner (which only looks at markup, not CSS), so the font request
+     used to start later than it needed to on every page load. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=Quicksand:wght@600;700&display=swap">
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=Quicksand:wght@600;700&display=swap');
 
 :root{
   --bg:#0B1420;
@@ -1406,20 +1414,15 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
 #qrPageMapContainer .leaflet-control-attribution{background:rgba(11,20,32,0.75); color:var(--text-faint); font-size:9px;}
 #qrPageMapContainer .leaflet-control-attribution a{color:var(--text-faint);}
 </style>
-<!-- Leaflet's CSS stays here in the document head (stylesheets are meant
-     to load early so the map's own layout/controls aren't unstyled for a
-     moment) — but its JS, plus html2canvas and the 3 Firebase scripts
-     below, used to sit right here too. Those are all plain blocking
-     script tags (no defer/async), so the browser couldn't parse ANY of
-     the actual page body (the gate screen, main app markup, every modal)
-     until all 5 finished downloading and executing — pure dead time
-     before anything visible could even start rendering. They're moved to
-     just before the main app script at the end of body instead: same
-     execution order (these still run, in order, before that script does,
-     since script execution order always follows document order), just
-     reached after the browser has already parsed and painted the actual
-     page shell instead of before it. -->
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<!-- Leaflet's CSS used to stay here in the document head, on the theory
+     that stylesheets should load early so the map's own layout/controls
+     aren't unstyled for a moment — but that's a render-blocking stylesheet
+     fetched on every single page load, even though only the car detail and
+     Quick Report pages ever create a map (most visits never touch either).
+     It's moved down next to leaflet.min.js instead (see the comment
+     there): loads in parallel with that script, still finishes long before
+     a user could actually navigate to a map page, and no longer delays
+     first paint of the gate screen / main app shell for everyone else. -->
 </head>
 <body class="dark">
 
@@ -2232,7 +2235,11 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
      (firebase.initializeApp, etc). html2canvas is NOT here — it's lazy-
      loaded only if/when the Snapshot Map button is actually clicked (see
      loadHtml2Canvas near that button's code), since most visits never use
-     that feature at all. -->
+     that feature at all. Leaflet's CSS also used to live only in <head> —
+     it's placed right here now too, so it downloads in parallel with
+     leaflet.min.js instead of blocking first paint of the page shell on
+     every load (see the old comment that was in <head>). -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
@@ -2969,7 +2976,12 @@ function lineDisplayName(line){
 function isSoloType7(v){
   if(state.activeLine !== 'green') return false;
   if(soloType7OverrideCache[v.id]) return false;
-  const parts = String(v.label).split('-');
+  // Respect community consist corrections (see saveConsistOverride/carSetKey)
+  // rather than the raw feed label — if the feed reported a car running
+  // solo but the community corrected it to a real pair, it's no longer
+  // "solo" and shouldn't stay auto-flagged as a likely-OOS single Type 7.
+  const effectiveLabel = consistOverrideCache[carSetKey(v.label)] || v.label;
+  const parts = String(effectiveLabel).split('-');
   return parts.length === 1 && getCarType(parts[0]) === 'Type 7';
 }
 const SOLO_TYPE7_GRAY = '#6B7280';
@@ -4250,11 +4262,21 @@ function countForPage(key){
 
 /* ---------------- Bottom nav ---------------- */
 
+// buildNav() used to unconditionally wipe and rebuild every nav button
+// (fresh DOM nodes, fresh onclick closures) on every call — and it's
+// called from refreshVehicles() on every 10s vehicle poll, so that churn
+// was happening every 10s on any page with the nav visible, even on ticks
+// where nothing about the nav actually changed (same line, same current
+// page, same per-branch counts). lastNavSignature lets a no-op poll skip
+// the rebuild entirely; anything that actually would change what's on
+// screen (switching lines/pages, or a count changing) still rebuilds.
+let lastNavSignature = null;
 function buildNav(){
   const nav = document.getElementById('bottomNav');
-  nav.innerHTML = '';
   if(state.activeLine === 'orange' || state.activeLine === 'blue'){
+    nav.innerHTML = '';
     nav.style.display = 'none';
+    lastNavSignature = null;
     return;
   }
   nav.style.display = '';
@@ -4262,7 +4284,13 @@ function buildNav(){
     : state.activeLine === 'orange' ? ORANGE_NAV_ORDER
     : state.activeLine === 'blue' ? BLUE_NAV_ORDER
     : NAV_ORDER;
-  order.forEach(key=>{
+  const counts = order.map(key => countForPage(key));
+  const signature = state.activeLine + '|' + state.currentPage + '|' + counts.join(',');
+  if(signature === lastNavSignature) return;
+  lastNavSignature = signature;
+
+  nav.innerHTML = '';
+  order.forEach((key, i)=>{
     const p = PAGES[key];
     const effectiveHex = key === 'REDASHMONT' ? RED_BRANCH_COLORS.ashmont
       : key === 'REDBRAINTREE' ? RED_BRANCH_COLORS.braintree
@@ -4276,7 +4304,7 @@ function buildNav(){
     }
     const mainText = key === 'SUBWAY' ? 'Subway' : (key === 'ROSTER' ? 'Roster' : (key === 'MATTAPAN' ? 'M' : (key === 'REDTRUNK' ? 'Trunk' : (key === 'REDASHMONT' ? 'Ashmont' : (key === 'REDBRAINTREE' ? 'Braintree' : (key === 'ORANGE' ? 'Orange Line' : (key === 'BLUE' ? 'Blue Line' : key)))))));
     const swatchColor = isActive ? getTextColorFor(effectiveHex) : effectiveHex;
-    const count = countForPage(key);
+    const count = counts[i];
     const countHtml = count === null ? '' : `<span class="nav-count">${count}</span>`;
     btn.innerHTML = `<span class="nav-main"><span class="swatch" style="background:${swatchColor}"></span><span>${mainText}</span></span>${countHtml}`;
     btn.onclick = ()=> switchPage(key);
@@ -7930,16 +7958,19 @@ async function checkForAlertsAndNotifications(){
 // log entry), anything not from today's service day is stale and gets
 // swept here so the collection doesn't grow forever. This runs even when
 // notifications are turned off, so cleanup still happens either way.
+//
+// Backed by makeSnapshotCache (same as refreshOutOfServiceCache/
+// refreshHiddenTrainsCache above) instead of a full collection re-`.get()`
+// every 60s — this was the one leftover holdout still doing that. Now
+// Firestore only bills the initial read plus actual changes, and a new
+// "back in service" doc notifies immediately instead of up to 60s late.
 const NOTIF_CARBACK_SEEN_KEY = 'notif_last_carback_ts_v1';
-async function checkCarBackInServiceNotifications(){
-  if(!firebaseReady) return;
+const carBackInServiceCacheCtl = makeSnapshotCache('car_back_in_service', (allDocs)=>{
   try{
-    const snap = await fbDb.collection('car_back_in_service').get();
-    if(snap.empty) return;
     const today = todayDateString();
     const docs = [];
     const staleDocs = [];
-    snap.forEach(doc=>{
+    allDocs.forEach(doc=>{
       const d = doc.data();
       if(d.date === today) docs.push(d);
       else staleDocs.push(doc.ref);
@@ -7966,7 +7997,8 @@ async function checkCarBackInServiceNotifications(){
     }
     try{ localStorage.setItem(NOTIF_CARBACK_SEEN_KEY, String(newest)); }catch(e){ /* ignore */ }
   }catch(e){ console.error(e); }
-}
+});
+function checkCarBackInServiceNotifications(){ carBackInServiceCacheCtl.start(); }
 
 /* ---------------- Train-spotting notifications (double Type 8, Pride car, Type 9) ----------------
    These fire while the app is open, based on the live vehicle feed the app is
@@ -13187,10 +13219,12 @@ async function init(){
 
   // Alerts + moderator notifications now share one bell button and one
   // combined poller — matters app-wide, so only gated by tab visibility,
-  // not by page. Reads a T-Alerts fetch plus two capped queries (30 docs
-  // each); checkCarBackInServiceNotifications reads a full small
-  // collection — neither needs to run while the tab is backgrounded, and
-  // both catch up immediately once it's visible again.
+  // not by page. checkForAlertsAndNotifications reads a T-Alerts fetch plus
+  // two capped queries (30 docs each); checkCarBackInServiceNotifications
+  // is now backed by makeSnapshotCache (see its own comment) so this call
+  // just attaches the listener once and is a no-op after that. Neither
+  // needs to run while the tab is backgrounded, and both catch up
+  // immediately once it's visible again.
   // The 15 startGatedPoll(..., 60000) calls in this init() (these 2 plus the
   // 13 further below) all used to land on the exact same tick every single
   // minute — they're spread across the 60s window in 4s increments here
