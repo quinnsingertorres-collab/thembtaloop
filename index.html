@@ -662,8 +662,8 @@ body.dark .discord-banner{background:#5865F2; border-color:#5865F2; color:#fff;}
 .track-line-v{position:absolute; width:7px; background:var(--line-black); border-radius:3px; top:2px;}
 
 .stop-dot{
-  position:absolute; width:13px; height:13px; border-radius:50%;
-  background:var(--panel); border:3px solid; transform:translate(-50%,-50%); z-index:2; cursor:pointer;
+  position:absolute; width:17px; height:17px; border-radius:50%;
+  background:var(--panel); border:4px solid; transform:translate(-50%,-50%); z-index:2; cursor:pointer;
   transition:background 0.4s ease;
 }
 body.dark .stop-dot{background:var(--bg);}
@@ -679,7 +679,7 @@ body.dark .stop-dot{background:var(--bg);}
   clip-path:polygon(30% 0%, 70% 0%, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0% 70%, 0% 30%);
 }
 .stop-dot-bypassed::before, .stop-dot-bypassed::after{
-  content:''; position:absolute; left:50%; top:50%; width:12px; height:2.5px; background:#fff; border-radius:1.5px;
+  content:''; position:absolute; left:50%; top:50%; width:15px; height:3px; background:#fff; border-radius:1.5px;
 }
 .stop-dot-bypassed::before{ transform:translate(-50%,-50%) rotate(45deg); }
 .stop-dot-bypassed::after{ transform:translate(-50%,-50%) rotate(-45deg); }
@@ -693,8 +693,8 @@ body.dark .stop-dot{background:var(--bg);}
 
 .train-bubble{
   position:absolute;
-  display:flex; flex-direction:row; align-items:center; justify-content:center; gap:3px;
-  padding:3px 9px; border-radius:12px;
+  display:flex; flex-direction:row; align-items:center; justify-content:center; gap:4px;
+  padding:4px 11px; border-radius:13px;
   font-family:'IBM Plex Mono', monospace;
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
   box-shadow:0 1px 3px rgba(0,0,0,0.25); z-index:3; cursor:pointer;
@@ -720,47 +720,47 @@ body.dark .stop-dot{background:var(--bg);}
 }
 .stop-dot.stop-dot-occupied{ background:var(--occupied-color, var(--accent)) !important; box-shadow:0 0 0 1px #000; }
 .modal-row-spacer{ height:8px; }
-.train-bubble .bletter{font-family:'Space Grotesk', sans-serif; font-size:19px; font-weight:800; line-height:1;}
+.train-bubble .bletter{font-family:'Space Grotesk', sans-serif; font-size:21px; font-weight:800; line-height:1;}
 /* "OOS" is 3 characters where every other branch label is 1 (B/C/D/E/A) —
    at the regular .bletter size it, plus any badge icons, doesn't reliably
    fit the bubble's fixed width alongside the (deliberately unchanged) car
    number size, so it's noticeably smaller instead. */
-.train-bubble .bletter-oos{font-size:12px; letter-spacing:-0.3px;}
+.train-bubble .bletter-oos{font-size:13px; letter-spacing:-0.3px;}
 .train-bubble .bnums{display:flex; flex-direction:column; align-items:center; justify-content:center; line-height:1.1;}
-.train-bubble .bline{white-space:nowrap; font-size:11.5px; font-weight:500; font-family:'Quicksand', sans-serif;}
+.train-bubble .bline{white-space:nowrap; font-size:12.5px; font-weight:500; font-family:'Quicksand', sans-serif;}
 .bubble-dest-badge{
   display:inline-flex; align-items:center; justify-content:center;
-  width:17px; height:17px; border-radius:50%;
+  width:19px; height:19px; border-radius:50%;
   background:#fff; color:#D64545;
   margin-left:2px; box-shadow:0 0 0 2px #D64545, 0 1px 3px rgba(0,0,0,0.4);
   flex:0 0 auto;
 }
-.bubble-dest-badge svg{width:11px; height:11px;}
+.bubble-dest-badge svg{width:12px; height:12px;}
 .bubble-express-badge{
   display:inline-flex; align-items:center; justify-content:center;
-  width:16px; height:16px; border-radius:50%;
+  width:18px; height:18px; border-radius:50%;
   background:#fff;
   margin-left:2px; font-size:10px; line-height:1;
   box-shadow:0 0 0 1.5px #F59E0B, 0 1px 3px rgba(0,0,0,0.4);
   flex:0 0 auto;
 }
-.bubble-express-badge svg{width:9px; height:9px;}
+.bubble-express-badge svg{width:10px; height:10px;}
 .bubble-standingby-badge{
   display:inline-flex; align-items:center; justify-content:center;
-  width:15px; height:15px;
+  width:17px; height:17px;
   margin-left:2px; line-height:1;
   filter:drop-shadow(0 1px 2px rgba(0,0,0,0.4));
   flex:0 0 auto;
 }
 .bubble-standingby-badge svg{width:100%; height:100%;}
-.train-bubble .bline-first{font-weight:900; font-size:13.2px;}
+.train-bubble .bline-first{font-weight:900; font-size:14.5px;}
 
 @media (max-width:640px){
-  .train-bubble{padding:2px 6px; border-radius:10px; gap:2px;}
-  .train-bubble .bletter{font-size:15px;}
-  .train-bubble .bletter-oos{font-size:10px;}
-  .train-bubble .bline{font-size:9.5px;}
-  .train-bubble .bline-first{font-size:11px;}
+  .train-bubble{padding:3px 7px; border-radius:11px; gap:3px;}
+  .train-bubble .bletter{font-size:16px;}
+  .train-bubble .bletter-oos{font-size:11px;}
+  .train-bubble .bline{font-size:10.5px;}
+  .train-bubble .bline-first{font-size:12px;}
   .bubble-dest-badge{width:14px; height:14px; margin-left:2px;}
   .bubble-dest-badge svg{width:9px; height:9px;}
   .bubble-express-badge{width:13px; height:13px; margin-left:2px; font-size:8px;}
@@ -8697,7 +8697,7 @@ function statusText(s){
   switch(s){
     case 'STOPPED_AT': return 'stopped';
     case 'INCOMING_AT': return 'arriving';
-    case 'IN_TRANSIT_TO': return 'en route';
+    case 'IN_TRANSIT_TO': return 'in transit';
     default: return '—';
   }
 }
@@ -12362,15 +12362,27 @@ function initQuickReportForm(idPrefix, onSuccess){
   // standing-by station with wherever that train currently is (or is next
   // approaching — v.stopName already covers both, same as the car modal's
   // own version of this field defaults). Only fires for standing-by (not
-  // express, which has no single "current station" concept) and only when
-  // the field is still untouched, so it never clobbers something already
-  // typed in. Fires on every keystroke (not just on blur/losing focus) so
-  // the station fills in the moment the number resolves, without needing
-  // to tab or click away first.
+  // express, which has no single "current station" concept).
+  //
+  // lastAutoFilledStation tracks the exact value WE last wrote in here, so a
+  // later car number resolving to a DIFFERENT train's stop can still
+  // overwrite it — without this, editing/correcting the car number after
+  // it already auto-filled once (e.g. finishing a partial number that
+  // briefly matched a different train, or fixing a typo) left the station
+  // field stuck showing the FIRST car's stop attached to the real,
+  // different car actually being reported — a real "wrong stop" bug, not
+  // just stale-looking UI. Genuinely user-typed text (anything that isn't
+  // exactly what we last set) is still left alone.
+  let lastAutoFilledStation = null;
   carInput.addEventListener('input', ()=>{
-    if(activeType !== 'standingby' || stationInput.value.trim()) return;
+    if(activeType !== 'standingby') return;
+    const current = stationInput.value.trim();
+    if(current && current !== lastAutoFilledStation) return;
     const v = resolveTypedCar(carInput.value);
-    if(v && v.stopName) stationInput.value = v.stopName;
+    if(v && v.stopName && v.stopName !== current){
+      stationInput.value = v.stopName;
+      lastAutoFilledStation = v.stopName;
+    }
   });
 
   // Standalone /quickreport page only (see qrPageMapContainer) — as soon as
@@ -12398,6 +12410,11 @@ function initQuickReportForm(idPrefix, onSuccess){
     expressIntermediateInput.value = '';
     expressEndInput.value = '';
     note.textContent = '';
+    // Otherwise the NEXT car number typed after a successful submit would
+    // see the (now-cleared, empty) station field as "the user's own text"
+    // rather than recognizing it's free to auto-fill again — see the
+    // lastAutoFilledStation guard above.
+    lastAutoFilledStation = null;
     if(idPrefix === 'qrPage'){
       qrPageResolvedVehicleId = null;
       updateQrPageMap();
