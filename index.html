@@ -9222,15 +9222,17 @@ function findActiveVehicleForCar(carNum){
 //     the rest of the Green Line trunk, not a place these trains reverse.
 //     Applies to B (Boston College) and C (Cleveland Circle).
 //   'both' — neither end of this page's own stops array is shared with
-//     anything else, so both are real reversal points. Applies to E,
-//     whose full route (Medford/Tufts through Heath Street) is entirely
-//     its own with no shared trunk stop at either end.
+//     anything else, so both are real reversal points. Applies to E
+//     (Medford/Tufts through Heath Street, entirely its own with no
+//     shared trunk stop at either end) and to Mattapan (Ashmont through
+//     Mattapan — its own self-contained trolley line, treated as a
+//     continuous loop end to end).
 //   (absent) — no reversal treatment; falls back to the original
 //     same-direction-only comparison. D is explicitly excluded from the
 //     loop model. Every other page (Red trunk/Ashmont/Braintree, Orange,
-//     Blue, Mattapan, Subway) defaults here too, since none of that has
-//     been confirmed the way B/C/D/E have.
-const LEADER_FOLLOWER_LOOP_ENDS = { B:'last', C:'last', E:'both' };
+//     Blue, Subway) defaults here too, since none of that has been
+//     confirmed the way B/C/D/E/Mattapan have.
+const LEADER_FOLLOWER_LOOP_ENDS = { B:'last', C:'last', E:'both', MATTAPAN:'both' };
 
 // Given a live vehicle, finds the nearest other vehicle on the same branch
 // that's ahead of it (the "leader") and behind it (the "follower").
@@ -9371,7 +9373,22 @@ function renderCarDetailStatusBadge(info){
 // (see updateQrPageMap), so both show the exact same leader/follower info
 // in the exact same layout rather than two near-duplicate copies.
 function renderLeaderFollowerBox(v, leader, follower){
-  const describeVehicle = (other) => `Car ${otherCarDetailLabel(other)} · near ${displayName(other.stopName || '—')}`;
+  // Under the loop model (see getLeaderAndFollower/LEADER_FOLLOWER_LOOP_ENDS),
+  // a leader/follower can legitimately be heading the opposite physical
+  // direction from this car — e.g. this car westbound at Brigham Circle,
+  // its leader eastbound at Longwood, both converging toward the same
+  // reversal terminus. That's expected and correct there, but silently
+  // showing just a station name in that case reads as if both cars were
+  // going the same way, which is misleading — so the direction gets called
+  // out explicitly whenever it actually differs, and left off otherwise
+  // (same-direction is already the overwhelmingly common case, and calling
+  // it out every time would just be noise).
+  const describeVehicle = (other) => {
+    const directionNote = other.direction !== v.direction
+      ? ` · ${other.direction === 0 ? dirLabels().west : dirLabels().east}`
+      : '';
+    return `Car ${otherCarDetailLabel(other)} · near ${displayName(other.stopName || '—')}${directionNote}`;
+  };
   return `
     <div style="border:1px solid var(--border); border-radius:10px; padding:4px 12px; margin-bottom:12px;">
       <div style="padding:8px 0; ${!leader ? 'opacity:.5;' : ''}">
