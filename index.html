@@ -104,6 +104,21 @@ html,body{margin:0; padding:0; background:var(--bg); color:var(--text); font-fam
    pinned to the viewport — it was being laid out against body's own
    scrolling box in that scenario, not the true viewport. */
 html{overflow-x:hidden;}
+/* Best-effort mitigation for a separate, still-open iOS 17+ bug specific
+   to installed PWAs (Add to Home Screen) — see
+   https://developer.apple.com/forums/thread/744327. There, a
+   position:fixed bottom bar visually detaches and scrolls up with the
+   page after the app has sat backgrounded for a while and is then
+   reopened and scrolled — as if Safari briefly "forgets" it's running
+   standalone and applies its normal in-browser chrome offset instead.
+   This is a genuine WebKit-level bug (reproducible in a minimal test
+   case, unresolved as of this writing), not something caused by this
+   site's own CSS/JS, and Apple hasn't shipped a real fix — so this can't
+   be fully guaranteed to eliminate it. Giving html an explicit height
+   slightly taller than 100% (rather than the implicit auto height it has
+   without this) is the one mitigation reported to help in that same
+   thread, at zero cost to anything else on the page. */
+html{min-height:calc(100% + env(safe-area-inset-top));}
 html::-webkit-scrollbar, body::-webkit-scrollbar{display:none;}
 
 /* ---------- Sign-in gate / line-select overlay screens ---------- */
