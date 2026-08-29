@@ -693,8 +693,8 @@ body.dark .stop-dot{background:var(--bg);}
 
 .train-bubble{
   position:absolute;
-  display:flex; flex-direction:row; align-items:center; justify-content:center; gap:4px;
-  padding:4px 11px; border-radius:13px;
+  display:flex; flex-direction:row; align-items:center; justify-content:center; gap:3px;
+  padding:3px 9px; border-radius:12px;
   font-family:'IBM Plex Mono', monospace;
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
   box-shadow:0 1px 3px rgba(0,0,0,0.25); z-index:3; cursor:pointer;
@@ -720,47 +720,47 @@ body.dark .stop-dot{background:var(--bg);}
 }
 .stop-dot.stop-dot-occupied{ background:var(--occupied-color, var(--accent)) !important; box-shadow:0 0 0 1px #000; }
 .modal-row-spacer{ height:8px; }
-.train-bubble .bletter{font-family:'Space Grotesk', sans-serif; font-size:21px; font-weight:800; line-height:1;}
+.train-bubble .bletter{font-family:'Space Grotesk', sans-serif; font-size:19px; font-weight:800; line-height:1;}
 /* "OOS" is 3 characters where every other branch label is 1 (B/C/D/E/A) —
    at the regular .bletter size it, plus any badge icons, doesn't reliably
    fit the bubble's fixed width alongside the (deliberately unchanged) car
    number size, so it's noticeably smaller instead. */
-.train-bubble .bletter-oos{font-size:13px; letter-spacing:-0.3px;}
+.train-bubble .bletter-oos{font-size:12px; letter-spacing:-0.3px;}
 .train-bubble .bnums{display:flex; flex-direction:column; align-items:center; justify-content:center; line-height:1.1;}
-.train-bubble .bline{white-space:nowrap; font-size:12.5px; font-weight:500; font-family:'Quicksand', sans-serif;}
+.train-bubble .bline{white-space:nowrap; font-size:11.5px; font-weight:500; font-family:'Quicksand', sans-serif;}
 .bubble-dest-badge{
   display:inline-flex; align-items:center; justify-content:center;
-  width:19px; height:19px; border-radius:50%;
+  width:17px; height:17px; border-radius:50%;
   background:#fff; color:#D64545;
   margin-left:2px; box-shadow:0 0 0 2px #D64545, 0 1px 3px rgba(0,0,0,0.4);
   flex:0 0 auto;
 }
-.bubble-dest-badge svg{width:12px; height:12px;}
+.bubble-dest-badge svg{width:11px; height:11px;}
 .bubble-express-badge{
   display:inline-flex; align-items:center; justify-content:center;
-  width:18px; height:18px; border-radius:50%;
+  width:16px; height:16px; border-radius:50%;
   background:#fff;
   margin-left:2px; font-size:10px; line-height:1;
   box-shadow:0 0 0 1.5px #F59E0B, 0 1px 3px rgba(0,0,0,0.4);
   flex:0 0 auto;
 }
-.bubble-express-badge svg{width:10px; height:10px;}
+.bubble-express-badge svg{width:9px; height:9px;}
 .bubble-standingby-badge{
   display:inline-flex; align-items:center; justify-content:center;
-  width:17px; height:17px;
+  width:15px; height:15px;
   margin-left:2px; line-height:1;
   filter:drop-shadow(0 1px 2px rgba(0,0,0,0.4));
   flex:0 0 auto;
 }
 .bubble-standingby-badge svg{width:100%; height:100%;}
-.train-bubble .bline-first{font-weight:900; font-size:14.5px;}
+.train-bubble .bline-first{font-weight:900; font-size:13.2px;}
 
 @media (max-width:640px){
-  .train-bubble{padding:3px 7px; border-radius:11px; gap:3px;}
-  .train-bubble .bletter{font-size:16px;}
-  .train-bubble .bletter-oos{font-size:11px;}
-  .train-bubble .bline{font-size:10.5px;}
-  .train-bubble .bline-first{font-size:12px;}
+  .train-bubble{padding:2px 6px; border-radius:10px; gap:2px;}
+  .train-bubble .bletter{font-size:15px;}
+  .train-bubble .bletter-oos{font-size:10px;}
+  .train-bubble .bline{font-size:9.5px;}
+  .train-bubble .bline-first{font-size:11px;}
   .bubble-dest-badge{width:14px; height:14px; margin-left:2px;}
   .bubble-dest-badge svg{width:9px; height:9px;}
   .bubble-express-badge{width:13px; height:13px; margin-left:2px; font-size:8px;}
