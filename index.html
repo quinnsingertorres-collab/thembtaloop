@@ -8519,6 +8519,38 @@ function isAtInnerbeltYard(v){
   return name.includes('innerbelt') || name.includes('inner belt');
 }
 
+// A train sitting continuously at one of these four Green Line branch
+// termini for a long stretch is almost certainly laying over / no longer
+// in real revenue service, even though MBTA's feed keeps reporting a
+// position there — same idea as the Innerbelt Yard filter above, just
+// detected by dwell time instead of an explicit yard location. Government
+// Center, Heath Street, and Union Square are deliberately NOT included
+// here — Heath Street already gets its own short turnback handling (see
+// HEATH_STREET_TURNBACK_KEEP_ALIVE_MS/the eastbound auto-flip above), and
+// Government Center is a shared trunk stop, not a branch's own terminus.
+//
+// Tracked independently of which page is currently open — this runs
+// inside refreshVehicles() on every 10s poll regardless of page (see
+// scopeToLivePage:false on its startGatedPoll registration), unlike the
+// ladder's own per-render stopArrivalTracker. The tracked "since" resets
+// the moment the train is no longer stopped at that same stop, so only
+// genuinely continuous dwell time counts.
+const LONG_DWELL_TERMINI = ['Boston College', 'Cleveland Circle', 'Riverside', 'Medford/Tufts'];
+const LONG_DWELL_REMOVE_MS = 45 * 60 * 1000; // 45 minutes
+let terminusDwellTracker = {}; // vehicleId -> { stopName, since }
+function isLongDwellAtTerminus(v, now){
+  if(v.status !== 'STOPPED_AT' || !v.stopName || !LONG_DWELL_TERMINI.some(s => normName(s) === normName(v.stopName))){
+    delete terminusDwellTracker[v.id];
+    return false;
+  }
+  const entry = terminusDwellTracker[v.id];
+  if(!entry || entry.stopName !== v.stopName){
+    terminusDwellTracker[v.id] = { stopName: v.stopName, since: now };
+    return false;
+  }
+  return (now - entry.since) > LONG_DWELL_REMOVE_MS;
+}
+
 async function refreshVehicles(){
   try{
     const vehicles = state.activeLine === 'red' ? await fetchRedLineVehicles()
@@ -8604,6 +8636,11 @@ async function refreshVehicles(){
   // MBTA's feed explicitly reporting that location is already confirmation,
   // so there's no ambiguity to wait out; remove them right away.
   state.vehicles = state.vehicles.filter(v => !isAtInnerbeltYard(v));
+
+  // Trains that have been sitting continuously at Boston College, Cleveland
+  // Circle, Riverside, or Medford/Tufts for 45+ minutes — see
+  // isLongDwellAtTerminus above.
+  state.vehicles = state.vehicles.filter(v => !isLongDwellAtTerminus(v, now));
 
   // A train someone chose to hide for the rest of the service day — kept
   // out of state.vehicles entirely for everyone, so every downstream view
