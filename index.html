@@ -9213,11 +9213,40 @@ function findActiveVehicleForCar(carNum){
   return state.vehicles.find(v => getCarNumbersForVehicle(v).includes(carNum)) || null;
 }
 
-// Given a live vehicle, finds the nearest other vehicle on the same
-// branch and heading the same direction that's ahead of it (the "leader")
-// and behind it (the "follower"). Reuses the exact same branch/direction
-// pool logic as getUpcoming() above, just centered on this vehicle's own
-// position instead of a station index.
+// Which pages get reversal-aware leader/follower treatment (see
+// getLeaderAndFollower below) and at which end(s) of their stops array —
+// keyed to each branch's real operational geography, confirmed directly
+// rather than assumed from the stops array alone:
+//   'last' — only the branch's own single-branch terminus (the LAST stop)
+//     is a real reversal point; stop 0 is Government Center, shared with
+//     the rest of the Green Line trunk, not a place these trains reverse.
+//     Applies to B (Boston College) and C (Cleveland Circle).
+//   'both' — neither end of this page's own stops array is shared with
+//     anything else, so both are real reversal points. Applies to E,
+//     whose full route (Medford/Tufts through Heath Street) is entirely
+//     its own with no shared trunk stop at either end.
+//   (absent) — no reversal treatment; falls back to the original
+//     same-direction-only comparison. D is explicitly excluded from the
+//     loop model. Every other page (Red trunk/Ashmont/Braintree, Orange,
+//     Blue, Mattapan, Subway) defaults here too, since none of that has
+//     been confirmed the way B/C/D/E have.
+const LEADER_FOLLOWER_LOOP_ENDS = { B:'last', C:'last', E:'both' };
+
+// Given a live vehicle, finds the nearest other vehicle on the same branch
+// that's ahead of it (the "leader") and behind it (the "follower").
+//
+// For branches in LEADER_FOLLOWER_LOOP_ENDS, this maps candidates onto one
+// continuous "loop position" along the branch rather than only ever
+// comparing same-direction trains — a branch's reversal terminus (e.g.
+// Heath Street on the E) is where a train physically turns around and
+// continues as the opposite direction, so a direction-0 train nearing it
+// and a direction-1 train that just left it are, in reality, converging on
+// the same point; whichever is closer in loop-position terms is genuinely
+// the next train you'd encounter continuing along the track, reversal
+// included — not necessarily the nearest same-direction train, which can
+// be much further away (or nonexistent) right as a train approaches that
+// terminus. Every other branch keeps the plain same-direction-only
+// comparison this always used.
 function getLeaderAndFollower(v){
   const ownBranch = getEffectiveBranchForToggle(v);
   const pageKey = BRANCH_ID_TO_PAGE_KEY[ownBranch] || ownBranch;
@@ -9227,25 +9256,59 @@ function getLeaderAndFollower(v){
 
   const pool = state.vehicles.filter(other=>{
     if(other.id === v.id) return false;
-    if(other.direction !== v.direction) return false;
     const otherBranch = getEffectiveBranchForToggle(other);
     const otherPageKey = BRANCH_ID_TO_PAGE_KEY[otherBranch] || otherBranch;
     return otherPageKey === pageKey;
   }).map(other => ({ v: other, idx: findStopIndex(pageKey, other.stopName) }))
     .filter(x => x.idx !== null);
 
-  // Direction 0 runs from lower stop index to higher (see parseRouteFromPath/
-  // getUpcoming's own direction convention above) — so "ahead" means a
-  // higher index; direction 1 runs the other way, so "ahead" means lower.
-  let ahead, behind;
-  if(v.direction === 0){
-    ahead = pool.filter(x => x.idx > ownIdx).sort((a,b) => a.idx - b.idx);
-    behind = pool.filter(x => x.idx < ownIdx).sort((a,b) => b.idx - a.idx);
-  }else{
-    ahead = pool.filter(x => x.idx < ownIdx).sort((a,b) => b.idx - a.idx);
-    behind = pool.filter(x => x.idx > ownIdx).sort((a,b) => a.idx - b.idx);
+  const loopMode = LEADER_FOLLOWER_LOOP_ENDS[pageKey];
+  if(!loopMode){
+    // Original same-direction-only comparison — direction 0 runs from
+    // lower stop index to higher, so "ahead" means a higher index;
+    // direction 1 runs the other way, so "ahead" means lower.
+    const samePool = pool.filter(x => x.v.direction === v.direction);
+    let ahead, behind;
+    if(v.direction === 0){
+      ahead = samePool.filter(x => x.idx > ownIdx).sort((a,b) => a.idx - b.idx);
+      behind = samePool.filter(x => x.idx < ownIdx).sort((a,b) => b.idx - a.idx);
+    }else{
+      ahead = samePool.filter(x => x.idx < ownIdx).sort((a,b) => b.idx - a.idx);
+      behind = samePool.filter(x => x.idx > ownIdx).sort((a,b) => a.idx - b.idx);
+    }
+    return { leader: ahead[0] ? ahead[0].v : null, follower: behind[0] ? behind[0].v : null };
   }
-  return { leader: ahead[0] ? ahead[0].v : null, follower: behind[0] ? behind[0].v : null };
+
+  const lastIdx = PAGES[pageKey].stops.length - 1;
+  // 0 at stop 0 (direction 0), climbing to lastIdx at the branch's far
+  // terminus, then continuing to climb past lastIdx back down through the
+  // same stops for direction 1 — so far-terminus reversal falls out of
+  // plain linear ordering with no special-casing needed.
+  const loopPositionOf = (direction, idx) => direction === 0 ? idx : (2 * lastIdx - idx);
+  const withPos = pool.map(x => ({ v: x.v, loopPos: loopPositionOf(x.v.direction, x.idx) }));
+  const ownLoopPos = loopPositionOf(v.direction, ownIdx);
+
+  if(loopMode === 'last'){
+    const ahead = withPos.filter(x => x.loopPos > ownLoopPos).sort((a,b) => a.loopPos - b.loopPos);
+    const behind = withPos.filter(x => x.loopPos < ownLoopPos).sort((a,b) => b.loopPos - a.loopPos);
+    return { leader: ahead[0] ? ahead[0].v : null, follower: behind[0] ? behind[0].v : null };
+  }
+
+  // 'both' — stop 0 is ALSO a real reversal point (e.g. Medford/Tufts on
+  // the E), so the loop genuinely closes: position 2*lastIdx connects back
+  // around to position 0. Nearest-ahead/behind need actual modular
+  // (wrap-around) distance here, not just linear ordering, since the
+  // straightforward comparison above would never look "past" either end.
+  const totalLen = 2 * lastIdx;
+  let bestAhead = null, bestAheadDist = Infinity;
+  let bestBehind = null, bestBehindDist = Infinity;
+  withPos.forEach(x=>{
+    const fwd = ((x.loopPos - ownLoopPos) % totalLen + totalLen) % totalLen;
+    const back = ((ownLoopPos - x.loopPos) % totalLen + totalLen) % totalLen;
+    if(fwd > 0 && fwd < bestAheadDist){ bestAheadDist = fwd; bestAhead = x.v; }
+    if(back > 0 && back < bestBehindDist){ bestBehindDist = back; bestBehind = x.v; }
+  });
+  return { leader: bestAhead, follower: bestBehind };
 }
 
 // The branch/page this car currently belongs to, for the "view on live
