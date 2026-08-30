@@ -2294,7 +2294,7 @@ window.addEventListener('popstate', ()=>{
 // needs to be hand-updated to the current date/time whenever a real change
 // is deployed. Any ISO 8601 string with an offset works — init() renders it
 // in the visitor's own local time regardless of what offset is used here.
-const APP_LAST_UPDATED = '2026-08-30T01:21:15-04:00';
+const APP_LAST_UPDATED = '2026-08-30T01:24:45-04:00';
 const MBTA_API_KEY = '7171c5e6f11c447bb3591c1fc1f3b5a9';
 const MBTA_HEADERS = { 'Accept':'application/vnd.api+json' };
 function withMbtaKey(url){
@@ -6695,18 +6695,43 @@ async function ensureStopIdMap(line){
   }catch(e){ console.error(e); return {}; }
 }
 
-// Reverse of ensureStopIdMap (stopId -> real display name), needed to turn
-// a GTFS-rt vehicle position's bare stop_id back into the stopName this
-// app positions/filters everything by. Used by the MBTA enhanced rail
+// Turns a GTFS-rt vehicle position's bare stop_id back into the stopName
+// this app positions/filters everything by. Used by the MBTA enhanced rail
 // feed below — see fetchRailPositionsFeed.
-let stopIdToNameCache = {}; // line -> { stopId: displayName }
+//
+// Deliberately NOT built from ensureStopIdMap's cache: that map's ids are
+// PARENT STATIONS ("place-alfcl"), which is exactly what fetchStopPredictions
+// wants (predictions are requested per station, covering every platform at
+// once) but is the wrong level for this — the enhanced feed's stop_id is a
+// PLATFORM/child stop ("70081", or a special multi-track id at some
+// termini like "Braintree-01"/"Alewife-02"), and MBTA's /stops endpoint
+// won't return those if you filter by route+location_type together (that
+// combination returns zero rows — confirmed by hand). The only way to get
+// the actual platform list is to ask each parent station for its
+// child_stops via include=child_stops, then keep just the location_type:0
+// (platform) results — parent stations themselves are location_type:1, and
+// this same include also drags in a pile of unrelated facility/lobby nodes
+// (location_type:3) that need filtering out too.
+let stopIdToNameCache = {}; // line -> { platformStopId: displayName }
 async function ensureStopIdToNameMap(line){
   if(stopIdToNameCache[line]) return stopIdToNameCache[line];
-  const nameMap = await ensureStopIdMap(line);
-  const reverse = {};
-  Object.keys(nameMap).forEach(key => { reverse[nameMap[key].id] = nameMap[key].name; });
-  stopIdToNameCache[line] = reverse;
-  return reverse;
+  try{
+    const nameMap = await ensureStopIdMap(line);
+    const parentIds = Object.values(nameMap).map(s => s.id);
+    if(!parentIds.length) return {};
+    const url = withMbtaKey(`https://api-v3.mbta.com/stops?filter[id]=${parentIds.join(',')}&include=child_stops&fields[stop]=name,location_type`);
+    const res = await fetch(url, { headers: MBTA_HEADERS });
+    if(!res.ok) throw new Error('bad status ' + res.status);
+    const json = await res.json();
+    const reverse = {};
+    (json.included || []).forEach(s=>{
+      if(s.type === 'stop' && s.attributes && s.attributes.location_type === 0){
+        reverse[s.id] = s.attributes.name;
+      }
+    });
+    stopIdToNameCache[line] = reverse;
+    return reverse;
+  }catch(e){ console.error(e); return {}; }
 }
 
 async function fetchStopPredictions(stopId, directionId){
