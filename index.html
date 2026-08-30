@@ -8619,6 +8619,15 @@ const TRIP_BOUNDARY_STOPS = {
   E: ['Medford/Tufts']
 };
 
+// Boston College is a loop, not a stub-end reversal like the other
+// termini above — the train goes around and comes back out facing the
+// same way it went in, so whichever car was leading is still leading;
+// there's no physical pilot/trailer swap to correct for the way there is
+// at a real dead-end reversal. Still a genuine trip boundary for the
+// operator-info reset in applyTripBoundaryEvents below (a new trip really
+// does start there) — this only excludes it from the car-order flip.
+const LOOP_TRACK_TERMINI = ['Boston College'];
+
 // Detects the moment a vehicle finishes one trip and starts the next (per
 // TRIP_BOUNDARY_STOPS above): a direction change while still associated
 // with that branch's own boundary stop — e.g. a train reported eastbound
@@ -8649,13 +8658,18 @@ const TRIP_BOUNDARY_STOPS = {
 let tripBoundaryTracker = {}; // vehicleId -> last direction seen at its branch's boundary stop
 function applyTripBoundaryEvents(v){
   const boundaryStops = TRIP_BOUNDARY_STOPS[v.branch];
-  if(!boundaryStops || !v.stopName || !boundaryStops.some(s => normName(s) === normName(v.stopName))) return;
+  if(!boundaryStops || !v.stopName) return;
+  const matchedStop = boundaryStops.find(s => normName(s) === normName(v.stopName));
+  if(!matchedStop) return;
   const lastDirection = tripBoundaryTracker[v.id];
   tripBoundaryTracker[v.id] = v.direction;
   if(lastDirection === undefined || lastDirection === v.direction) return;
 
-  const parts = String(v.label).split('-');
-  if(parts.length > 1) v.label = parts.reverse().join('-');
+  const isLoopTrack = LOOP_TRACK_TERMINI.some(s => normName(s) === normName(matchedStop));
+  if(!isLoopTrack){
+    const parts = String(v.label).split('-');
+    if(parts.length > 1) v.label = parts.reverse().join('-');
+  }
 
   const effectiveLabel = consistOverrideCache[carSetKey(v.label)] || v.label;
   String(effectiveLabel).split('-').forEach(carNum => deleteVehicleOperator(v.id, carNum));
