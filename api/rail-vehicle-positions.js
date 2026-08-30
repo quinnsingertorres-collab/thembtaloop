@@ -1,7 +1,10 @@
 // Vercel serverless function — proxies MBTA's enhanced GTFS-realtime rail
 // vehicle-positions feed from its S3 mirror (a separate hosting path from
-// cdn.mbta.com, used as a fallback location source if the primary
-// api-v3.mbta.com /vehicles endpoint has an outage of its own).
+// cdn.mbta.com). The client combines this with the primary
+// api-v3.mbta.com /vehicles call on every poll — not just when that call
+// fails — taking whichever source last observed each vehicle more
+// recently, so a lag or gap on either path alone doesn't show up as
+// stale or missing data. See mergeVehicleFeeds in index.html.
 //
 // This S3 bucket doesn't send an Access-Control-Allow-Origin header either
 // (confirmed by request), so — same rationale as enhanced-vehicle-positions.js

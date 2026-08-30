@@ -6688,7 +6688,7 @@ async function ensureStopIdMap(line){
 // Reverse of ensureStopIdMap (stopId -> real display name), needed to turn
 // a GTFS-rt vehicle position's bare stop_id back into the stopName this
 // app positions/filters everything by. Used by the MBTA enhanced rail
-// feed fallback below — see fetchRailPositionsFallback.
+// feed below — see fetchRailPositionsFeed.
 let stopIdToNameCache = {}; // line -> { stopId: displayName }
 async function ensureStopIdToNameMap(line){
   if(stopIdToNameCache[line]) return stopIdToNameCache[line];
@@ -8358,24 +8358,27 @@ async function fetchSwiftlyVehicles(){
 }
 
 // MBTA enhanced rail vehicle-positions feed (S3-hosted mirror, no key
-// required) — server-side proxy at /api/rail-vehicle-positions.js. Used
-// only as a fallback location source when the primary api-v3.mbta.com
-// /vehicles call fails outright — not merged into a healthy v3 feed, since
-// vehicle ids likely overlap between the two (same underlying MBTA AVL
-// data) and blindly merging risks showing the same physical train twice.
-// Structurally near-identical to the fetch*Vehicles functions above (same
-// route ids, current_status enum, and stop_id/stopName association), the
-// one real gap being trip headsign, which this feed doesn't carry — left
-// null, which every existing consumer of v.headsign already tolerates.
-// Bonus: multi_carriage_details gives per-car occupancy in the same shape
-// getOccupancyForCar/getCapacityPercentForCar already expect, including
-// for Green Line, which the v3 fetch never requests carriages for.
+// required) — server-side proxy at /api/rail-vehicle-positions.js. Fetched
+// on every poll alongside the primary api-v3.mbta.com /vehicles call (not
+// only when it fails) and combined with it via mergeVehicleFeeds below:
+// same underlying MBTA AVL data, but the two paths (REST API cluster vs.
+// S3-hosted static file) can each briefly lag or drop a vehicle
+// independently, so checking both and taking whichever is more current
+// per vehicle catches gaps and staleness that trusting either one alone
+// would miss. Structurally near-identical to the fetch*Vehicles functions
+// above (same route ids, current_status enum, and stop_id/stopName
+// association), the one real gap being trip headsign, which this feed
+// doesn't carry — left null, and mergeVehicleFeeds always prefers v3's
+// headsign when merging a vehicle present in both. Bonus: multi_carriage_details
+// gives per-car occupancy in the same shape getOccupancyForCar/
+// getCapacityPercentForCar already expect, including for Green Line, which
+// the v3 fetch never requests carriages for.
 const RAIL_FEED_ROUTE_IDS_BY_LINE = {
   green: ['Green-B','Green-C','Green-D','Green-E','Mattapan'],
   red: ['Red'], orange: ['Orange'], blue: ['Blue']
 };
 
-async function fetchRailPositionsFallback(){
+async function fetchRailPositionsFeed(){
   try{
     const controller = new AbortController();
     const timeout = setTimeout(()=>controller.abort(), 6000);
@@ -8412,13 +8415,52 @@ async function fetchRailPositionsFallback(){
           carriages: Array.isArray(v.multi_carriage_details) ? v.multi_carriage_details : null,
           speedMph: (typeof pos.speed === 'number') ? Math.round(pos.speed * 2.23694) : null,
           updatedAt: v.timestamp ? new Date(v.timestamp * 1000).toISOString() : null,
-          source: 'mbta-rail-fallback'
+          source: 'mbta-rail-feed'
         };
       })
       .filter(v => v.stopName);
   }catch(e){
     return [];
   }
+}
+
+// Combines the primary v3 vehicle list with a second source (the rail
+// feed above, or Swiftly) by vehicle id: a vehicle only one side reports
+// is always included (so nothing either source alone would show gets
+// dropped), and a vehicle both sides report gets the fresher side's
+// position/status/stop/direction/speed, judged by each source's own
+// reported timestamp — whichever actually observed the vehicle more
+// recently wins, rather than either source being trusted by default.
+// v3's headsign and carriages are kept unless only the other side has
+// them (v3 doesn't carry a headsign for the merge partners at all, and
+// doesn't request carriages for Green Line), since those fields don't
+// go stale the way position/status do.
+function mergeVehicleFeeds(primaryVehicles, secondaryVehicles){
+  const byId = new Map();
+  primaryVehicles.forEach(v => byId.set(v.id, v));
+  secondaryVehicles.forEach(sv=>{
+    const pv = byId.get(sv.id);
+    if(!pv){
+      byId.set(sv.id, sv);
+      return;
+    }
+    const pvTime = pv.updatedAt ? Date.parse(pv.updatedAt) : 0;
+    const svTime = sv.updatedAt ? Date.parse(sv.updatedAt) : 0;
+    const fresher = svTime > pvTime ? sv : pv;
+    byId.set(sv.id, {
+      ...pv,
+      status: fresher.status || pv.status,
+      direction: (fresher.direction !== null && fresher.direction !== undefined) ? fresher.direction : pv.direction,
+      stopName: fresher.stopName || pv.stopName,
+      lat: (fresher.lat !== undefined && fresher.lat !== null) ? fresher.lat : pv.lat,
+      lon: (fresher.lon !== undefined && fresher.lon !== null) ? fresher.lon : pv.lon,
+      speedMph: (fresher.speedMph !== null && fresher.speedMph !== undefined) ? fresher.speedMph : pv.speedMph,
+      updatedAt: fresher.updatedAt || pv.updatedAt,
+      headsign: pv.headsign || sv.headsign,
+      carriages: pv.carriages || sv.carriages
+    });
+  });
+  return Array.from(byId.values());
 }
 
 const VEHICLE_KEEP_ALIVE_MS = 100 * 1000; // keep a vehicle visible for 100s after it stops appearing in the feed
@@ -8824,24 +8866,29 @@ async function refreshVehicles(){
     primaryFeedFailed = true;
   }
 
-  // MBTA rail-feed fallback — see fetchRailPositionsFallback above and
-  // /api/rail-vehicle-positions.js. Tried first (ahead of Swiftly) because
-  // it's MBTA's own real subway/light-rail data with full stop/status
-  // fidelity, just from a different hosting path than api-v3.mbta.com —
-  // a good candidate for recovering from an outage isolated to the v3 API
-  // cluster specifically. Only used as a fallback, never merged into an
-  // already-healthy v3 feed (see the fallback function's own comment for
-  // why merging same-source data is riskier than it sounds).
-  if(primaryFeedFailed){
-    try{
-      const railVehicles = await fetchRailPositionsFallback();
-      if(railVehicles.length){
+  // MBTA rail-feed combination — see fetchRailPositionsFeed and
+  // mergeVehicleFeeds above, and /api/rail-vehicle-positions.js. Fetched on
+  // every poll, not only when v3 fails: if v3 is down, this feed's data is
+  // used outright; if v3 succeeded, its vehicles are still merged with this
+  // feed's by mergeVehicleFeeds, which resolves each vehicle to whichever
+  // side actually observed it more recently, and adds any vehicle only one
+  // side reported at all. Two independent hosting paths for the same MBTA
+  // AVL data (REST API cluster vs. S3-hosted static file) can each briefly
+  // lag or drop a vehicle on their own, so checking both is what actually
+  // gets "most up to date and accurate," not just resilience to one being
+  // fully down.
+  try{
+    const railVehicles = await fetchRailPositionsFeed();
+    if(railVehicles.length){
+      if(primaryFeedFailed){
         state.vehicles = railVehicles;
         setLiveStatus(true);
         primaryFeedFailed = false;
+      }else{
+        state.vehicles = mergeVehicleFeeds(state.vehicles, railVehicles);
       }
-    }catch(e){ /* falls through to the Swiftly fallback below */ }
-  }
+    }
+  }catch(e){ /* falls through to the Swiftly fallback below */ }
 
   // Swiftly fallback/merge — see fetchSwiftlyVehicles above and
   // /api/swiftly-vehicle-positions.js for full context. If MBTA's own feed
