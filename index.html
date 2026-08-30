@@ -723,6 +723,13 @@ body.dark .stop-dot{background:var(--bg);}
   box-shadow:0 1px 3px rgba(0,0,0,0.25); z-index:3; cursor:pointer;
   transition:top 1s ease, left 1s ease;
 }
+/* Plays once, only on the render where a vehicle bubble is first created
+   (see isNewBubble in renderTrainDots) — a train that wasn't on the page a
+   moment ago fades smoothly into view instead of just popping in at full
+   opacity the instant the feed reports it. Separate from the transition
+   above (which only ever animates top/left), so the two never conflict. */
+.train-bubble.bubble-appear{ animation:bubbleFadeIn 0.35s ease-out; }
+@keyframes bubbleFadeIn{ from{ opacity:0; transform:scale(0.85); } to{ opacity:1; transform:scale(1); } }
 /* Leader lines are plain divs (not SVG <line>s) specifically so they can be
    animated with CSS transitions — x1/y1/x2/y2 on an SVG <line> have no
    corresponding CSS property in any browser, so a transition on them is
@@ -2287,7 +2294,7 @@ window.addEventListener('popstate', ()=>{
 // needs to be hand-updated to the current date/time whenever a real change
 // is deployed. Any ISO 8601 string with an offset works — init() renders it
 // in the visitor's own local time regardless of what offset is used here.
-const APP_LAST_UPDATED = '2026-08-28T00:57:10-04:00';
+const APP_LAST_UPDATED = '2026-08-30T01:21:15-04:00';
 const MBTA_API_KEY = '7171c5e6f11c447bb3591c1fc1f3b5a9';
 const MBTA_HEADERS = { 'Accept':'application/vnd.api+json' };
 function withMbtaKey(url){
@@ -5016,13 +5023,19 @@ function renderTrainDots(){
 
       seenVehicleIds.add(String(entry.v.id));
       let bubble = existingBubbles[entry.v.id];
+      // Only a genuinely NEW bubble (a train that wasn't on this page a
+      // moment ago) gets the fade-in below — an existing bubble reused
+      // across renders never gets the class re-added, so repositioning it
+      // (still handled by the top/left transition above) never replays the
+      // animation.
+      const isNewBubble = !bubble;
       if(!bubble){
         bubble = document.createElement('div');
         bubble.addEventListener('click', ()=> showCarModal(bubble.__vehicleRef));
         ladder.appendChild(bubble);
       }
       bubble.__vehicleRef = entry.v;
-      bubble.className = 'train-bubble' + (isRainbowCar && !isOOS ? ' rainbow-outline' : '');
+      bubble.className = 'train-bubble' + (isRainbowCar && !isOOS ? ' rainbow-outline' : '') + (isNewBubble ? ' bubble-appear' : '');
       bubble.dataset.vehicleId = entry.v.id;
       bubble.dataset.cars = carParts.join(',');
       if(!isRainbowCar || isOOS){
