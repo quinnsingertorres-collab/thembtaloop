@@ -2294,7 +2294,7 @@ window.addEventListener('popstate', ()=>{
 // needs to be hand-updated to the current date/time whenever a real change
 // is deployed. Any ISO 8601 string with an offset works — init() renders it
 // in the visitor's own local time regardless of what offset is used here.
-const APP_LAST_UPDATED = '2026-08-30T01:56:34-04:00';
+const APP_LAST_UPDATED = '2026-08-30T12:33:23-04:00';
 const MBTA_API_KEY = '7171c5e6f11c447bb3591c1fc1f3b5a9';
 const MBTA_HEADERS = { 'Accept':'application/vnd.api+json' };
 function withMbtaKey(url){
@@ -5609,6 +5609,14 @@ async function showCarModal(v){
     // saving an edit) still swaps content in once ready instead of blanking
     // the panel first.
     document.getElementById('carModalBody').innerHTML = loadingSceneHtml();
+    // The Status/Next stop/Destination/speed/Last update block gets moved
+    // OUT of #carModalBody into the sticky header once a render finishes
+    // (see the appendChild near the bottom of this function) — so blanking
+    // carModalBody alone doesn't touch it. Without this, the previous
+    // vehicle's info stays visible up in the sticky header, unchanged,
+    // sitting right above the fresh "Loading" placeholder below it, which
+    // is exactly the stale-data flash this whole block exists to prevent.
+    clearStaleModalStickyInfo();
   }
   carModalShownVehicleId = String(v.id);
   document.getElementById('carModalOverlay').classList.add('show');
