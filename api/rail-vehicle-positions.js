@@ -23,8 +23,24 @@ module.exports = async function handler(req, res) {
       return;
     }
     const data = await upstream.json();
-    // Same short edge cache as the other proxies in this directory.
-    res.setHeader('Cache-Control', 's-maxage=10, stale-while-revalidate=30');
+    // Checked by hand against the live S3 object: its Last-Modified header
+    // actually advances about once per second, much faster than the ~10s
+    // cadence assumed elsewhere in this app for MBTA's v3 REST API. s-maxage
+    // controls how often Vercel's edge re-invokes this function at all
+    // (every request within the window is served the cached copy for free,
+    // regardless of how many clients are polling) — so this is the one
+    // knob that actually controls freshness here, not the client's own
+    // poll interval.
+    //
+    // Was 10s, then 5s; confirmed against real Vercel usage (37k
+    // invocations account-wide after a full month at 10s — nowhere near
+    // the Hobby plan's shared 1M/mo budget across all three /api proxies
+    // in this directory) that there's plenty of room to go lower. At 3s,
+    // even a pessimistic worst-case-scaling estimate lands this endpoint
+    // around ~60-70k/mo combined with the other two, still far under the
+    // cap. Re-check the Vercel dashboard's Usage tab after this change
+    // actually runs for a while before pushing it any lower than this.
+    res.setHeader('Cache-Control', 's-maxage=3, stale-while-revalidate=9');
     res.status(200).json(data);
   } catch (e) {
     res.status(502).json({ error: 'Failed to fetch upstream rail vehicle-positions feed' });
