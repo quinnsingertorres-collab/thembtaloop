@@ -2294,7 +2294,7 @@ window.addEventListener('popstate', ()=>{
 // needs to be hand-updated to the current date/time whenever a real change
 // is deployed. Any ISO 8601 string with an offset works — init() renders it
 // in the visitor's own local time regardless of what offset is used here.
-const APP_LAST_UPDATED = '2026-08-30T01:51:19-04:00';
+const APP_LAST_UPDATED = '2026-08-30T01:56:34-04:00';
 const MBTA_API_KEY = '7171c5e6f11c447bb3591c1fc1f3b5a9';
 const MBTA_HEADERS = { 'Accept':'application/vnd.api+json' };
 function withMbtaKey(url){
@@ -5597,14 +5597,20 @@ function clearStaleModalStickyInfo(){
 async function showCarModal(v){
   const myModalToken = ++modalRefreshToken;
   const alreadyOpen = document.getElementById('carModalOverlay').classList.contains('show');
+  const isSameVehicleAlreadyShown = alreadyOpen && carModalShownVehicleId === String(v.id);
   document.getElementById('carModalTitle').textContent = `${getDisplayBranch(v.branch)} \u00b7 ${String(v.label).split('-').length > 1 ? 'Cars' : 'Car'} ${formatCarNumberForDisplay(v.label)}`;
-  if(!alreadyOpen){
-    // Only show the loading flash when this is a genuinely fresh open (the
-    // modal wasn't already showing something) — a refresh of already-open
-    // content (auto-refresh, or right after saving an edit) swaps content
-    // in once ready instead of blanking the panel first.
+  if(!isSameVehicleAlreadyShown){
+    // Blank on a genuinely fresh open AND when switching to a different
+    // vehicle while the modal was already open (isSameVehicleAlreadyShown
+    // catches the latter) — otherwise the previous vehicle's Status/
+    // Destination/speed/last-update/operator info sits on screen, unchanged,
+    // for however long this vehicle's roster/consist/trip-origin lookups
+    // take to resolve. A same-vehicle refresh (auto-refresh, or right after
+    // saving an edit) still swaps content in once ready instead of blanking
+    // the panel first.
     document.getElementById('carModalBody').innerHTML = loadingSceneHtml();
   }
+  carModalShownVehicleId = String(v.id);
   document.getElementById('carModalOverlay').classList.add('show');
 
   // Reuses the Fleet Roster page's own 15-minute cache (loadRosterPanelData)
@@ -6019,7 +6025,7 @@ async function showCarModal(v){
 
   const nextStopInfo = tripUpdatesCache[v.id];
   const nextStopNotice = nextStopInfo
-    ? `<div class="modal-row"><span>Next stop</span><strong>${displayName(nextStopInfo.stopName)} &mdash; ${formatEtaMinutesDisplay(nextStopInfo.etaMinutes, true)}</strong></div>`
+    ? `<div class="modal-row"><span>Next stop</span><strong>${displayName(nextStopInfo.stopName)}</strong></div>`
     : '';
 
   const GREEN_BRANCH_NAMES = { B:'Boston College', C:'Cleveland Circle', D:'Riverside', E:'Heath Street' };
@@ -6032,16 +6038,32 @@ async function showCarModal(v){
   // train's own real route (see getValidStopsForVehicle).
   const validStopsForThisVehicle = getValidStopsForVehicle(v);
   const existingStandingBy = standingByCache[v.id];
+  const standingByHoldEndMs = (existingStandingBy && !existingStandingBy.untilRelease && existingStandingBy.holdMinutes)
+    ? existingStandingBy.ts + existingStandingBy.holdMinutes * 60000
+    : null;
   const standingBySection = existingStandingBy
     ? `<div class="modal-section">
         <h4>Standing by</h4>
         <div class="modal-row"><span>Station</span><strong>${displayName(existingStandingBy.stationName)}</strong></div>
         ${existingStandingBy.untilRelease
           ? `<div class="modal-row"><span>Expected hold</span><strong>Until release</strong></div>`
-          : (existingStandingBy.holdMinutes ? `<div class="modal-row"><span>Expected hold</span><strong>~${existingStandingBy.holdMinutes} min</strong></div>` : '')}
+          : (standingByHoldEndMs ? `<div class="modal-row"><span>Time remaining</span><strong data-hold-end="${standingByHoldEndMs}">${formatStandingByCountdown(standingByHoldEndMs)}</strong></div>` : '')}
         ${existingStandingBy.notes ? `<div class="signin-note">"${existingStandingBy.notes}"</div>` : ''}
         <div class="signin-note">Reported by ${existingStandingBy.reportedBy || 'Unknown'} \u2014 clears automatically once the train leaves this station.</div>
-        ${state.signedIn ? `<button class="roster-reset-btn" id="clearStandingByBtn" style="margin-top:8px;">Cancel standing by</button>` : ''}
+        ${state.signedIn ? `
+        <div style="display:flex; gap:8px; margin-top:8px;">
+          <button class="roster-reset-btn" id="editStandingByBtn" style="flex:1;">Edit hold time</button>
+          <button class="roster-reset-btn" id="clearStandingByBtn" style="flex:1;">Cancel standing by</button>
+        </div>
+        <div id="standingByEditForm" style="display:none; margin-top:8px;">
+          <input type="number" class="roster-input" id="standingByEditMinutes" data-enter-target="saveStandingByEditBtn" placeholder="New expected hold time in minutes" min="0" value="${existingStandingBy.holdMinutes || ''}" ${existingStandingBy.untilRelease ? 'disabled' : ''}>
+          <label style="display:flex; align-items:center; gap:6px; margin:6px 0 2px; font-size:13px; color:var(--text-dim);">
+            <input type="checkbox" id="standingByEditUntilRelease" style="width:auto;" ${existingStandingBy.untilRelease ? 'checked' : ''}>
+            Standing by until release (no set time \u2014 holding for dispatch)
+          </label>
+          <button class="account-btn" id="saveStandingByEditBtn" style="margin-top:6px;">Save</button>
+          <span class="roster-submit-note" id="standingByEditNote"></span>
+        </div>` : ''}
       </div>`
     : (state.signedIn ? `<div class="modal-section">
         <h4>Standing by</h4>
@@ -6461,6 +6483,39 @@ async function showCarModal(v){
   if(clearStandingByBtn){
     clearStandingByBtn.addEventListener('click', async ()=>{
       await clearStandingByReport(v.id, true);
+      showCarModal(v);
+    });
+  }
+  const editStandingByBtn = document.getElementById('editStandingByBtn');
+  const standingByEditForm = document.getElementById('standingByEditForm');
+  const standingByEditUntilReleaseCheckbox = document.getElementById('standingByEditUntilRelease');
+  const standingByEditMinutesInput = document.getElementById('standingByEditMinutes');
+  if(editStandingByBtn && standingByEditForm){
+    editStandingByBtn.addEventListener('click', ()=>{
+      standingByEditForm.style.display = standingByEditForm.style.display === 'none' ? 'block' : 'none';
+    });
+  }
+  if(standingByEditUntilReleaseCheckbox && standingByEditMinutesInput){
+    // Same mutual-exclusivity as the initial report form above.
+    standingByEditUntilReleaseCheckbox.addEventListener('change', ()=>{
+      const checked = standingByEditUntilReleaseCheckbox.checked;
+      standingByEditMinutesInput.disabled = checked;
+      if(checked) standingByEditMinutesInput.value = '';
+    });
+  }
+  const saveStandingByEditBtn = document.getElementById('saveStandingByEditBtn');
+  if(saveStandingByEditBtn){
+    saveStandingByEditBtn.addEventListener('click', async ()=>{
+      const untilRelease = !!(standingByEditUntilReleaseCheckbox && standingByEditUntilReleaseCheckbox.checked);
+      const minutes = untilRelease ? '' : standingByEditMinutesInput.value.trim();
+      const note = document.getElementById('standingByEditNote');
+      if(!untilRelease && !minutes){
+        note.textContent = 'Enter a new hold time, or check "until release".';
+        return;
+      }
+      // Station and notes carry over unchanged — this form only edits the
+      // hold-time figure itself, not the whole report.
+      await saveStandingByReport(v, existingStandingBy.stationName, minutes ? parseInt(minutes, 10) : null, existingStandingBy.notes, untilRelease);
       showCarModal(v);
     });
   }
@@ -7020,6 +7075,10 @@ function operatorFieldHtml(tripId, position, pred, userInfoMap){
 }
 
 let modalRefreshToken = 0;
+// Tracks which vehicle's data is currently (or most recently) rendered into
+// #carModalBody — see showCarModal's isSameVehicleAlreadyShown/blanking
+// logic above.
+let carModalShownVehicleId = null;
 
 async function showTerminusSchedule(branchKey, stopName, directionId){
   clearStaleModalStickyInfo();
@@ -10990,6 +11049,32 @@ function tickClock(){
   document.getElementById('clock').innerHTML = html;
 }
 
+// Live countdown for a standing-by report's expected hold time (see the
+// "Standing by" modal section in showCarModal). Formats a plain m:ss count
+// down to zero, then switches to a plain-language message instead of
+// showing "0:00" or going negative — riders care whether the train should
+// be moving again, not the exact expired duration.
+function formatStandingByCountdown(holdEndMs){
+  const remainingMs = holdEndMs - Date.now();
+  if(remainingMs <= 0) return 'Train should be proceeding momentarily';
+  const totalSeconds = Math.ceil(remainingMs / 1000);
+  const mins = Math.floor(totalSeconds / 60);
+  const secs = totalSeconds % 60;
+  return `${mins}:${String(secs).padStart(2, '0')}`;
+}
+// Ticks every element carrying a data-hold-end timestamp (currently just
+// the one standing-by countdown row in the car modal, but written generally
+// in case another view wants one later) — a plain per-second DOM text
+// update, not a re-render, so it doesn't fight the modal's own unsaved-input
+// guard on its 15s refresh cycle.
+function tickStandingByCountdowns(){
+  document.querySelectorAll('[data-hold-end]').forEach(el=>{
+    const holdEndMs = parseInt(el.dataset.holdEnd, 10);
+    if(!holdEndMs) return;
+    el.textContent = formatStandingByCountdown(holdEndMs);
+  });
+}
+
 function weatherCodeToLabel(code){
   const labels = {
     0: 'Clear', 1: 'Mostly clear', 2: 'Partly cloudy', 3: 'Overcast',
@@ -13758,6 +13843,7 @@ async function init(){
   alignMainGridPanels();
   tickClock();
   setInterval(tickClock, 1000);
+  setInterval(tickStandingByCountdowns, 1000);
   fetchWeather();
   setInterval(fetchWeather, 600000);
   // MBTA's underlying vehicle position data (reported via each train's AVL
