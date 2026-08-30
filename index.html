@@ -1526,7 +1526,7 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
         <span class="menu-link-arrow">&rsaquo;</span>
       </div>
       <div class="menu-link" data-navto="INSPECTORS">
-        <span>Green Line Inspectors</span>
+        <span>Green Line Officials</span>
         <span class="menu-link-arrow">&rsaquo;</span>
       </div>
       <div class="menu-link" data-navto="POINTS">
@@ -1870,7 +1870,7 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
   <div class="panel full-bleed" id="inspectorsPanel" style="display:none;">
    <div class="full-bleed-inner">
     <div class="panel-head">
-      <h2>Green Line Inspectors</h2>
+      <h2>Green Line Officials</h2>
       <span class="note">&mdash;</span>
     </div>
     <div class="back-link" id="inspectorsBackBtn">&lsaquo; Back</div>
@@ -2390,7 +2390,7 @@ const PAGES = {
     hex:'#B45309', label:'Points', isPoints:true
   },
   INSPECTORS: {
-    hex:'#0E7490', label:'Green Line Inspectors', isInspectors:true
+    hex:'#0E7490', label:'Green Line Officials', isInspectors:true
   },
   BUGS: {
     hex:'#334155', label:'Bugs & Feature Requests', isBugs:true
@@ -8595,6 +8595,72 @@ function isLongDwellAtTerminus(v, now){
   return (now - entry.since) > LONG_DWELL_REMOVE_MS;
 }
 
+// Per-branch "trip" boundary definitions — a physical round trip (or, for
+// D, a one-way run) starts and ends at these stop(s), per community
+// consensus on how Green Line trips are actually run:
+//   MATTAPAN: Mattapan -> Ashmont -> Mattapan (one round trip)
+//   B: Boston College -> Government Center -> Boston College
+//   C: Cleveland Circle -> Government Center -> Cleveland Circle
+//   D: Riverside -> Union Square OR Union Square -> Riverside (one-way —
+//      each one-way run is its own trip, so BOTH ends are boundaries)
+//   E: Medford/Tufts -> Heath Street -> Medford/Tufts
+// This is a distinct concept from LEADER_FOLLOWER_LOOP_ENDS above (which
+// pairs of trains can be one another's leader/follower) and deliberately
+// treats some of the same stops differently — e.g. Government Center is a
+// real trip boundary for B/C here, but not a loop point there. Heath
+// Street/Ashmont/Government Center are the MIDPOINT turnback of a single
+// round trip under this definition, not where one trip ends and the next
+// begins, so they're deliberately not included as boundaries here.
+const TRIP_BOUNDARY_STOPS = {
+  MATTAPAN: ['Mattapan'],
+  B: ['Boston College'],
+  C: ['Cleveland Circle'],
+  D: ['Riverside', 'Union Square'],
+  E: ['Medford/Tufts']
+};
+
+// Detects the moment a vehicle finishes one trip and starts the next (per
+// TRIP_BOUNDARY_STOPS above): a direction change while still associated
+// with that branch's own boundary stop — e.g. a train reported eastbound
+// at Medford/Tufts that's now reported westbound. tripBoundaryTracker
+// remembers the last direction seen there per vehicle id, persisting no
+// matter how long the vehicle is away running the rest of its trip, so the
+// comparison still works whenever it next returns.
+//
+// Two things happen at that moment:
+//   1) The pilot/trailer car order flips (reverses) — physically whichever
+//      car was leading is now trailing once the train reverses, but
+//      MBTA's feed has a real, sometimes lengthy delay updating the
+//      reported consist order to match. E.g. a train reported as 858-600
+//      entering Medford/Tufts eastbound becomes 600-858 the moment it's
+//      confirmed headed westbound again — corrected immediately here
+//      rather than waiting on the feed. Mutating v.label directly (same
+//      approach the Heath Street direction flip above already uses) means
+//      every downstream display (bubbles, modal, leader/follower, roster)
+//      automatically reflects the corrected order with no special-casing
+//      needed at each call site. A community consist correction for this
+//      vehicle (consistOverrideCache), if one exists, still takes
+//      precedence over this automatic guess wherever it's checked — that's
+//      unchanged and deliberate.
+//   2) Any reported operator info for this vehicle's current cars is
+//      cleared — operator info is specific to whoever's running THIS trip
+//      and shouldn't silently carry over and get attributed to the next
+//      one. Applies even to a solo car with nothing to flip.
+let tripBoundaryTracker = {}; // vehicleId -> last direction seen at its branch's boundary stop
+function applyTripBoundaryEvents(v){
+  const boundaryStops = TRIP_BOUNDARY_STOPS[v.branch];
+  if(!boundaryStops || !v.stopName || !boundaryStops.some(s => normName(s) === normName(v.stopName))) return;
+  const lastDirection = tripBoundaryTracker[v.id];
+  tripBoundaryTracker[v.id] = v.direction;
+  if(lastDirection === undefined || lastDirection === v.direction) return;
+
+  const parts = String(v.label).split('-');
+  if(parts.length > 1) v.label = parts.reverse().join('-');
+
+  const effectiveLabel = consistOverrideCache[carSetKey(v.label)] || v.label;
+  String(effectiveLabel).split('-').forEach(carNum => deleteVehicleOperator(v.id, carNum));
+}
+
 async function refreshVehicles(){
   try{
     const vehicles = state.activeLine === 'red' ? await fetchRedLineVehicles()
@@ -8642,6 +8708,12 @@ async function refreshVehicles(){
         v.direction = 1;
       }
     });
+
+    // Trip-boundary car-order flip + operator reset — see
+    // applyTripBoundaryEvents/TRIP_BOUNDARY_STOPS above. Runs after the
+    // Heath Street flip above so a same-poll direction correction there is
+    // already reflected before this checks for a trip-boundary transition.
+    state.vehicles.forEach(v => applyTripBoundaryEvents(v));
   }
 
   // Update the long-lived last-seen tracker from the actual fresh fetch
@@ -8697,6 +8769,13 @@ async function refreshVehicles(){
     state.vehicles = state.vehicles.filter(v => !isLongDwellAtTerminus(v, now));
     Object.keys(terminusDwellTracker).forEach(id=>{
       if(!evaluatedIds.has(id)) delete terminusDwellTracker[id];
+    });
+    // Same unbounded-growth concern as terminusDwellTracker just above —
+    // sweep tripBoundaryTracker (see applyTripBoundaryEvents) for any
+    // vehicle id that's genuinely gone from the feed, using this same
+    // already-computed evaluatedIds set.
+    Object.keys(tripBoundaryTracker).forEach(id=>{
+      if(!evaluatedIds.has(id)) delete tripBoundaryTracker[id];
     });
   }
 
@@ -8998,7 +9077,9 @@ const INSPECTOR_POSTS = [
   { num:'903', location:'Park Street East', lines:['B','C','D','E'] },
   { num:'904', location:'Park Street West (CI)', lines:['B','C','D','E'] },
   { num:'905', location:'Boylston', lines:['B','C','D','E'] },
+  { num:'906', location:'Arlington', lines:['B','C','D','E'] },
   { num:'907', location:'Copley', lines:['B','C','D','E'] },
+  { num:'908', location:'Prudential', lines:['E'] },
   { num:'909', location:'Kenmore', lines:['B','C','D','E'] },
   { num:'912', location:'Beacon Street (MCI)', lines:['C'] },
   { num:'913', location:'Cleveland Circle (Crossback Operator)', lines:['C'] },
@@ -9031,7 +9112,7 @@ function buildInspectorsPanel(){
       )
     : INSPECTOR_POSTS;
   if(filtered.length === 0){
-    list.innerHTML = `<div class="signin-note">No inspector posts match "${search}".</div>`;
+    list.innerHTML = `<div class="signin-note">No official posts match "${search}".</div>`;
     return;
   }
   list.innerHTML = filtered.map(p => {
@@ -10762,7 +10843,7 @@ const LINE_PAGE_KEYS = {
    pages (map views) get /line/branch — Orange and Blue have only one page
    each, so they get no branch segment (just /orange, /blue). The Fleet
    Roster gets /line/roster. A handful of pages are the same regardless of
-   which line is active (Settings, Points, Bugs, Green Line Inspectors,
+   which line is active (Settings, Points, Bugs, Green Line Officials,
    Moderation, Alerts and Notifications, Edit Logs) — those get flat,
    line-independent paths (e.g. /setting, /points) instead.
    Uses history.replaceState rather than pushState for every switch, so
