@@ -2166,6 +2166,41 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
           </div>
         </div>
       </div>
+
+      <!-- Moderator-only, temporary: lets a moderator test which
+           combination of vehicle-location sources (MBTA v3 API, MBTA's
+           enhanced rail GTFS-rt feed, Swiftly) actually behaves best,
+           without needing a code change per experiment. See
+           menuLocationSourcesSection visibility toggles (completeSignIn /
+           resetSignedOutUI) and the state.locSourceV3/RailFeed/Swiftly
+           reads in refreshVehicles. Kept as the very last section on the
+           page on purpose. -->
+      <div id="menuLocationSourcesSection" style="display:none;">
+        <div class="settings-section" data-section="locationSources">
+          <div class="menu-section-label section-toggle">
+            <span>Vehicle location sources</span>
+            <svg class="section-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div class="section-body">
+            <div class="menu-row" style="flex-direction:column; align-items:flex-start; gap:2px;">
+              <span class="menu-note" style="margin-left:0;">Moderator-only, temporary for testing. Controls which sources refreshVehicles actually uses right now — turning a source off is treated the same as that source being down, so the others take over exactly like a real outage. Visible only to you.</span>
+            </div>
+            <div class="menu-divider"></div>
+            <div class="menu-row">
+              <span>MBTA v3 API<span class="menu-note">(primary source)</span></span>
+              <div class="switch" id="locSourceV3Switch"><div class="knob"></div></div>
+            </div>
+            <div class="menu-row">
+              <span>MBTA rail feed (GTFS-rt)<span class="menu-note">(S3-hosted)</span></span>
+              <div class="switch" id="locSourceRailFeedSwitch"><div class="knob"></div></div>
+            </div>
+            <div class="menu-row">
+              <span>Swiftly<span class="menu-note">(bus/rail only today)</span></span>
+              <div class="switch" id="locSourceSwiftlySwitch"><div class="knob"></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
     <div class="settings-last-updated" id="settingsLastUpdated"></div>
   </div>
@@ -3310,7 +3345,7 @@ function rosterBuildYearFor(line, type, car){
   return rosterCarInfoFor(line, type).year;
 }
 
-let state = { vehicles: [], vehiclesEverLoaded: false, currentPage: 'B', lastMainPage: 'B', live: null, abbreviate: false, staggerBunchedTrains: false, signedIn: false, userName: '', photoURL: '', isModerator: false, isTrustedMember: false, filterDirection: 'ALL', filterType: 'ALL', rosterSearch: '', rosterTypeFilter: 'ALL', notifMaster: true, notifDoubleType8: false, notifPride: false, notifType9: false, notifCarBackInService: false, activeLine: 'green', otherBranchesVisible: { B:false, C:false, D:false, E:false, ashmont:false, braintree:false }, statusChipShowDate: true, statusChipShowWeather: true, clockShowSeconds: true, clock24Hour: false, statusChipPosition: 'below', viewingCarKey: null, viewingCarNumber: null, ladderZoom: 1 };
+let state = { vehicles: [], vehiclesEverLoaded: false, currentPage: 'B', lastMainPage: 'B', live: null, abbreviate: false, staggerBunchedTrains: false, signedIn: false, userName: '', photoURL: '', isModerator: false, isTrustedMember: false, filterDirection: 'ALL', filterType: 'ALL', rosterSearch: '', rosterTypeFilter: 'ALL', notifMaster: true, notifDoubleType8: false, notifPride: false, notifType9: false, notifCarBackInService: false, activeLine: 'green', otherBranchesVisible: { B:false, C:false, D:false, E:false, ashmont:false, braintree:false }, statusChipShowDate: true, statusChipShowWeather: true, clockShowSeconds: true, clock24Hour: false, statusChipPosition: 'below', viewingCarKey: null, viewingCarNumber: null, ladderZoom: 1, locSourceV3: true, locSourceRailFeed: true, locSourceSwiftly: true };
 
 // Same markup as the static placeholder in the vehicle-list HTML (see
 // #vehicleList in the body) — reused here so it also reappears while
@@ -4054,7 +4089,10 @@ async function savePrefs(){
       clockShowSeconds: state.clockShowSeconds,
       clock24Hour: state.clock24Hour,
       statusChipPosition: state.statusChipPosition,
-      hideSnapshotWatermark: state.hideSnapshotWatermark
+      hideSnapshotWatermark: state.hideSnapshotWatermark,
+      locSourceV3: state.locSourceV3,
+      locSourceRailFeed: state.locSourceRailFeed,
+      locSourceSwiftly: state.locSourceSwiftly
     }));
   }catch(e){ console.error(e); }
 }
@@ -8807,19 +8845,31 @@ function applyTripBoundaryEvents(v){
 
 async function refreshVehicles(){
   let primaryFeedFailed = false;
-  try{
-    const vehicles = state.activeLine === 'red' ? await fetchRedLineVehicles()
-      : state.activeLine === 'orange' ? await fetchOrangeLineVehicles()
-      : state.activeLine === 'blue' ? await fetchBlueLineVehicles()
-      : await fetchLiveVehicles();
-    // A successful fetch that legitimately returns zero vehicles (e.g. late
-    // night when the Green Line has little/no overnight service) is real
-    // live data, not a broken feed — only an actual thrown error (network
-    // failure, CORS, bad HTTP status) should fall back to demo mode.
-    state.vehicles = vehicles;
-    setLiveStatus(true);
-  }catch(err){
-    console.error('Live vehicle feed failed:', err);
+  // state.locSourceV3/RailFeed/Swiftly gate each source on/off — see the
+  // moderator-only "Vehicle location sources" settings section (temporary,
+  // for testing which combination of sources actually behaves best; default
+  // is all three on, matching the app's normal behavior). Turning V3 off is
+  // treated exactly like a real V3 outage, so the other enabled sources take
+  // over the same way they would if V3 actually went down.
+  if(state.locSourceV3){
+    try{
+      const vehicles = state.activeLine === 'red' ? await fetchRedLineVehicles()
+        : state.activeLine === 'orange' ? await fetchOrangeLineVehicles()
+        : state.activeLine === 'blue' ? await fetchBlueLineVehicles()
+        : await fetchLiveVehicles();
+      // A successful fetch that legitimately returns zero vehicles (e.g. late
+      // night when the Green Line has little/no overnight service) is real
+      // live data, not a broken feed — only an actual thrown error (network
+      // failure, CORS, bad HTTP status) should fall back to demo mode.
+      state.vehicles = vehicles;
+      setLiveStatus(true);
+    }catch(err){
+      console.error('Live vehicle feed failed:', err);
+      state.vehicles = [];
+      setLiveStatus(false);
+      primaryFeedFailed = true;
+    }
+  }else{
     state.vehicles = [];
     setLiveStatus(false);
     primaryFeedFailed = true;
@@ -8827,47 +8877,51 @@ async function refreshVehicles(){
 
   // MBTA rail-feed combination — see fetchRailPositionsFeed and
   // mergeVehicleFeeds above, and /api/rail-vehicle-positions.js. Fetched on
-  // every poll, not only when v3 fails: if v3 is down, this feed's data is
-  // used outright; if v3 succeeded, its vehicles are still merged with this
-  // feed's by mergeVehicleFeeds, which resolves each vehicle to whichever
-  // side actually observed it more recently, and adds any vehicle only one
-  // side reported at all. Two independent hosting paths for the same MBTA
-  // AVL data (REST API cluster vs. S3-hosted static file) can each briefly
-  // lag or drop a vehicle on their own, so checking both is what actually
-  // gets "most up to date and accurate," not just resilience to one being
-  // fully down.
-  try{
-    const railVehicles = await fetchRailPositionsFeed();
-    if(railVehicles.length){
-      if(primaryFeedFailed){
-        state.vehicles = railVehicles;
-        setLiveStatus(true);
-        primaryFeedFailed = false;
-      }else{
-        state.vehicles = mergeVehicleFeeds(state.vehicles, railVehicles);
+  // every poll, not only when v3 fails/is disabled: if v3 has no data, this
+  // feed's data is used outright; if v3 succeeded, its vehicles are still
+  // merged with this feed's by mergeVehicleFeeds, which resolves each
+  // vehicle to whichever side actually observed it more recently, and adds
+  // any vehicle only one side reported at all. Two independent hosting
+  // paths for the same MBTA AVL data (REST API cluster vs. S3-hosted static
+  // file) can each briefly lag or drop a vehicle on their own, so checking
+  // both is what actually gets "most up to date and accurate," not just
+  // resilience to one being fully down.
+  if(state.locSourceRailFeed){
+    try{
+      const railVehicles = await fetchRailPositionsFeed();
+      if(railVehicles.length){
+        if(primaryFeedFailed){
+          state.vehicles = railVehicles;
+          setLiveStatus(true);
+          primaryFeedFailed = false;
+        }else{
+          state.vehicles = mergeVehicleFeeds(state.vehicles, railVehicles);
+        }
       }
-    }
-  }catch(e){ /* falls through to the Swiftly fallback below */ }
+    }catch(e){ /* falls through to the Swiftly fallback below */ }
+  }
 
   // Swiftly fallback/merge — see fetchSwiftlyVehicles above and
   // /api/swiftly-vehicle-positions.js for full context. If MBTA's own feed
-  // (and the rail-feed fallback just above) both failed, try Swiftly
-  // instead of going straight to an empty map. Either way, merge in any
-  // vehicle id Swiftly reports that MBTA's feed didn't. Wrapped defensively
-  // so any problem here — including simply not having a Swiftly key
-  // configured — can never break the primary feed.
-  try{
-    const swiftlyVehicles = await fetchSwiftlyVehicles();
-    if(swiftlyVehicles.length){
-      if(primaryFeedFailed){
-        state.vehicles = swiftlyVehicles;
-        setLiveStatus(true);
-      }else{
-        const existingIds = new Set(state.vehicles.map(v => v.id));
-        swiftlyVehicles.forEach(v=>{ if(!existingIds.has(v.id)) state.vehicles.push(v); });
+  // (and the rail-feed fallback just above) both failed or are disabled,
+  // try Swiftly instead of going straight to an empty map. Either way,
+  // merge in any vehicle id Swiftly reports that MBTA's feed didn't.
+  // Wrapped defensively so any problem here — including simply not having
+  // a Swiftly key configured — can never break the primary feed.
+  if(state.locSourceSwiftly){
+    try{
+      const swiftlyVehicles = await fetchSwiftlyVehicles();
+      if(swiftlyVehicles.length){
+        if(primaryFeedFailed){
+          state.vehicles = swiftlyVehicles;
+          setLiveStatus(true);
+        }else{
+          const existingIds = new Set(state.vehicles.map(v => v.id));
+          swiftlyVehicles.forEach(v=>{ if(!existingIds.has(v.id)) state.vehicles.push(v); });
+        }
       }
-    }
-  }catch(e){ /* Swiftly is strictly additive/fallback — ignore and keep whatever MBTA already gave us */ }
+    }catch(e){ /* Swiftly is strictly additive/fallback — ignore and keep whatever MBTA already gave us */ }
+  }
 
   state.vehiclesEverLoaded = true;
 
@@ -11349,6 +11403,7 @@ async function completeSignIn(name, email, uid, photoURL, shortId){
   document.getElementById('membersMenuLink').style.display = state.isModerator ? 'flex' : 'none';
   document.getElementById('modNotifsMenuLink').style.display = (state.isModerator || state.isTrustedMember) ? 'flex' : 'none';
   document.getElementById('editLogsMenuLink').style.display = state.isModerator ? 'flex' : 'none';
+  document.getElementById('menuLocationSourcesSection').style.display = state.isModerator ? 'block' : 'none';
   buildNav();
   if(state.currentPage === 'ROSTER') buildRosterPanel();
   if(state.currentPage === 'CARDETAIL') buildCarDetailPanel();
@@ -11384,6 +11439,7 @@ function resetSignedOutUI(){
   document.getElementById('membersMenuLink').style.display = 'none';
   document.getElementById('modNotifsMenuLink').style.display = 'none';
   document.getElementById('editLogsMenuLink').style.display = 'none';
+  document.getElementById('menuLocationSourcesSection').style.display = 'none';
   document.getElementById('menuDropdown').classList.remove('show');
   buildNav();
   if(state.currentPage === 'ROSTER') buildRosterPanel();
@@ -12127,6 +12183,25 @@ document.getElementById('abbrevSwitch').addEventListener('click', ()=>{
   state.abbreviate = !state.abbreviate;
   document.getElementById('abbrevSwitch').classList.toggle('on', state.abbreviate);
   switchPage(state.currentPage);
+  savePrefs();
+});
+// Moderator-only, temporary testing toggles — see refreshVehicles for how
+// these actually gate each source, and menuLocationSourcesSection for the
+// moderator-only visibility. No immediate re-render needed here beyond
+// saving the pref; the next 10s vehicle poll picks it up.
+document.getElementById('locSourceV3Switch').addEventListener('click', ()=>{
+  state.locSourceV3 = !state.locSourceV3;
+  document.getElementById('locSourceV3Switch').classList.toggle('on', state.locSourceV3);
+  savePrefs();
+});
+document.getElementById('locSourceRailFeedSwitch').addEventListener('click', ()=>{
+  state.locSourceRailFeed = !state.locSourceRailFeed;
+  document.getElementById('locSourceRailFeedSwitch').classList.toggle('on', state.locSourceRailFeed);
+  savePrefs();
+});
+document.getElementById('locSourceSwiftlySwitch').addEventListener('click', ()=>{
+  state.locSourceSwiftly = !state.locSourceSwiftly;
+  document.getElementById('locSourceSwiftlySwitch').classList.toggle('on', state.locSourceSwiftly);
   savePrefs();
 });
 document.getElementById('statusChipDateSwitch').addEventListener('click', ()=>{
@@ -13557,6 +13632,18 @@ async function init(){
   state.hideSnapshotWatermark = !!prefs.hideSnapshotWatermark;
   document.getElementById('hideSnapshotWatermarkSwitch').classList.toggle('on', state.hideSnapshotWatermark);
   updateStatusChipSubRowsDisabled();
+
+  // Moderator-only testing toggle (see menuLocationSourcesSection) —
+  // restored regardless of current sign-in/moderator state, same as every
+  // other saved pref; the section itself is what's gated to moderators,
+  // not whether this is readable here. Default true on all three (today's
+  // normal behavior) so a never-set pref changes nothing.
+  state.locSourceV3 = Object.prototype.hasOwnProperty.call(prefs, 'locSourceV3') ? !!prefs.locSourceV3 : true;
+  state.locSourceRailFeed = Object.prototype.hasOwnProperty.call(prefs, 'locSourceRailFeed') ? !!prefs.locSourceRailFeed : true;
+  state.locSourceSwiftly = Object.prototype.hasOwnProperty.call(prefs, 'locSourceSwiftly') ? !!prefs.locSourceSwiftly : true;
+  document.getElementById('locSourceV3Switch').classList.toggle('on', state.locSourceV3);
+  document.getElementById('locSourceRailFeedSwitch').classList.toggle('on', state.locSourceRailFeed);
+  document.getElementById('locSourceSwiftlySwitch').classList.toggle('on', state.locSourceSwiftly);
 
   buildNav();
   buildLadder();
