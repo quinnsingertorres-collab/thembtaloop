@@ -2294,7 +2294,7 @@ window.addEventListener('popstate', ()=>{
 // needs to be hand-updated to the current date/time whenever a real change
 // is deployed. Any ISO 8601 string with an offset works — init() renders it
 // in the visitor's own local time regardless of what offset is used here.
-const APP_LAST_UPDATED = '2026-08-30T01:24:45-04:00';
+const APP_LAST_UPDATED = '2026-08-30T01:28:51-04:00';
 const MBTA_API_KEY = '7171c5e6f11c447bb3591c1fc1f3b5a9';
 const MBTA_HEADERS = { 'Accept':'application/vnd.api+json' };
 function withMbtaKey(url){
@@ -8883,12 +8883,26 @@ function applyTripBoundaryEvents(v){
 
 async function refreshVehicles(){
   let primaryFeedFailed = false;
+  // Only flips the "no connection" banner (setLiveStatus) once, at the very
+  // end, after every enabled source has actually had a chance to produce
+  // data — NOT eagerly the moment V3 alone fails or is toggled off. Calling
+  // setLiveStatus(false) immediately after a failed/disabled V3 and then
+  // setLiveStatus(true) moments later once the rail feed's await resolved
+  // was exactly what caused the banner to visibly flash on and off every
+  // single poll when testing with V3 off — each call synchronously toggles
+  // the banner's CSS class, so two calls in the same refreshVehicles run
+  // painted twice regardless of how briefly. Resolving this only once here
+  // means a source that's merely disabled (not actually down) never shows
+  // as a connection problem as long as some other enabled source came
+  // through.
+  let anySourceSucceeded = false;
+
   // state.locSourceV3/RailFeed/Swiftly gate each source on/off — see the
   // moderator-only "Vehicle location sources" settings section (temporary,
   // for testing which combination of sources actually behaves best; default
   // is all three on, matching the app's normal behavior). Turning V3 off is
-  // treated exactly like a real V3 outage, so the other enabled sources take
-  // over the same way they would if V3 actually went down.
+  // treated exactly like a real V3 outage for fallback/merge purposes, but
+  // NOT as a live/offline signal on its own (see anySourceSucceeded above).
   if(state.locSourceV3){
     try{
       const vehicles = state.activeLine === 'red' ? await fetchRedLineVehicles()
@@ -8900,16 +8914,14 @@ async function refreshVehicles(){
       // live data, not a broken feed — only an actual thrown error (network
       // failure, CORS, bad HTTP status) should fall back to demo mode.
       state.vehicles = vehicles;
-      setLiveStatus(true);
+      anySourceSucceeded = true;
     }catch(err){
       console.error('Live vehicle feed failed:', err);
       state.vehicles = [];
-      setLiveStatus(false);
       primaryFeedFailed = true;
     }
   }else{
     state.vehicles = [];
-    setLiveStatus(false);
     primaryFeedFailed = true;
   }
 
@@ -8930,11 +8942,11 @@ async function refreshVehicles(){
       if(railVehicles.length){
         if(primaryFeedFailed){
           state.vehicles = railVehicles;
-          setLiveStatus(true);
           primaryFeedFailed = false;
         }else{
           state.vehicles = mergeVehicleFeeds(state.vehicles, railVehicles);
         }
+        anySourceSucceeded = true;
       }
     }catch(e){ /* falls through to the Swiftly fallback below */ }
   }
@@ -8952,15 +8964,16 @@ async function refreshVehicles(){
       if(swiftlyVehicles.length){
         if(primaryFeedFailed){
           state.vehicles = swiftlyVehicles;
-          setLiveStatus(true);
         }else{
           const existingIds = new Set(state.vehicles.map(v => v.id));
           swiftlyVehicles.forEach(v=>{ if(!existingIds.has(v.id)) state.vehicles.push(v); });
         }
+        anySourceSucceeded = true;
       }
     }catch(e){ /* Swiftly is strictly additive/fallback — ignore and keep whatever MBTA already gave us */ }
   }
 
+  setLiveStatus(anySourceSucceeded);
   state.vehiclesEverLoaded = true;
 
   const now = Date.now();
