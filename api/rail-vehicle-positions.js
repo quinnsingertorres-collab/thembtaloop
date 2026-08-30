@@ -32,15 +32,19 @@ module.exports = async function handler(req, res) {
     // knob that actually controls freshness here, not the client's own
     // poll interval.
     //
-    // Was 10s, then 5s; confirmed against real Vercel usage (37k
+    // Was 10s, then 5s, then 3s; confirmed against real Vercel usage (37k
     // invocations account-wide after a full month at 10s — nowhere near
     // the Hobby plan's shared 1M/mo budget across all three /api proxies
-    // in this directory) that there's plenty of room to go lower. At 3s,
-    // even a pessimistic worst-case-scaling estimate lands this endpoint
-    // around ~60-70k/mo combined with the other two, still far under the
-    // cap. Re-check the Vercel dashboard's Usage tab after this change
-    // actually runs for a while before pushing it any lower than this.
-    res.setHeader('Cache-Control', 's-maxage=3, stale-while-revalidate=9');
+    // in this directory) that there was plenty of room to keep going
+    // lower. Now at 1s, matching the S3 object's own actual update
+    // cadence exactly — this is the real floor; setting it any lower
+    // couldn't produce fresher data since the source itself doesn't
+    // change any faster than this. Even a pessimistic worst-case-scaling
+    // estimate (invocations scaling a full 10x from the 10s baseline)
+    // lands this endpoint under half the account's monthly budget on its
+    // own. Re-check the Vercel dashboard's Usage tab after this runs for
+    // a while to confirm real-world numbers stay comfortable.
+    res.setHeader('Cache-Control', 's-maxage=1, stale-while-revalidate=3');
     res.status(200).json(data);
   } catch (e) {
     res.status(502).json({ error: 'Failed to fetch upstream rail vehicle-positions feed' });
