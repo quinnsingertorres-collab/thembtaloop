@@ -6678,11 +6678,25 @@ async function ensureStopIdMap(line){
     const json = await res.json();
     const map = {};
     (json.data || []).forEach(s => {
-      map[normName(s.attributes.name)] = { id: s.id, lat: s.attributes.latitude, lon: s.attributes.longitude };
+      map[normName(s.attributes.name)] = { id: s.id, name: s.attributes.name, lat: s.attributes.latitude, lon: s.attributes.longitude };
     });
     stopNameToIdCache[line] = map;
     return map;
   }catch(e){ console.error(e); return {}; }
+}
+
+// Reverse of ensureStopIdMap (stopId -> real display name), needed to turn
+// a GTFS-rt vehicle position's bare stop_id back into the stopName this
+// app positions/filters everything by. Used by the MBTA enhanced rail
+// feed fallback below — see fetchRailPositionsFallback.
+let stopIdToNameCache = {}; // line -> { stopId: displayName }
+async function ensureStopIdToNameMap(line){
+  if(stopIdToNameCache[line]) return stopIdToNameCache[line];
+  const nameMap = await ensureStopIdMap(line);
+  const reverse = {};
+  Object.keys(nameMap).forEach(key => { reverse[nameMap[key].id] = nameMap[key].name; });
+  stopIdToNameCache[line] = reverse;
+  return reverse;
 }
 
 async function fetchStopPredictions(stopId, directionId){
@@ -8343,6 +8357,70 @@ async function fetchSwiftlyVehicles(){
   }
 }
 
+// MBTA enhanced rail vehicle-positions feed (S3-hosted mirror, no key
+// required) — server-side proxy at /api/rail-vehicle-positions.js. Used
+// only as a fallback location source when the primary api-v3.mbta.com
+// /vehicles call fails outright — not merged into a healthy v3 feed, since
+// vehicle ids likely overlap between the two (same underlying MBTA AVL
+// data) and blindly merging risks showing the same physical train twice.
+// Structurally near-identical to the fetch*Vehicles functions above (same
+// route ids, current_status enum, and stop_id/stopName association), the
+// one real gap being trip headsign, which this feed doesn't carry — left
+// null, which every existing consumer of v.headsign already tolerates.
+// Bonus: multi_carriage_details gives per-car occupancy in the same shape
+// getOccupancyForCar/getCapacityPercentForCar already expect, including
+// for Green Line, which the v3 fetch never requests carriages for.
+const RAIL_FEED_ROUTE_IDS_BY_LINE = {
+  green: ['Green-B','Green-C','Green-D','Green-E','Mattapan'],
+  red: ['Red'], orange: ['Orange'], blue: ['Blue']
+};
+
+async function fetchRailPositionsFallback(){
+  try{
+    const controller = new AbortController();
+    const timeout = setTimeout(()=>controller.abort(), 6000);
+    const res = await fetch('/api/rail-vehicle-positions', { signal: controller.signal });
+    clearTimeout(timeout);
+    if(!res.ok) return [];
+    const json = await res.json();
+    const entities = Array.isArray(json.entity) ? json.entity : [];
+    const wantRoutes = RAIL_FEED_ROUTE_IDS_BY_LINE[state.activeLine];
+    if(!wantRoutes) return [];
+    const stopIdToName = await ensureStopIdToNameMap(state.activeLine);
+
+    return entities
+      .map(e => e && e.vehicle)
+      .filter(v => v && v.trip && wantRoutes.includes(v.trip.route_id) && v.vehicle && v.vehicle.id)
+      .map(v=>{
+        const routeId = v.trip.route_id;
+        let branch = routeId.replace('Green-', '');
+        if(branch === 'Mattapan') branch = 'MATTAPAN';
+        if(state.activeLine !== 'green') branch = state.activeLine.toUpperCase();
+        const stopName = v.stop_id ? (stopIdToName[v.stop_id] || null) : null;
+        const pos = v.position || {};
+        return {
+          id: v.vehicle.id,
+          branch,
+          label: v.vehicle.label || v.vehicle.id,
+          status: v.current_status,
+          direction: v.trip.direction_id,
+          stopName,
+          headsign: null,
+          lat: pos.latitude,
+          lon: pos.longitude,
+          tripId: v.trip.trip_id || null,
+          carriages: Array.isArray(v.multi_carriage_details) ? v.multi_carriage_details : null,
+          speedMph: (typeof pos.speed === 'number') ? Math.round(pos.speed * 2.23694) : null,
+          updatedAt: v.timestamp ? new Date(v.timestamp * 1000).toISOString() : null,
+          source: 'mbta-rail-fallback'
+        };
+      })
+      .filter(v => v.stopName);
+  }catch(e){
+    return [];
+  }
+}
+
 const VEHICLE_KEEP_ALIVE_MS = 100 * 1000; // keep a vehicle visible for 100s after it stops appearing in the feed
 // Real physical termini across all lines — a train that drops out of the
 // feed while sitting at one of these has most likely just finished a trip
@@ -8746,12 +8824,32 @@ async function refreshVehicles(){
     primaryFeedFailed = true;
   }
 
+  // MBTA rail-feed fallback — see fetchRailPositionsFallback above and
+  // /api/rail-vehicle-positions.js. Tried first (ahead of Swiftly) because
+  // it's MBTA's own real subway/light-rail data with full stop/status
+  // fidelity, just from a different hosting path than api-v3.mbta.com —
+  // a good candidate for recovering from an outage isolated to the v3 API
+  // cluster specifically. Only used as a fallback, never merged into an
+  // already-healthy v3 feed (see the fallback function's own comment for
+  // why merging same-source data is riskier than it sounds).
+  if(primaryFeedFailed){
+    try{
+      const railVehicles = await fetchRailPositionsFallback();
+      if(railVehicles.length){
+        state.vehicles = railVehicles;
+        setLiveStatus(true);
+        primaryFeedFailed = false;
+      }
+    }catch(e){ /* falls through to the Swiftly fallback below */ }
+  }
+
   // Swiftly fallback/merge — see fetchSwiftlyVehicles above and
   // /api/swiftly-vehicle-positions.js for full context. If MBTA's own feed
-  // just failed, try Swiftly instead of going straight to an empty map.
-  // Either way, merge in any vehicle id Swiftly reports that MBTA's feed
-  // didn't. Wrapped defensively so any problem here — including simply not
-  // having a Swiftly key configured — can never break the primary feed.
+  // (and the rail-feed fallback just above) both failed, try Swiftly
+  // instead of going straight to an empty map. Either way, merge in any
+  // vehicle id Swiftly reports that MBTA's feed didn't. Wrapped defensively
+  // so any problem here — including simply not having a Swiftly key
+  // configured — can never break the primary feed.
   try{
     const swiftlyVehicles = await fetchSwiftlyVehicles();
     if(swiftlyVehicles.length){
