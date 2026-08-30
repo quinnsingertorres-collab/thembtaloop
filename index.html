@@ -8291,6 +8291,57 @@ async function fetchBlueLineVehicles(){
   }).filter(v => v.stopName);
 }
 
+// Swiftly integration — server-side proxy lives at
+// /api/swiftly-vehicle-positions.js (reads the API key from a server-side
+// env var; see that file for setup). Swiftly reports a raw lat/lon ping
+// per vehicle with a GTFS route_type ("vehicleType") but no MBTA stop
+// association, so these vehicles deliberately come back with
+// stopName/status null rather than guessing — every part of this app that
+// positions or counts a vehicle keys off stopName (via findStopIndex,
+// which already treats a null stopName as "not on this page"), so a
+// Swiftly-sourced vehicle is safely inert everywhere except a plain live
+// id/lat/lon lookup, until/unless something adds real stop-snapping for it.
+// vehicleType per GTFS route_type: 0 = light rail (Green), 1 = subway/heavy
+// rail (Red/Orange/Blue), 3 = bus, 2 = commuter rail.
+const SWIFTLY_ROUTE_TYPE_BY_LINE = { green: '0', red: '1', orange: '1', blue: '1' };
+
+async function fetchSwiftlyVehicles(){
+  try{
+    const controller = new AbortController();
+    const timeout = setTimeout(()=>controller.abort(), 6000);
+    const res = await fetch('/api/swiftly-vehicle-positions', { signal: controller.signal });
+    clearTimeout(timeout);
+    if(!res.ok) return []; // includes the "not configured" 501 — silently no-op, not an error state for the app
+    const json = await res.json();
+    const raw = (json && json.data && Array.isArray(json.data.vehicles)) ? json.data.vehicles : [];
+    const wantType = SWIFTLY_ROUTE_TYPE_BY_LINE[state.activeLine];
+    return raw
+      .filter(v => v && v.loc && typeof v.loc.lat === 'number' && typeof v.loc.lon === 'number')
+      .filter(v => wantType === undefined || v.vehicleType === wantType)
+      .map(v => ({
+        id: 'swiftly-' + v.id,
+        // Green Line pages route by branch (B/C/D/E/Mattapan), which Swiftly's
+        // routeId can't be reliably mapped to without a published id table —
+        // rather than guess wrong, Green Line vehicles are left branch-less
+        // and dropped just below. Red/Orange/Blue have no such requirement.
+        branch: state.activeLine === 'green' ? null : state.activeLine.toUpperCase(),
+        label: String(v.id),
+        status: null,
+        direction: (v.directionId !== undefined && v.directionId !== null) ? parseInt(v.directionId, 10) : null,
+        stopName: null,
+        headsign: v.headsign || null,
+        lat: v.loc.lat,
+        lon: v.loc.lon,
+        tripId: null,
+        speedMph: (typeof v.loc.speed === 'number') ? Math.round(v.loc.speed * 2.23694) : null,
+        updatedAt: v.loc.time ? new Date(v.loc.time * 1000).toISOString() : null,
+        source: 'swiftly'
+      }))
+      .filter(v => v.branch !== null || state.activeLine !== 'green');
+  }catch(e){
+    return [];
+  }
+}
 
 const VEHICLE_KEEP_ALIVE_MS = 100 * 1000; // keep a vehicle visible for 100s after it stops appearing in the feed
 // Real physical termini across all lines — a train that drops out of the
@@ -8676,6 +8727,7 @@ function applyTripBoundaryEvents(v){
 }
 
 async function refreshVehicles(){
+  let primaryFeedFailed = false;
   try{
     const vehicles = state.activeLine === 'red' ? await fetchRedLineVehicles()
       : state.activeLine === 'orange' ? await fetchOrangeLineVehicles()
@@ -8691,7 +8743,28 @@ async function refreshVehicles(){
     console.error('Live vehicle feed failed:', err);
     state.vehicles = [];
     setLiveStatus(false);
+    primaryFeedFailed = true;
   }
+
+  // Swiftly fallback/merge — see fetchSwiftlyVehicles above and
+  // /api/swiftly-vehicle-positions.js for full context. If MBTA's own feed
+  // just failed, try Swiftly instead of going straight to an empty map.
+  // Either way, merge in any vehicle id Swiftly reports that MBTA's feed
+  // didn't. Wrapped defensively so any problem here — including simply not
+  // having a Swiftly key configured — can never break the primary feed.
+  try{
+    const swiftlyVehicles = await fetchSwiftlyVehicles();
+    if(swiftlyVehicles.length){
+      if(primaryFeedFailed){
+        state.vehicles = swiftlyVehicles;
+        setLiveStatus(true);
+      }else{
+        const existingIds = new Set(state.vehicles.map(v => v.id));
+        swiftlyVehicles.forEach(v=>{ if(!existingIds.has(v.id)) state.vehicles.push(v); });
+      }
+    }
+  }catch(e){ /* Swiftly is strictly additive/fallback — ignore and keep whatever MBTA already gave us */ }
+
   state.vehiclesEverLoaded = true;
 
   const now = Date.now();
