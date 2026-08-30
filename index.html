@@ -1124,6 +1124,15 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
    row (per-car details, consist editor, trip notes, hide-train...). */
 .modal-section{background:var(--bg); border:1px solid var(--border); border-radius:12px; padding:12px 14px; margin-top:10px; box-shadow:0 2px 8px -4px rgba(0,0,0,0.35);}
 .modal-section:first-child{margin-top:0;}
+
+/* Stats page — same tile treatment as .modal-section above, laid out as a
+   responsive grid of big-number cards instead of stacked rows, since each
+   of these four numbers stands alone rather than being part of one train's
+   detail list. */
+.stats-grid{display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:10px; margin-top:6px;}
+.stat-card{background:var(--bg); border:1px solid var(--border); border-radius:12px; padding:16px 14px; box-shadow:0 2px 8px -4px rgba(0,0,0,0.35); text-align:center;}
+.stat-value{font-family:'IBM Plex Mono', monospace; font-size:32px; font-weight:700; color:var(--accent); line-height:1.1;}
+.stat-label{margin-top:6px; font-size:12.5px; color:var(--text-dim);}
 .modal-section-label{font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; color:var(--text-faint); margin:14px 0 2px;}
 .modal-section-label:first-child{margin-top:0;}
 .alert-header{font-weight:700; font-size:13px; color:var(--text); line-height:1.4;}
@@ -1504,6 +1513,10 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
         <span>Bugs &amp; Feature Requests</span>
         <span class="menu-link-arrow">&rsaquo;</span>
       </div>
+      <div class="menu-link" data-navto="STATS">
+        <span>Stats</span>
+        <span class="menu-link-arrow">&rsaquo;</span>
+      </div>
       <div class="menu-link" data-navto="MEMBERS" id="membersMenuLink" style="display:none;">
         <span>Moderation</span>
         <span class="menu-link-arrow">&rsaquo;</span>
@@ -1820,6 +1833,20 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
       <button class="account-btn" id="editLogsRefreshBtn" style="width:auto; padding:0 16px; height:38px;">Refresh</button>
     </div>
     <div id="editLogsBody"></div>
+   </div>
+  </div>
+
+  <div class="panel full-bleed" id="statsPanel" style="display:none;">
+   <div class="full-bleed-inner">
+    <div class="panel-head">
+      <h2>Stats</h2>
+      <span class="note" id="statsMeta">&mdash;</span>
+    </div>
+    <div class="back-link" id="statsBackBtn">&lsaquo; Back</div>
+    <div style="display:flex; justify-content:flex-end; margin-bottom:10px;">
+      <button class="account-btn" id="statsRefreshBtn" style="width:auto; padding:0 16px; height:38px;">Refresh</button>
+    </div>
+    <div id="statsBody"></div>
    </div>
   </div>
 
@@ -2294,7 +2321,7 @@ window.addEventListener('popstate', ()=>{
 // needs to be hand-updated to the current date/time whenever a real change
 // is deployed. Any ISO 8601 string with an offset works — init() renders it
 // in the visitor's own local time regardless of what offset is used here.
-const APP_LAST_UPDATED = '2026-08-30T12:33:23-04:00';
+const APP_LAST_UPDATED = '2026-08-30T12:55:27-04:00';
 const MBTA_API_KEY = '7171c5e6f11c447bb3591c1fc1f3b5a9';
 const MBTA_HEADERS = { 'Accept':'application/vnd.api+json' };
 function withMbtaKey(url){
@@ -2390,6 +2417,9 @@ const PAGES = {
   },
   POINTS: {
     hex:'#B45309', label:'Points', isPoints:true
+  },
+  STATS: {
+    hex:'#0F766E', label:'Stats', isStats:true
   },
   INSPECTORS: {
     hex:'#0E7490', label:'Green Line Officials', isInspectors:true
@@ -4437,7 +4467,7 @@ function switchPage(key){
   updateUrlForPage(state.activeLine, key);
   updateDocumentTitle(state.activeLine, key);
   const page = PAGES[key];
-  if(!page.isRoster && !page.isMembers && !page.isModNotifs && !page.isEditLogs && !page.isSettings && !page.isPoints && !page.isBugs && !page.isInspectors && !page.isCarDetail && !page.isSignin && !page.isQuickReport) state.lastMainPage = key;
+  if(!page.isRoster && !page.isMembers && !page.isModNotifs && !page.isEditLogs && !page.isStats && !page.isSettings && !page.isPoints && !page.isBugs && !page.isInspectors && !page.isCarDetail && !page.isSignin && !page.isQuickReport) state.lastMainPage = key;
   // Car detail pages don't have a fixed label like every other page — the
   // header shows "Car <number>" built from whichever car is currently
   // being viewed (see state.viewingCarNumber, set just before this runs).
@@ -4468,6 +4498,7 @@ function switchPage(key){
   const membersPanel = document.getElementById('membersPanel');
   const modNotifsPanel = document.getElementById('modNotifsPanel');
   const editLogsPanel = document.getElementById('editLogsPanel');
+  const statsPanel = document.getElementById('statsPanel');
   const pointsPanel = document.getElementById('pointsPanel');
   const bugsPanel = document.getElementById('bugsPanel');
   const inspectorsPanel = document.getElementById('inspectorsPanel');
@@ -4483,6 +4514,7 @@ function switchPage(key){
   membersPanel.style.display = 'none';
   modNotifsPanel.style.display = 'none';
   editLogsPanel.style.display = 'none';
+  statsPanel.style.display = 'none';
   pointsPanel.style.display = 'none';
   bugsPanel.style.display = 'none';
   inspectorsPanel.style.display = 'none';
@@ -4528,7 +4560,7 @@ function switchPage(key){
   // scheduleModalRefresh) — without this, a modal open when you navigate
   // away would silently reopen itself up to 15s later, on top of whatever
   // page you'd since moved to.
-  if(page.isRoster || page.isMembers || page.isModNotifs || page.isEditLogs || page.isPoints || page.isBugs || page.isInspectors || page.isSettings || page.isCarDetail || page.isSignin || page.isQuickReport){
+  if(page.isRoster || page.isMembers || page.isModNotifs || page.isEditLogs || page.isStats || page.isPoints || page.isBugs || page.isInspectors || page.isSettings || page.isCarDetail || page.isSignin || page.isQuickReport){
     document.getElementById('carModalOverlay').classList.remove('show');
     modalRefreshToken++;
   }
@@ -4556,6 +4588,11 @@ function switchPage(key){
   if(page.isEditLogs){
     editLogsPanel.style.display = 'block';
     buildEditLogsPanel();
+    return;
+  }
+  if(page.isStats){
+    statsPanel.style.display = 'block';
+    buildStatsPanel();
     return;
   }
   if(page.isPoints){
@@ -6180,7 +6217,15 @@ async function showCarModal(v){
       ${nextStopNotice}
       <div class="modal-row"><span>Destination</span><strong${destinationOverride ? ' style="color:#F59E0B;"' : ''}>${effectiveDestination}</strong></div>
       ${originTimeStr ? `<div class="modal-row"><span>Left origin at</span><strong>${originTimeStr}</strong></div>` : ''}
-      <div class="modal-row"><span>Last reported speed</span><strong>${v.speedMph !== null && v.speedMph !== undefined ? v.speedMph + ' mph' : 'Not reported'}</strong></div>
+      <div class="modal-row"><span>Last reported speed</span><strong>${
+        // A train sitting STOPPED_AT a station is 0 mph by definition,
+        // whatever its feed's own speed field says — MBTA's vehicles feed
+        // frequently reports this as null (nothing to report) or a stale
+        // nonzero figure left over from just before it stopped, either of
+        // which reads as wrong/confusing next to a status that already says
+        // "Stopped at X".
+        v.status === 'STOPPED_AT' ? '0 mph' : (v.speedMph !== null && v.speedMph !== undefined ? v.speedMph + ' mph' : 'Not reported')
+      }</strong></div>
       <div class="modal-row"><span>Last update</span><strong>${secondsAgo}s ago</strong></div>
       ${operatorSummarySection}
     </div>
@@ -10795,6 +10840,86 @@ setInterval(()=>{
   if(state.currentPage === 'EDITLOGS') buildEditLogsPanel();
 }, 60000);
 
+/* ---------------- Stats page ----------------
+   Four running totals for "how much has this community done, ever":
+   standing-by reports, express reports, and destination changes come from
+   app_stats/lifetime (see functions/index.js's trackLifetime* triggers —
+   those three source collections auto-clear/are write-only, so nothing
+   client-side can count them directly); tracked trains is computed straight
+   from the roster panel's own cache by counting cars with a lastSeenAt ever
+   set (see loadRosterPanelData) — no separate counter needed for that one. */
+let statsLifetimeCache = null; // { standingByReports, expressReports, destinationChanges, backfilledAt } | null
+let statsLifetimeCacheTs = 0;
+const STATS_CACHE_TTL_MS = 15 * 60 * 1000;
+
+async function loadLifetimeStats(forceRefresh){
+  const isStale = !statsLifetimeCache || (Date.now() - statsLifetimeCacheTs) >= STATS_CACHE_TTL_MS;
+  if(!forceRefresh && !isStale) return statsLifetimeCache;
+  try{
+    const doc = await fbDb.collection('app_stats').doc('lifetime').get();
+    statsLifetimeCache = doc.exists ? doc.data() : {};
+    statsLifetimeCacheTs = Date.now();
+    return statsLifetimeCache;
+  }catch(e){
+    console.error(e);
+    return statsLifetimeCache; // stale cache beats a blank page on a transient fetch failure
+  }
+}
+
+async function buildStatsPanel(forceRefresh){
+  const body = document.getElementById('statsBody');
+  const meta = document.getElementById('statsMeta');
+
+  if(!firebaseReady){
+    body.innerHTML = '<div class="empty-state">Stats require Firebase to be configured, since they are shared, cross-visitor data.</div>';
+    meta.textContent = '';
+    return;
+  }
+
+  body.innerHTML = loadingSceneHtml();
+
+  const [lifetime, rosterCache] = await Promise.all([
+    loadLifetimeStats(forceRefresh),
+    loadRosterPanelData(forceRefresh)
+  ]);
+  const trackedTrains = Object.values(rosterCache.rosterData || {}).filter(car => car && car.lastSeenAt).length;
+
+  const cards = [
+    { value: (lifetime && lifetime.standingByReports) || 0, label: 'Standing-by reports' },
+    { value: (lifetime && lifetime.expressReports) || 0, label: 'Trains reported running express' },
+    { value: (lifetime && lifetime.destinationChanges) || 0, label: 'Destination changes reported' },
+    { value: trackedTrains, label: 'Distinct trains tracked' }
+  ];
+
+  const backfillNote = lifetime && lifetime.backfilledAt
+    ? `Standing-by, express, and destination-change totals are running counts kept since ${new Date(lifetime.backfilledAt).toLocaleDateString('en-US', { month:'long', day:'numeric', year:'numeric' })} — those three report types clear themselves once resolved, so older activity from before that date couldn't be recovered and isn't reflected above.`
+    : `Standing-by, express, and destination-change totals are running counts going forward from when this page was added — those three report types clear themselves once resolved, so nothing from before that could be recovered.`;
+
+  body.innerHTML = `
+    <div class="stats-grid">
+      ${cards.map(c => `<div class="stat-card"><div class="stat-value">${c.value.toLocaleString()}</div><div class="stat-label">${c.label}</div></div>`).join('')}
+    </div>
+    <div class="storage-note" style="margin-top:14px;">
+      ${backfillNote} Tracked trains counts every distinct car the community's live tracking has ever spotted at least once.
+    </div>
+  `;
+  meta.textContent = `Updated ${new Date().toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' })}`;
+}
+document.getElementById('statsRefreshBtn').addEventListener('click', ()=>{
+  if(state.currentPage === 'STATS') buildStatsPanel(true);
+});
+// Keeps itself current without anyone needing to hit Refresh — but only
+// while Stats is actually the page on screen, and only every 15 minutes
+// (per request, to keep this cheap): both loadLifetimeStats and
+// loadRosterPanelData already cache for that same 15 minutes internally,
+// so this tick doesn't do a fresh Firestore read every time regardless —
+// it just re-renders from whichever of the two caches happens to be stale
+// by the time it fires.
+setInterval(()=>{
+  if(state.currentPage === 'STATS') buildStatsPanel();
+}, STATS_CACHE_TTL_MS);
+document.getElementById('statsBackBtn').addEventListener('click', ()=> switchPage(state.lastMainPage || 'B'));
+
 async function buildMembersPanel(){
   const body = document.getElementById('membersBody');
   const meta = document.getElementById('membersMeta');
@@ -11314,6 +11439,7 @@ const FLAT_ROUTE_TO_PAGE = {
   'bugs': 'BUGS',
   'greenlineinspectors': 'INSPECTORS',
   'points': 'POINTS',
+  'stats': 'STATS',
   'moderation': 'MEMBERS',
   'pushalerts': 'MODNOTIFS',
   'editlog': 'EDITLOGS',
@@ -11321,7 +11447,7 @@ const FLAT_ROUTE_TO_PAGE = {
   'quickreport': 'QUICKREPORT'
 };
 const PAGE_TO_FLAT_ROUTE = {
-  SETTINGS:'setting', BUGS:'bugs', INSPECTORS:'greenlineinspectors', POINTS:'points',
+  SETTINGS:'setting', BUGS:'bugs', INSPECTORS:'greenlineinspectors', POINTS:'points', STATS:'stats',
   MEMBERS:'moderation', MODNOTIFS:'pushalerts', EDITLOGS:'editlog', SIGNIN:'signin',
   QUICKREPORT:'quickreport'
 };
@@ -13672,7 +13798,7 @@ if(headerEl && trackMapPanel){
 function isOnLiveTrackPage(){
   const page = PAGES[state.currentPage];
   if(!page) return false;
-  return !(page.isRoster || page.isMembers || page.isModNotifs || page.isEditLogs || page.isPoints || page.isBugs || page.isInspectors || page.isSettings || page.isSignin);
+  return !(page.isRoster || page.isMembers || page.isModNotifs || page.isEditLogs || page.isStats || page.isPoints || page.isBugs || page.isInspectors || page.isSettings || page.isSignin);
 }
 // Runs fn() once immediately (same as before), then re-runs it on the given
 // interval ONLY while the tab is actually visible and (if scoped) the user

@@ -591,6 +591,121 @@ exports.sendPushOnLineChange = onDocumentWritten(
   }
 );
 
+// ---- Lifetime stats counters (powers index.html's Stats page) ----
+// index.html's own Firestore rules leave standing_by_reports, express_reports
+// and destination_overrides either write-only or subject to auto-clearing
+// (a standing-by report is deleted the moment the train leaves the station;
+// an express report the moment it reaches its end station; a destination
+// override once MBTA's own headsign catches up) — none of them retain any
+// history once that happens, so there's nowhere for the client to count
+// "how many of these have ever been reported" from directly. These three
+// triggers keep a running lifetime total instead, in a single small
+// app_stats/lifetime doc the client CAN read.
+//
+// onDocumentCreated specifically (not onDocumentWritten, unlike the push
+// triggers above) — it only fires the moment a doc with this ID didn't
+// exist a moment ago and now does. That's exactly "a new report was filed":
+// saveStandingByReport's "edit hold time" flow, and any other correction
+// that re-.set()s an already-existing doc of the same id, is an update to
+// an existing doc, not a create, so it doesn't double-count.
+//
+// claimPushEvent is reused here purely for its event-id dedupe (see its own
+// comment above) — Cloud Functions v2 triggers are at-least-once delivery,
+// so without this a rare retried invocation would increment twice for the
+// same real-world report. No push is actually sent from these three.
+exports.trackLifetimeStandingByReport = onDocumentCreated(
+  { document: 'standing_by_reports/{vehicleId}' },
+  async (event) => {
+    if(!(await claimPushEvent(event.id))) return;
+    await db.collection('app_stats').doc('lifetime').set(
+      { standingByReports: admin.firestore.FieldValue.increment(1) },
+      { merge: true }
+    );
+  }
+);
+
+exports.trackLifetimeExpressReport = onDocumentCreated(
+  { document: 'express_reports/{vehicleId}' },
+  async (event) => {
+    if(!(await claimPushEvent(event.id))) return;
+    await db.collection('app_stats').doc('lifetime').set(
+      { expressReports: admin.firestore.FieldValue.increment(1) },
+      { merge: true }
+    );
+  }
+);
+
+exports.trackLifetimeDestinationChange = onDocumentCreated(
+  { document: 'destination_overrides/{vehicleId}' },
+  async (event) => {
+    if(!(await claimPushEvent(event.id))) return;
+    await db.collection('app_stats').doc('lifetime').set(
+      { destinationChanges: admin.firestore.FieldValue.increment(1) },
+      { merge: true }
+    );
+  }
+);
+
+// One-time seed for the three counters above, run manually (visit this
+// function's URL once in a browser after deploying) rather than on its own
+// trigger — there's no event to hang it off of. Self-guards with a
+// backfilledAt flag so visiting it again, or it somehow firing twice, is a
+// safe no-op rather than double-counting on top of real activity the live
+// triggers above have already recorded since deploy.
+//
+// This can only recover a LOWER BOUND on true lifetime activity, not the
+// real total — none of these three collections were ever a complete
+// historical log before now (see the big comment above the three triggers):
+// standing_by_reports/express_reports are deleted the moment a report
+// clears, with only manually-cancelled ones (not the more common
+// auto-cleared-on-departure case) preserved in their own *_cancelled
+// collection; destination_overrides has no history trail at all. So this
+// adds up whatever partial signal still exists — current live reports
+// (standing_by_reports/express_reports/destination_overrides) plus the
+// manually-cancelled logs — as the best available starting point, and the
+// Stats page in index.html says as much rather than presenting it as exact.
+exports.backfillLifetimeStats = onRequest(async (req, res) => {
+  applyCors(res);
+  if(req.method === 'OPTIONS'){ res.status(204).send(''); return; }
+  try{
+    const lifetimeRef = db.collection('app_stats').doc('lifetime');
+    const existing = await lifetimeRef.get();
+    if(existing.exists && existing.data().backfilledAt){
+      res.status(200).json({ alreadyBackfilled: true, backfilledAt: existing.data().backfilledAt, counts: existing.data() });
+      return;
+    }
+    const [standingByActive, standingByCancelled, expressActive, expressCancelled, destinationActive] = await Promise.all([
+      db.collection('standing_by_reports').count().get(),
+      db.collection('standingby_reports_cancelled').count().get(),
+      db.collection('express_reports').count().get(),
+      db.collection('express_reports_cancelled').count().get(),
+      db.collection('destination_overrides').count().get()
+    ]);
+    const standingBySeed = standingByActive.data().count + standingByCancelled.data().count;
+    const expressSeed = expressActive.data().count + expressCancelled.data().count;
+    const destinationSeed = destinationActive.data().count;
+    // FieldValue.increment rather than a literal number — if any of the
+    // live triggers above have already counted a real new report by the
+    // time this runs (visited after deploy, not before), writing a literal
+    // count here would overwrite that field outright and silently erase
+    // the real activity instead of adding this historical baseline on top
+    // of it. increment() is safe regardless of which order those land in.
+    await lifetimeRef.set({
+      standingByReports: admin.firestore.FieldValue.increment(standingBySeed),
+      expressReports: admin.firestore.FieldValue.increment(expressSeed),
+      destinationChanges: admin.firestore.FieldValue.increment(destinationSeed),
+      backfilledAt: Date.now()
+    }, { merge: true });
+    res.status(200).json({
+      alreadyBackfilled: false,
+      addedFromBackfill: { standingByReports: standingBySeed, expressReports: expressSeed, destinationChanges: destinationSeed }
+    });
+  }catch(e){
+    console.error('backfillLifetimeStats failed:', e);
+    res.status(500).json({ error: 'Backfill failed' });
+  }
+});
+
 // car_out_of_service docs are keyed by car number and deleted the moment a
 // car is cleared back to service (see index.html's clearCarOutOfService) —
 // so onDocumentCreated alone already captures every real "just got marked
