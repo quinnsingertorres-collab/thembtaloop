@@ -2321,7 +2321,7 @@ window.addEventListener('popstate', ()=>{
 // needs to be hand-updated to the current date/time whenever a real change
 // is deployed. Any ISO 8601 string with an offset works — init() renders it
 // in the visitor's own local time regardless of what offset is used here.
-const APP_LAST_UPDATED = '2026-08-31T02:20:59-04:00';
+const APP_LAST_UPDATED = '2026-08-31T02:34:58-04:00';
 const MBTA_API_KEY = '7171c5e6f11c447bb3591c1fc1f3b5a9';
 const MBTA_HEADERS = { 'Accept':'application/vnd.api+json' };
 function withMbtaKey(url){
@@ -8964,13 +8964,24 @@ function isAtInnerbeltYard(v){
 //   - it actually moves (stopName no longer matches, or status is no
 //     longer STOPPED_AT — including passing through a non-tracked status
 //     like IN_TRANSIT_TO/INCOMING_AT even at the same stop)
-//   - it gets signed for a new trip while still sitting there: headsign or
-//     direction change (both cheap, reliable "this is genuinely a new
-//     trip" signals — unlike trip_id, which MBTA's feed reassigns on its
-//     own often enough, even with nothing real changing, that other code
-//     in this file deliberately avoids keying off it for the same reason;
-//     see the destination-override clearing logic above)
-let terminusDwellTracker = {}; // vehicleId -> { stopName, headsign, direction, since }
+//   - it gets signed for a new trip while still sitting there: a direction
+//     change (the same signal applyTripBoundaryEvents above uses as its
+//     own "a new trip genuinely started" test — kept in agreement with it
+//     deliberately, rather than each picking its own signal)
+//
+// headsign is deliberately NOT part of this — it looks like a similarly
+// cheap "re-signed for a new trip" signal but isn't reliable in practice:
+// live-checked against MBTA's v3 feed for vehicles actually laying over at
+// Boston College, the trip relationship (and so the resolved headsign)
+// came back missing/null for some of them on one request and populated on
+// another, with nothing about the vehicle itself having changed — just a
+// gap in what that particular request's response happened to include for
+// that trip. Comparing headsign here meant those flickers alone reset the
+// clock, which is very likely why long-parked trains at a terminus weren't
+// actually disappearing after 45 minutes as designed — direction alone is
+// both sufficient (it's what marks a real trip boundary elsewhere in this
+// file) and, unlike headsign, doesn't flicker on its own.
+let terminusDwellTracker = {}; // vehicleId -> { stopName, direction, since }
 const LONG_DWELL_TERMINI = ['Boston College', 'Cleveland Circle', 'Riverside', 'Medford/Tufts'];
 const LONG_DWELL_REMOVE_MS = 45 * 60 * 1000; // 45 minutes
 function isLongDwellAtTerminus(v, now){
@@ -8991,9 +9002,9 @@ function isLongDwellAtTerminus(v, now){
     return false;
   }
   const entry = terminusDwellTracker[v.id];
-  const changed = !entry || entry.stopName !== v.stopName || entry.headsign !== v.headsign || entry.direction !== v.direction;
+  const changed = !entry || entry.stopName !== v.stopName || entry.direction !== v.direction;
   if(changed){
-    terminusDwellTracker[v.id] = { stopName: v.stopName, headsign: v.headsign, direction: v.direction, since: now };
+    terminusDwellTracker[v.id] = { stopName: v.stopName, direction: v.direction, since: now };
     return false;
   }
   return (now - entry.since) > LONG_DWELL_REMOVE_MS;
@@ -9009,10 +9020,13 @@ function isLongDwellAtTerminus(v, now){
 // does. Only actually remove it once it's been sitting there, STOPPED_AT,
 // for a couple minutes straight — long enough to be a real yard dwell
 // rather than a through-move. Same dwell-tracking shape as
-// isLongDwellAtTerminus just above, with its own tracker and a much
-// shorter threshold; stopName isn't part of the "changed" check here since
-// isAtInnerbeltYard already narrows to one specific location.
-let innerbeltDwellTracker = {}; // vehicleId -> { headsign, direction, since }
+// isLongDwellAtTerminus just above (including deliberately NOT comparing
+// headsign — see that function's own comment for why it flickers on its
+// own and isn't a reliable "something changed" signal), with its own
+// tracker and a much shorter threshold; stopName isn't part of the
+// "changed" check here since isAtInnerbeltYard already narrows to one
+// specific location.
+let innerbeltDwellTracker = {}; // vehicleId -> { direction, since }
 const INNERBELT_DWELL_REMOVE_MS = 2 * 60 * 1000; // 2 minutes
 function isLongDwellAtInnerbelt(v, now){
   if(v.status !== 'STOPPED_AT' || !isAtInnerbeltYard(v)){
@@ -9020,9 +9034,9 @@ function isLongDwellAtInnerbelt(v, now){
     return false;
   }
   const entry = innerbeltDwellTracker[v.id];
-  const changed = !entry || entry.headsign !== v.headsign || entry.direction !== v.direction;
+  const changed = !entry || entry.direction !== v.direction;
   if(changed){
-    innerbeltDwellTracker[v.id] = { headsign: v.headsign, direction: v.direction, since: now };
+    innerbeltDwellTracker[v.id] = { direction: v.direction, since: now };
     return false;
   }
   return (now - entry.since) > INNERBELT_DWELL_REMOVE_MS;
