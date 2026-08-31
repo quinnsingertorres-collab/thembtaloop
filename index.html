@@ -2321,7 +2321,7 @@ window.addEventListener('popstate', ()=>{
 // needs to be hand-updated to the current date/time whenever a real change
 // is deployed. Any ISO 8601 string with an offset works — init() renders it
 // in the visitor's own local time regardless of what offset is used here.
-const APP_LAST_UPDATED = '2026-08-31T02:12:33-04:00';
+const APP_LAST_UPDATED = '2026-08-31T02:20:59-04:00';
 const MBTA_API_KEY = '7171c5e6f11c447bb3591c1fc1f3b5a9';
 const MBTA_HEADERS = { 'Accept':'application/vnd.api+json' };
 function withMbtaKey(url){
@@ -3046,15 +3046,18 @@ function isNonRevenueTrain(v){
 // Same "is this train OOS" test the ladder's own occupied-dot coloring and
 // bubble "OOS" label already use (see renderTrainDots) — a vehicle counts
 // as out of service if it's an auto-detected solo Type 7, MBTA's own feed
-// marks its trip non-revenue, or if ANY car in its (possibly
-// community-corrected) consist has been marked out of service today.
-// Pulled out as its own helper so getLeaderAndFollower can exclude these
-// trains from being counted as a leader/follower, same as it already never
-// sees hidden trains (those are filtered out of state.vehicles entirely —
-// see refreshVehicles' hiddenTrainsCache pass).
+// marks its trip non-revenue, MBTA's feed has it at Innerbelt Yard (see
+// isAtInnerbeltYard below — a storage/maintenance yard, not a passenger
+// stop), or if ANY car in its (possibly community-corrected) consist has
+// been marked out of service today. Pulled out as its own helper so
+// getLeaderAndFollower can exclude these trains from being counted as a
+// leader/follower, same as it already never sees hidden trains (those are
+// filtered out of state.vehicles entirely — see refreshVehicles'
+// hiddenTrainsCache pass).
 function isVehicleOutOfService(v){
   if(isSoloType7(v)) return true;
   if(isNonRevenueTrain(v)) return true;
+  if(isAtInnerbeltYard(v)) return true;
   const carParts = String(consistOverrideCache[carSetKey(v.label)] || v.label).split('-');
   return carParts.some(c => outOfServiceCarsCache[c]);
 }
@@ -5752,18 +5755,20 @@ async function showCarModal(v){
   const allCarsOOS = carParts.every(c => oosByCar[c] && oosByCar[c].outOfService);
   const anyCarOOS = carParts.some(c => oosByCar[c] && oosByCar[c].outOfService);
   const oosMarkedByEntry = carParts.map(c => oosByCar[c]).find(d => d && d.outOfService);
-  // Same reasoning as carOOSBlock above: an auto-detected solo Type 7, or a
-  // trip MBTA's own feed marks non-revenue, already has its own status
-  // notice (and, for solo Type 7, an in-service toggle) up top, so this
-  // consolidated "mark this train Out of Service / back in service" control
-  // would just be a second, differently-worded button for the exact same
-  // single car \u2014 skip it for that case rather than show both. Condition
-  // matches soloType7Notice's own check (isSoloType7(v) alone) rather than
-  // also requiring carParts.length === 1 \u2014 isSoloType7 itself already
-  // resolves any community consist correction before deciding "solo" (see
-  // its own definition), so the two stay in agreement; kept as a separate
-  // check here rather than folded into carParts.length === 1 for clarity.
-  const consolidatedOOSSection = (isSoloType7(v) || isNonRevenueTrain(v)) ? '' : `
+  // Same reasoning as carOOSBlock above: an auto-detected solo Type 7, a
+  // trip MBTA's own feed marks non-revenue, or a train MBTA's feed has at
+  // Innerbelt Yard already has its own status notice (and, for solo
+  // Type 7, an in-service toggle) up top, so this consolidated "mark this
+  // train Out of Service / back in service" control would just be a
+  // second, differently-worded button for the exact same single car \u2014 skip
+  // it for those cases rather than show both. Solo-Type-7 half of the
+  // condition matches soloType7Notice's own check (isSoloType7(v) alone)
+  // rather than also requiring carParts.length === 1 \u2014 isSoloType7 itself
+  // already resolves any community consist correction before deciding
+  // "solo" (see its own definition), so the two stay in agreement; kept as
+  // a separate check here rather than folded into carParts.length === 1
+  // for clarity.
+  const consolidatedOOSSection = (isSoloType7(v) || isNonRevenueTrain(v) || isAtInnerbeltYard(v)) ? '' : `
     <div class="modal-section">
       <h4>Out of service</h4>
       ${allCarsOOS
@@ -5872,23 +5877,21 @@ async function showCarModal(v){
               <button class="account-btn" id="oosNoteSaveBtn-${carNum}" data-oos-note-save="${carNum}" style="margin-top:6px;">Add note</button>`
            : ''}`
       : '';
-    // A solo Type 7 car already gets its own dedicated status notice + "mark
-    // in service" control up top (see soloType7Notice / soloType7InServiceBtn)
-    // via the separate solo-Type-7-override system, and a non-revenue trip
-    // gets its own status notice too (see nonRevenueNotice) — MBTA's feed is
-    // the source of truth there, not a manual per-car toggle. Showing this
-    // generic per-car Out of Service toggle underneath either of those too
-    // — with its own, near-identically-worded button — is a confusing
-    // duplicate control for what's really the same single car/trip, so skip
-    // it for both cases and let the auto-detected notice be the one place
-    // to act on it. Solo-Type-7 half of the condition matches
-    // soloType7Notice's own check (isSoloType7(v) alone) rather than also
-    // requiring carParts.length === 1 — isSoloType7 itself already resolves
-    // any community consist correction before deciding "solo" (see its own
-    // definition), so the two stay in agreement; kept as a separate check
-    // here rather than folded into carParts.length === 1 for clarity.
-    const hasAutoOOSNoticeAlready = isSoloType7(v) || isNonRevenueTrain(v);
-    const carOOSBlock = hasAutoOOSNoticeAlready ? '' : (state.signedIn
+    // This per-car toggle + notes thread is deliberately shown for every
+    // car regardless of type or any auto-detected notice up top (solo
+    // Type 7, non-revenue trip, Innerbelt Yard — see soloType7Notice /
+    // nonRevenueNotice / innerbeltYardNotice) — Type 7/8/9/10 all get equal
+    // access to it, same as Type 9's own restricted-zone notice
+    // (type9RestrictedZoneNotice) never suppressed it either. That auto
+    // notice covers a whole-train/whole-trip condition MBTA's own feed
+    // reports; this covers something different — a specific car having a
+    // real, individually-reported problem (mechanical issue, door, etc.),
+    // with its own notes log for updates. The two aren't duplicates of
+    // each other, so both can coexist. (The whole-TRAIN consolidated
+    // control right above, consolidatedOOSSection, is still suppressed in
+    // those auto-detected cases — for a single car that one really would
+    // be an exact duplicate of this per-car one.)
+    const carOOSBlock = (state.signedIn
       ? `<div class="modal-row-spacer"></div>
          ${carIsOOS
            ? `<div class="modal-row"><span>Status</span><strong style="color:#D64545;">Out of Service</strong></div>
@@ -6078,6 +6081,17 @@ async function showCarModal(v){
     ? `<div class="modal-row"><span>Status</span><strong style="color:#D64545;">Non-revenue trip (auto-detected)</strong></div>
        <div class="signin-note">MBTA's data marks this as a non-revenue move (e.g. traveling to the start of a route or a yard move) &mdash; it isn't accepting passengers.</div>`
     : '';
+
+  // Innerbelt Yard is a storage/maintenance yard, not a passenger stop —
+  // MBTA's own feed associating a train with it is confirmation enough
+  // that it isn't in revenue service, same as the non-revenue/solo-Type-7
+  // notices above. Doesn't overlap with nonRevenueNotice in practice (a
+  // yard move is usually also flagged non-revenue, but not always, and
+  // this stays accurate either way), so both can show together.
+  const innerbeltYardNotice = isAtInnerbeltYard(v)
+    ? `<div class="modal-row"><span>Status</span><strong style="color:#D64545;">At Innerbelt Yard (auto-detected)</strong></div>
+       <div class="signin-note">MBTA's feed has this train at Innerbelt Yard, a storage/maintenance yard &mdash; it isn't in active revenue service. If it stays parked here, it's removed from the map after a couple minutes.</div>`
+    : '';
   const lastTripNotice = enhancedTripInfo && enhancedTripInfo.isLastTrip
     ? `<div class="modal-row"><span>Last trip</span><strong>Yes, for this branch/direction today</strong></div>`
     : '';
@@ -6226,6 +6240,7 @@ async function showCarModal(v){
       ${soloType7Notice}
       ${type9RestrictedZoneNotice}
       ${nonRevenueNotice}
+      ${innerbeltYardNotice}
       ${lastTripNotice}
       <div class="modal-row"><span>Status</span><strong>${statusPhrase(v.status, v.stopName)}</strong></div>
       ${nextStopNotice}
@@ -8984,6 +8999,35 @@ function isLongDwellAtTerminus(v, now){
   return (now - entry.since) > LONG_DWELL_REMOVE_MS;
 }
 
+// Innerbelt Yard isn't a passenger stop — a train MBTA's feed associates
+// with it is already out of active revenue service (see isAtInnerbeltYard
+// above, which drives the "OOS" bubble/dot treatment and status notice the
+// moment that happens via isVehicleOutOfService). But pulling it off the
+// map entirely the instant the feed reports that location is too eager: a
+// train can be reported there briefly while just passing through on its
+// way to/from the yard, and it's still worth showing (grayed out) while it
+// does. Only actually remove it once it's been sitting there, STOPPED_AT,
+// for a couple minutes straight — long enough to be a real yard dwell
+// rather than a through-move. Same dwell-tracking shape as
+// isLongDwellAtTerminus just above, with its own tracker and a much
+// shorter threshold; stopName isn't part of the "changed" check here since
+// isAtInnerbeltYard already narrows to one specific location.
+let innerbeltDwellTracker = {}; // vehicleId -> { headsign, direction, since }
+const INNERBELT_DWELL_REMOVE_MS = 2 * 60 * 1000; // 2 minutes
+function isLongDwellAtInnerbelt(v, now){
+  if(v.status !== 'STOPPED_AT' || !isAtInnerbeltYard(v)){
+    delete innerbeltDwellTracker[v.id];
+    return false;
+  }
+  const entry = innerbeltDwellTracker[v.id];
+  const changed = !entry || entry.headsign !== v.headsign || entry.direction !== v.direction;
+  if(changed){
+    innerbeltDwellTracker[v.id] = { headsign: v.headsign, direction: v.direction, since: now };
+    return false;
+  }
+  return (now - entry.since) > INNERBELT_DWELL_REMOVE_MS;
+}
+
 // Per-branch "trip" boundary definitions — a physical round trip (or, for
 // D, a one-way run) starts and ends at these stop(s), per community
 // consensus on how Green Line trips are actually run:
@@ -9227,10 +9271,23 @@ async function refreshVehicles(){
     return (now - new Date(v.updatedAt).getTime()) <= keepAliveDurationFor(v);
   });
 
-  // Trains confirmed at Innerbelt Yard aren't in active revenue service —
-  // MBTA's feed explicitly reporting that location is already confirmation,
-  // so there's no ambiguity to wait out; remove them right away.
-  state.vehicles = state.vehicles.filter(v => !isAtInnerbeltYard(v));
+  // Trains MBTA's feed associates with Innerbelt Yard aren't in active
+  // revenue service — but rather than yank them off the map the instant
+  // that's reported (which could clip a train just passing through on its
+  // way to/from the yard), they get the "OOS" bubble/dot treatment right
+  // away (see isAtInnerbeltYard's use inside isVehicleOutOfService) and are
+  // only actually removed once they've been sitting there, stopped, for a
+  // couple minutes — see isLongDwellAtInnerbelt above. Same
+  // evaluatedIds-sweep pattern as terminusDwellTracker/tripBoundaryTracker
+  // just below, so a vehicle id that's truly gone from the feed (not just
+  // filtered out here) doesn't linger in innerbeltDwellTracker forever.
+  {
+    const evaluatedIds = new Set(state.vehicles.map(v => v.id));
+    state.vehicles = state.vehicles.filter(v => !isLongDwellAtInnerbelt(v, now));
+    Object.keys(innerbeltDwellTracker).forEach(id=>{
+      if(!evaluatedIds.has(id)) delete innerbeltDwellTracker[id];
+    });
+  }
 
   // Trains that have been sitting continuously at Boston College, Cleveland
   // Circle, Riverside, or Medford/Tufts for 45+ minutes — see
