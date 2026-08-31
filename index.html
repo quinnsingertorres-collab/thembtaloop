@@ -2321,7 +2321,7 @@ window.addEventListener('popstate', ()=>{
 // needs to be hand-updated to the current date/time whenever a real change
 // is deployed. Any ISO 8601 string with an offset works — init() renders it
 // in the visitor's own local time regardless of what offset is used here.
-const APP_LAST_UPDATED = '2026-08-30T12:55:27-04:00';
+const APP_LAST_UPDATED = '2026-08-31T02:12:33-04:00';
 const MBTA_API_KEY = '7171c5e6f11c447bb3591c1fc1f3b5a9';
 const MBTA_HEADERS = { 'Accept':'application/vnd.api+json' };
 function withMbtaKey(url){
@@ -3033,16 +3033,28 @@ function isSoloType7(v){
 }
 const SOLO_TYPE7_GRAY = '#6B7280';
 
+// MBTA's own feed marking a trip non-revenue (yard move, deadhead, or
+// traveling to the start of a route) — see enhancedTripDataCache/
+// refreshEnhancedTripData, sourced from GTFS-rt TripDescriptor.revenue.
+// A non-revenue trip isn't accepting passengers, so it gets the same "OOS"
+// treatment as an auto-detected solo Type 7 or a manually-flagged car.
+function isNonRevenueTrain(v){
+  const info = enhancedTripDataCache[v.id];
+  return !!(info && info.isNonRevenue);
+}
+
 // Same "is this train OOS" test the ladder's own occupied-dot coloring and
 // bubble "OOS" label already use (see renderTrainDots) — a vehicle counts
-// as out of service if it's an auto-detected solo Type 7, or if ANY car in
-// its (possibly community-corrected) consist has been marked out of
-// service today. Pulled out as its own helper so getLeaderAndFollower can
-// exclude these trains from being counted as a leader/follower, same as it
-// already never sees hidden trains (those are filtered out of
-// state.vehicles entirely — see refreshVehicles' hiddenTrainsCache pass).
+// as out of service if it's an auto-detected solo Type 7, MBTA's own feed
+// marks its trip non-revenue, or if ANY car in its (possibly
+// community-corrected) consist has been marked out of service today.
+// Pulled out as its own helper so getLeaderAndFollower can exclude these
+// trains from being counted as a leader/follower, same as it already never
+// sees hidden trains (those are filtered out of state.vehicles entirely —
+// see refreshVehicles' hiddenTrainsCache pass).
 function isVehicleOutOfService(v){
   if(isSoloType7(v)) return true;
+  if(isNonRevenueTrain(v)) return true;
   const carParts = String(consistOverrideCache[carSetKey(v.label)] || v.label).split('-');
   return carParts.some(c => outOfServiceCarsCache[c]);
 }
@@ -5020,8 +5032,7 @@ function renderTrainDots(){
     const [idx, side] = dotKey.split(':');
     const dot = ladder.querySelector(`.stop-dot[data-stop-idx="${idx}"][data-side="${side}"]`);
     if(dot){
-      const carPartsForOOS = String(consistOverrideCache[carSetKey(v.label)] || v.label).split('-');
-      const isOOS = isSoloType7(v) || carPartsForOOS.some(c => outOfServiceCarsCache[c]);
+      const isOOS = isVehicleOutOfService(v);
       let occupiedHex = getBranchHex(v.branch);
       if(state.activeLine === 'red'){
         const branch = getRedLineBranch(v);
@@ -5082,7 +5093,7 @@ function renderTrainDots(){
       const effectiveBubbleLabel = consistOverrideCache[carSetKey(entry.v.label)] || entry.v.label;
       const carParts = String(effectiveBubbleLabel).split('-');
       const isRainbowCar = carParts.includes('3706');
-      const isOOS = isSoloType7(entry.v) || carParts.some(c => outOfServiceCarsCache[c]);
+      const isOOS = isVehicleOutOfService(entry.v);
 
       let bubbleBranch = entry.v.branch === 'MATTAPAN' ? 'M' : getDisplayBranch(entry.v.branch);
       let branchHex = getBranchHex(entry.v.branch);
@@ -5741,8 +5752,9 @@ async function showCarModal(v){
   const allCarsOOS = carParts.every(c => oosByCar[c] && oosByCar[c].outOfService);
   const anyCarOOS = carParts.some(c => oosByCar[c] && oosByCar[c].outOfService);
   const oosMarkedByEntry = carParts.map(c => oosByCar[c]).find(d => d && d.outOfService);
-  // Same reasoning as carOOSBlock above: an auto-detected solo Type 7 already
-  // has its own status notice + in-service toggle up top, so this
+  // Same reasoning as carOOSBlock above: an auto-detected solo Type 7, or a
+  // trip MBTA's own feed marks non-revenue, already has its own status
+  // notice (and, for solo Type 7, an in-service toggle) up top, so this
   // consolidated "mark this train Out of Service / back in service" control
   // would just be a second, differently-worded button for the exact same
   // single car \u2014 skip it for that case rather than show both. Condition
@@ -5751,7 +5763,7 @@ async function showCarModal(v){
   // resolves any community consist correction before deciding "solo" (see
   // its own definition), so the two stay in agreement; kept as a separate
   // check here rather than folded into carParts.length === 1 for clarity.
-  const consolidatedOOSSection = isSoloType7(v) ? '' : `
+  const consolidatedOOSSection = (isSoloType7(v) || isNonRevenueTrain(v)) ? '' : `
     <div class="modal-section">
       <h4>Out of service</h4>
       ${allCarsOOS
@@ -5862,19 +5874,21 @@ async function showCarModal(v){
       : '';
     // A solo Type 7 car already gets its own dedicated status notice + "mark
     // in service" control up top (see soloType7Notice / soloType7InServiceBtn)
-    // via the separate solo-Type-7-override system. Showing this generic
-    // per-car Out of Service toggle underneath it too — with its own,
-    // near-identically-worded button — is a confusing duplicate control for
-    // what's really the same single car, so skip it for that case entirely
-    // and let the auto-detected notice be the one place to act on it.
-    // Condition matches soloType7Notice's own check (isSoloType7(v) alone)
-    // rather than also requiring carParts.length === 1 — isSoloType7 itself
-    // already resolves any community consist correction before deciding
-    // "solo" (see its own definition), so the two stay in agreement; kept
-    // as a separate check here rather than folded into carParts.length
-    // === 1 for clarity.
-    const isSoleAutoDetectedType7Car = isSoloType7(v);
-    const carOOSBlock = isSoleAutoDetectedType7Car ? '' : (state.signedIn
+    // via the separate solo-Type-7-override system, and a non-revenue trip
+    // gets its own status notice too (see nonRevenueNotice) — MBTA's feed is
+    // the source of truth there, not a manual per-car toggle. Showing this
+    // generic per-car Out of Service toggle underneath either of those too
+    // — with its own, near-identically-worded button — is a confusing
+    // duplicate control for what's really the same single car/trip, so skip
+    // it for both cases and let the auto-detected notice be the one place
+    // to act on it. Solo-Type-7 half of the condition matches
+    // soloType7Notice's own check (isSoloType7(v) alone) rather than also
+    // requiring carParts.length === 1 — isSoloType7 itself already resolves
+    // any community consist correction before deciding "solo" (see its own
+    // definition), so the two stay in agreement; kept as a separate check
+    // here rather than folded into carParts.length === 1 for clarity.
+    const hasAutoOOSNoticeAlready = isSoloType7(v) || isNonRevenueTrain(v);
+    const carOOSBlock = hasAutoOOSNoticeAlready ? '' : (state.signedIn
       ? `<div class="modal-row-spacer"></div>
          ${carIsOOS
            ? `<div class="modal-row"><span>Status</span><strong style="color:#D64545;">Out of Service</strong></div>
