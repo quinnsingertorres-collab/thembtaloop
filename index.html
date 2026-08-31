@@ -137,11 +137,6 @@ html::-webkit-scrollbar, body::-webkit-scrollbar{display:none;}
   transition:transform 0.15s ease, box-shadow 0.15s ease;
 }
 .gate-signin-btn:hover{transform:translateY(-1px); box-shadow:0 6px 16px rgba(0,0,0,0.3);}
-.gate-footer{
-  position:absolute; bottom:28px; left:24px; right:24px; text-align:center;
-  font-size:12.5px; color:var(--text-faint);
-}
-.gate-footer a{color:var(--accent); font-weight:700; text-decoration:underline;}
 .line-select-grid{display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:22px;}
 .line-select-btn{
   min-height:84px; padding:12px; border-radius:18px; border:none; cursor:pointer; font-weight:800;
@@ -2321,7 +2316,7 @@ window.addEventListener('popstate', ()=>{
 // needs to be hand-updated to the current date/time whenever a real change
 // is deployed. Any ISO 8601 string with an offset works — init() renders it
 // in the visitor's own local time regardless of what offset is used here.
-const APP_LAST_UPDATED = '2026-08-31T10:33:42-04:00';
+const APP_LAST_UPDATED = '2026-08-31T10:40:29-04:00';
 const MBTA_API_KEY = '7171c5e6f11c447bb3591c1fc1f3b5a9';
 const MBTA_HEADERS = { 'Accept':'application/vnd.api+json' };
 function withMbtaKey(url){
