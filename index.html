@@ -2321,7 +2321,7 @@ window.addEventListener('popstate', ()=>{
 // needs to be hand-updated to the current date/time whenever a real change
 // is deployed. Any ISO 8601 string with an offset works — init() renders it
 // in the visitor's own local time regardless of what offset is used here.
-const APP_LAST_UPDATED = '2026-08-31T02:34:58-04:00';
+const APP_LAST_UPDATED = '2026-08-31T10:33:42-04:00';
 const MBTA_API_KEY = '7171c5e6f11c447bb3591c1fc1f3b5a9';
 const MBTA_HEADERS = { 'Accept':'application/vnd.api+json' };
 function withMbtaKey(url){
@@ -5968,6 +5968,22 @@ async function showCarModal(v){
            <button class="panto-btn${(panto ? panto.status : pantoDefault)==='Unknown' ? ' active' : ''}" data-panto-car="${carNum}" data-panto-status="Unknown">Unknown</button>
          </div>`
       : `<div class="signin-note">Sign in to report pantograph type.</div>`;
+    // Same free-text field the Fleet Roster car detail page edits (see
+    // notesField in buildCarDetailPanel, data.notes on the roster doc) —
+    // shown here read-through from the same rosterData this modal already
+    // loaded, so it's always exactly what the roster page shows, and
+    // editable right here too via saveRosterEntry (the same save path the
+    // roster page's own Submit button uses for this field), rather than
+    // requiring a trip to that separate page just to jot something down.
+    const carRosterNotes = (rosterData[carNum] && rosterData[carNum].notes) || '';
+    const carNotesBlock = `<div class="modal-row-spacer"></div>
+      <div class="roster-field-label">Car notes</div>
+      ${state.signedIn
+        ? `<textarea class="roster-textarea" id="carNotesInput-${carNum}" data-old-value="${carRosterNotes.replace(/"/g,'&quot;')}" placeholder="Notes about this car...">${carRosterNotes}</textarea>
+           <button class="account-btn" id="carNotesSaveBtn-${carNum}" data-car-notes-save="${carNum}" style="margin-top:6px;">Save notes</button>
+           <span class="roster-submit-note" id="carNotesSaveNote-${carNum}"></span>`
+        : `<div class="roster-readonly">${carRosterNotes ? carRosterNotes : '<span style="opacity:.5;">No notes have been added</span>'}</div>`}`;
+
     const livery = (rosterData[carNum] && rosterData[carNum].livery) ? rosterData[carNum].livery : 'Not reported';
     const seats = getSeatCount(type, gltps ? gltps.status : null);
     const seatsRow = seats !== null
@@ -5994,6 +6010,7 @@ async function showCarModal(v){
           ${gltpsButtons}
           <div class="modal-row"><span>Pantograph</span><strong style="${pantoColor}">${pantoText}</strong></div>
           ${pantoButtons}
+          ${carNotesBlock}
           ${operatorBlock}
           ${carOOSBlock}
         </div>
@@ -6680,6 +6697,36 @@ async function showCarModal(v){
         await markCarOutOfService(carNum, reason, null, v.label);
         awardPoints(1);
       }
+      showCarModal(v);
+    });
+  });
+
+  // Saves the Fleet Roster "notes" field directly from this modal — same
+  // saveRosterEntry path and same words-typed points award the roster
+  // page's own Submit button uses for this field (see EDITABLE_FIELDS/
+  // wireCarDetailEvents), just scoped to only this one field instead of
+  // the roster page's whole multi-field form. Updates
+  // rosterPanelDataCache in place so the roster page and this modal never
+  // show two different values for the same car until the next natural
+  // refresh.
+  document.querySelectorAll('[data-car-notes-save]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const carNum = btn.dataset.carNotesSave;
+      const input = document.getElementById(`carNotesInput-${carNum}`);
+      const note = document.getElementById(`carNotesSaveNote-${carNum}`);
+      if(!input) return;
+      const newValue = input.value;
+      const oldValue = input.dataset.oldValue || '';
+      if(newValue === oldValue){
+        if(note){ note.textContent = 'No changes to submit'; setTimeout(()=>{ note.textContent = ''; }, 2000); }
+        return;
+      }
+      btn.disabled = true;
+      btn.textContent = 'Saving…';
+      const saved = await saveRosterEntry(carNum, { notes: newValue }, carNum);
+      if(rosterPanelDataCache) rosterPanelDataCache.rosterData[carNum] = Object.assign({}, rosterPanelDataCache.rosterData[carNum], saved);
+      const words = newValue.trim().length ? newValue.trim().split(/\s+/).length : 0;
+      if(words > 0) awardPoints(words);
       showCarModal(v);
     });
   });
@@ -8978,12 +9025,12 @@ function isAtInnerbeltYard(v){
 // gap in what that particular request's response happened to include for
 // that trip. Comparing headsign here meant those flickers alone reset the
 // clock, which is very likely why long-parked trains at a terminus weren't
-// actually disappearing after 45 minutes as designed — direction alone is
-// both sufficient (it's what marks a real trip boundary elsewhere in this
-// file) and, unlike headsign, doesn't flicker on its own.
+// actually disappearing after LONG_DWELL_REMOVE_MS as designed — direction
+// alone is both sufficient (it's what marks a real trip boundary elsewhere
+// in this file) and, unlike headsign, doesn't flicker on its own.
 let terminusDwellTracker = {}; // vehicleId -> { stopName, direction, since }
 const LONG_DWELL_TERMINI = ['Boston College', 'Cleveland Circle', 'Riverside', 'Medford/Tufts'];
-const LONG_DWELL_REMOVE_MS = 45 * 60 * 1000; // 45 minutes
+const LONG_DWELL_REMOVE_MS = 20 * 60 * 1000; // 20 minutes
 function isLongDwellAtTerminus(v, now){
   if(v.status !== 'STOPPED_AT' || !v.stopName || !LONG_DWELL_TERMINI.some(s => normName(s) === normName(v.stopName))){
     delete terminusDwellTracker[v.id];
@@ -8995,8 +9042,8 @@ function isLongDwellAtTerminus(v, now){
   // keepAliveDurationFor already applies to the ordinary feed-gap keep-
   // alive window above. Exempt for as long as the report is active, and
   // don't accumulate dwell time while exempt (delete rather than freeze
-  // the tracker entry), so the 45-minute clock starts fresh once the
-  // report clears instead of removing the train the instant it does.
+  // the tracker entry), so the clock starts fresh once the report clears
+  // instead of removing the train the instant it does.
   if(standingByCache[v.id]){
     delete terminusDwellTracker[v.id];
     return false;
@@ -9304,7 +9351,7 @@ async function refreshVehicles(){
   }
 
   // Trains that have been sitting continuously at Boston College, Cleveland
-  // Circle, Riverside, or Medford/Tufts for 45+ minutes — see
+  // Circle, Riverside, or Medford/Tufts for LONG_DWELL_REMOVE_MS+ — see
   // isLongDwellAtTerminus above. Also sweeps terminusDwellTracker for any
   // vehicle id that isn't even part of this poll's list anymore (truly gone
   // from the feed, not just filtered out by this very check) — otherwise a
