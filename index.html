@@ -1381,6 +1381,7 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
 .pair-history-main strong{font-weight:700;}
 .pair-history-meta{font-size:10.5px; color:var(--text-faint); margin-top:1px;}
 .pair-history-row.current .pair-history-meta{color:var(--accent);}
+.pair-history-toggle{margin-top:6px;}
 /* Car detail page's real geographic mini-map (Leaflet + Esri dark tiles).
    Leaflet's own CSS handles the tile grid/marker positioning internally;
    this just gives the container a fixed height and rounds its corners to
@@ -2328,7 +2329,7 @@ window.addEventListener('popstate', ()=>{
 // needs to be hand-updated to the current date/time whenever a real change
 // is deployed. Any ISO 8601 string with an offset works — init() renders it
 // in the visitor's own local time regardless of what offset is used here.
-const APP_LAST_UPDATED = '2026-09-01T01:32:03-04:00';
+const APP_LAST_UPDATED = '2026-09-01T09:00:10-04:00';
 const MBTA_API_KEY = '7171c5e6f11c447bb3591c1fc1f3b5a9';
 const MBTA_HEADERS = { 'Accept':'application/vnd.api+json' };
 function withMbtaKey(url){
@@ -9827,25 +9828,30 @@ function pairHistoryDotColor(partners, isGlitch){
   if(isGlitch) return '#F59E0B';
   return (partners && partners.length) ? 'var(--accent)' : 'var(--text-faint)';
 }
-function formatPairDateTime(fromMs, toMs){
+function formatPairMoment(ms){
   const dateOpts = { month:'short', day:'numeric', timeZone:'America/New_York' };
   const timeOpts = { hour:'numeric', minute:'2-digit', timeZone:'America/New_York' };
-  const from = new Date(fromMs);
-  const fromDateStr = from.toLocaleDateString('en-US', dateOpts);
-  const fromTimeStr = from.toLocaleTimeString('en-US', timeOpts);
-  if(!toMs) return `${fromDateStr}, ${fromTimeStr} – present`;
-  const to = new Date(toMs);
-  const toDateStr = to.toLocaleDateString('en-US', dateOpts);
-  const toTimeStr = to.toLocaleTimeString('en-US', timeOpts);
-  return (toDateStr === fromDateStr)
-    ? `${fromDateStr}, ${fromTimeStr}–${toTimeStr}`
-    : `${fromDateStr} ${fromTimeStr} – ${toDateStr} ${toTimeStr}`;
+  const d = new Date(ms);
+  return `${d.toLocaleDateString('en-US', dateOpts)}, ${d.toLocaleTimeString('en-US', timeOpts)}`;
 }
-function formatPairDuration(fromMs, toMs){
-  const min = Math.max(1, Math.round(((toMs || Date.now()) - fromMs) / 60000));
+function formatPairDateTime(fromMs, toMs){
+  const fromStr = formatPairMoment(fromMs);
+  if(!toMs) return `${fromStr} – present`;
+  const toStr = formatPairMoment(toMs);
+  const fromDatePart = fromStr.split(', ')[0];
+  const toDatePart = toStr.split(', ')[0];
+  return (toDatePart === fromDatePart)
+    ? `${fromStr}–${toStr.split(', ')[1]}`
+    : `${fromStr} – ${toStr}`;
+}
+function formatDurationMinutes(min){
   if(min < 60) return `${min} min`;
   const hours = min / 60;
   return hours < 24 ? `${Math.round(hours * 10) / 10} hr` : `${Math.round(hours / 24)} days`;
+}
+function formatPairDuration(fromMs, toMs){
+  const min = Math.max(1, Math.round(((toMs || Date.now()) - fromMs) / 60000));
+  return formatDurationMinutes(min);
 }
 
 // One condensed list, newest first — including the current/ongoing pairing
@@ -9854,6 +9860,19 @@ function formatPairDuration(fromMs, toMs){
 // appends each new one to the end of the array); reversing puts "what
 // happened most recently" at the top, which is what a history log should
 // read like.
+//
+// Two things used to make this list unreadable for cars with a lot of
+// churn: (1) a car that keeps reconnecting/disconnecting with the very same
+// partner over a short window — tracker hiccups, a quick reshuffle at a
+// terminus — produced one full row per blip, so a single real relationship
+// could show up as ten near-identical lines; (2) every entry ever recorded
+// rendered unconditionally, so a car with months of history was just a
+// long scroll. Fixed by (1) collapsing consecutive entries that share the
+// exact same partner set into a single row with an "×N" count and a total
+// duration, and (2) only showing the most recent PAIR_HISTORY_COLLAPSE_AFTER
+// rows by default, with a "Show N earlier" toggle for the rest.
+const PAIR_HISTORY_COLLAPSE_AFTER = 6;
+
 async function loadAndRenderPairHistory(key, line){
   const el = document.getElementById(`pairHistory-${key}`);
   if(!el) return;
@@ -9876,11 +9895,35 @@ async function loadAndRenderPairHistory(key, line){
     return;
   }
 
-  el.innerHTML = entries.slice().reverse().map(entry=>{
-    const partners = entry.partners || [];
-    const isOngoing = entry.to === null || entry.to === undefined;
-    const durationMin = isOngoing ? null : Math.round(((entry.to || Date.now()) - entry.from) / 60000);
-    const isGlitch = !isOngoing && durationMin < PAIR_HISTORY_GLITCH_MAX_MIN;
+  // Group consecutive same-partner-set entries (chronological order, as
+  // returned) into runs before doing anything else with them.
+  const groups = [];
+  entries.forEach(entry=>{
+    const partnerKey = (entry.partners || []).slice().sort().join(',');
+    const lastGroup = groups[groups.length - 1];
+    if(lastGroup && lastGroup.partnerKey === partnerKey){
+      lastGroup.runEntries.push(entry);
+    }else{
+      groups.push({ partnerKey, runEntries: [entry] });
+    }
+  });
+
+  const rowsHtml = groups.slice().reverse().map(group=>{
+    const runEntries = group.runEntries;
+    const first = runEntries[0];
+    const last = runEntries[runEntries.length - 1];
+    const partners = last.partners || [];
+    const isOngoing = last.to === null || last.to === undefined;
+    const occurrences = runEntries.length;
+    // Every individual stretch in the run has to be short (and none still
+    // ongoing) for the whole group to read as a likely tracker glitch —
+    // this covers both a single short-lived pairing (old behavior) and a
+    // partner that connects/disconnects repeatedly in quick succession.
+    const allShort = runEntries.every(e=>{
+      if(e.to === null || e.to === undefined) return false;
+      return Math.max(1, Math.round((e.to - e.from) / 60000)) < PAIR_HISTORY_GLITCH_MAX_MIN;
+    });
+    const isGlitch = allShort;
     const color = pairHistoryDotColor(partners, isGlitch);
     const labels = partners.map(p => displayPartnerLabel(p, line));
     let main;
@@ -9894,19 +9937,46 @@ async function loadAndRenderPairHistory(key, line){
       main = `In a set with <strong>${labels.join(', ')}</strong>`;
     }
     const currentTag = isOngoing ? ' <span style="color:var(--accent);">(current)</span>' : '';
+    const countTag = occurrences > 1 ? ` <span style="color:var(--text-faint);">&times;${occurrences}</span>` : '';
     const glitchNote = isGlitch ? ' <span style="color:#F59E0B;">(likely tracker glitch)</span>' : '';
-    const meta = isOngoing
-      ? `Since ${formatPairDateTime(entry.from, null).replace(' – present', '')} · ${formatPairDuration(entry.from, null)} so far`
-      : `${formatPairDateTime(entry.from, entry.to)} · ${formatPairDuration(entry.from, entry.to)}`;
+    let meta;
+    if(isOngoing){
+      meta = `Since ${formatPairMoment(last.from)} · ${formatPairDuration(last.from, null)} so far`;
+    }else if(occurrences > 1){
+      const totalMin = runEntries.reduce((sum, e) => sum + Math.max(1, Math.round(((e.to || Date.now()) - e.from) / 60000)), 0);
+      meta = `${formatPairMoment(first.from)} – ${formatPairMoment(last.to)} · ${formatDurationMinutes(totalMin)} total`;
+    }else{
+      meta = `${formatPairDateTime(first.from, last.to)} · ${formatPairDuration(first.from, last.to)}`;
+    }
     return `
       <div class="pair-history-row${isOngoing ? ' current' : ''}">
         <span class="pair-history-dot" style="background:${color};"></span>
         <div>
-          <div class="pair-history-main">${main}${currentTag}${glitchNote}</div>
+          <div class="pair-history-main">${main}${countTag}${currentTag}${glitchNote}</div>
           <div class="pair-history-meta">${meta}</div>
         </div>
       </div>`;
-  }).join('');
+  });
+
+  const visibleHtml = rowsHtml.slice(0, PAIR_HISTORY_COLLAPSE_AFTER).join('');
+  const hiddenRows = rowsHtml.slice(PAIR_HISTORY_COLLAPSE_AFTER);
+  const noun = isGreen ? 'pairings' : 'sets';
+  const showMoreLabel = `Show ${hiddenRows.length} earlier ${noun}`;
+
+  el.innerHTML = hiddenRows.length
+    ? `${visibleHtml}<div class="pair-history-hidden" style="display:none;">${hiddenRows.join('')}</div>
+       <button type="button" class="modal-info-btn pair-history-toggle" data-pair-history-toggle="${key}">${showMoreLabel}</button>`
+    : visibleHtml;
+
+  if(hiddenRows.length){
+    const btn = el.querySelector('[data-pair-history-toggle]');
+    const hiddenWrap = el.querySelector('.pair-history-hidden');
+    btn.addEventListener('click', ()=>{
+      const isHidden = hiddenWrap.style.display === 'none';
+      hiddenWrap.style.display = isHidden ? '' : 'none';
+      btn.textContent = isHidden ? 'Show fewer' : showMoreLabel;
+    });
+  }
 }
 
 async function loadRosterPanelData(forceRefresh){
