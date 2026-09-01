@@ -2329,7 +2329,7 @@ window.addEventListener('popstate', ()=>{
 // needs to be hand-updated to the current date/time whenever a real change
 // is deployed. Any ISO 8601 string with an offset works — init() renders it
 // in the visitor's own local time regardless of what offset is used here.
-const APP_LAST_UPDATED = '2026-09-01T09:00:10-04:00';
+const APP_LAST_UPDATED = '2026-09-01T09:28:41-04:00';
 const MBTA_API_KEY = '7171c5e6f11c447bb3591c1fc1f3b5a9';
 const MBTA_HEADERS = { 'Accept':'application/vnd.api+json' };
 function withMbtaKey(url){
@@ -3839,7 +3839,18 @@ async function saveStandingByReport(v, stationName, holdMinutes, notes, untilRel
     standingByCache[v.id] = payload;
     const holdText = untilRelease ? ' until release' : (holdMinutes ? ` for about ${holdMinutes} min` : '');
     logEdit(state.userName, state.uid, `Reported car ${formatCarNumberForDisplay(v.label)} standing by at ${stationName}${holdText}`);
-  }catch(e){ console.error(e); }
+    return true;
+  }catch(e){
+    // Used to fail completely silently here (just a console.error) — the
+    // caller had no way to know the write didn't go through, so it kept
+    // right on calling showCarModal(v), which just redrew the same blank
+    // "not yet reported" form since standingByCache was never actually
+    // updated. From the outside that looks exactly like the button doing
+    // nothing at all. Returning false lets the click handler show a real
+    // error instead of silently resetting.
+    console.error(e);
+    return false;
+  }
 }
 async function clearStandingByReport(vehicleId, isManualCancel){
   if(!firebaseReady) return;
@@ -3883,7 +3894,13 @@ async function saveExpressReport(v, startStation, endStation, intermediateStop){
     expressReportCache[v.id] = payload;
     const stopNote = intermediateStop ? ` (still stopping at ${intermediateStop})` : '';
     logEdit(state.userName, state.uid, `Reported car ${formatCarNumberForDisplay(v.label)} running express from ${startStation} to ${endStation}${stopNote}`);
-  }catch(e){ console.error(e); }
+    return true;
+  }catch(e){
+    // See the matching comment in saveStandingByReport — a silent failure
+    // here used to look identical to the button just not working.
+    console.error(e);
+    return false;
+  }
 }
 async function clearExpressReport(vehicleId, isManualCancel){
   if(!firebaseReady) return;
@@ -6581,7 +6598,20 @@ async function showCarModal(v){
         note.textContent = `This train has already passed ${displayName(station)} \u2014 pick a station it hasn't reached yet.`;
         return;
       }
-      await saveStandingByReport(v, station, minutes ? parseInt(minutes, 10) : null, notes, untilRelease);
+      // Disable + relabel immediately so a slow connection reads as "in
+      // progress" instead of "didn't register", which is what was making
+      // people click this several times in a row.
+      reportStandingByBtn.disabled = true;
+      const originalLabel = reportStandingByBtn.textContent;
+      reportStandingByBtn.textContent = 'Reporting\u2026';
+      note.textContent = '';
+      const ok = await saveStandingByReport(v, station, minutes ? parseInt(minutes, 10) : null, notes, untilRelease);
+      if(!ok){
+        reportStandingByBtn.disabled = false;
+        reportStandingByBtn.textContent = originalLabel;
+        note.textContent = "Couldn't save that report \u2014 check your connection and try again.";
+        return;
+      }
       awardPoints((minutes || untilRelease) ? 6 : 3);
       showCarModal(v);
     });
@@ -6622,7 +6652,17 @@ async function showCarModal(v){
       }
       // Station and notes carry over unchanged — this form only edits the
       // hold-time figure itself, not the whole report.
-      await saveStandingByReport(v, existingStandingBy.stationName, minutes ? parseInt(minutes, 10) : null, existingStandingBy.notes, untilRelease);
+      saveStandingByEditBtn.disabled = true;
+      const originalLabel = saveStandingByEditBtn.textContent;
+      saveStandingByEditBtn.textContent = 'Saving…';
+      note.textContent = '';
+      const ok = await saveStandingByReport(v, existingStandingBy.stationName, minutes ? parseInt(minutes, 10) : null, existingStandingBy.notes, untilRelease);
+      if(!ok){
+        saveStandingByEditBtn.disabled = false;
+        saveStandingByEditBtn.textContent = originalLabel;
+        note.textContent = "Couldn't save — check your connection and try again.";
+        return;
+      }
       showCarModal(v);
     });
   }
@@ -6656,7 +6696,17 @@ async function showCarModal(v){
           return;
         }
       }
-      await saveExpressReport(v, startStation, endStation, intermediateStop);
+      reportExpressBtn.disabled = true;
+      const originalLabel = reportExpressBtn.textContent;
+      reportExpressBtn.textContent = 'Reporting…';
+      note.textContent = '';
+      const ok = await saveExpressReport(v, startStation, endStation, intermediateStop);
+      if(!ok){
+        reportExpressBtn.disabled = false;
+        reportExpressBtn.textContent = originalLabel;
+        note.textContent = "Couldn't save that report — check your connection and try again.";
+        return;
+      }
       awardPoints(6);
       showCarModal(v);
     });
@@ -13619,7 +13669,19 @@ function initQuickReportForm(idPrefix, onSuccess){
         note.textContent = `Car ${formatCarNumberForDisplay(v.label)} has already passed ${displayName(station)} — pick a station it hasn't reached yet.`;
         return;
       }
-      await saveStandingByReport(v, station, minutes ? parseInt(minutes, 10) : null, notes, untilRelease);
+      // Validation's all passed at this point — only now do we disable/
+      // relabel the button, so a validation error above still leaves it
+      // clickable instead of stuck on "Reporting…" forever.
+      submitBtn.disabled = true;
+      const originalSubmitLabel = submitBtn.textContent;
+      submitBtn.textContent = 'Reporting…';
+      const ok = await saveStandingByReport(v, station, minutes ? parseInt(minutes, 10) : null, notes, untilRelease);
+      if(!ok){
+        submitBtn.disabled = false;
+        submitBtn.textContent = originalSubmitLabel;
+        note.textContent = "Couldn't save that report — check your connection and try again.";
+        return;
+      }
       awardPoints((minutes || untilRelease) ? 6 : 3);
     }else{
       const startTyped = expressStartInput.value.trim();
@@ -13639,11 +13701,22 @@ function initQuickReportForm(idPrefix, onSuccess){
         intermediateStop = findStopMatchingInput(expressStopOptions, intermediateTyped);
         if(!intermediateStop){ note.textContent = "The intermediate stop doesn't match a real station on this train's route."; return; }
       }
-      await saveExpressReport(v, startStation, endStation, intermediateStop);
+      submitBtn.disabled = true;
+      const originalSubmitLabel = submitBtn.textContent;
+      submitBtn.textContent = 'Reporting…';
+      const ok = await saveExpressReport(v, startStation, endStation, intermediateStop);
+      if(!ok){
+        submitBtn.disabled = false;
+        submitBtn.textContent = originalSubmitLabel;
+        note.textContent = "Couldn't save that report — check your connection and try again.";
+        return;
+      }
       awardPoints(6);
     }
     note.textContent = `Reported car ${formatCarNumberForDisplay(v.label)} — done!`;
     setTimeout(()=>{
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Submit report';
       if(onSuccess) onSuccess();
       resetForm();
       setType('standingby');
