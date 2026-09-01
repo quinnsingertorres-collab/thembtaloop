@@ -2329,7 +2329,7 @@ window.addEventListener('popstate', ()=>{
 // needs to be hand-updated to the current date/time whenever a real change
 // is deployed. Any ISO 8601 string with an offset works — init() renders it
 // in the visitor's own local time regardless of what offset is used here.
-const APP_LAST_UPDATED = '2026-09-01T11:21:27-04:00';
+const APP_LAST_UPDATED = '2026-09-01T11:31:00-04:00';
 const MBTA_API_KEY = '7171c5e6f11c447bb3591c1fc1f3b5a9';
 const MBTA_HEADERS = { 'Accept':'application/vnd.api+json' };
 function withMbtaKey(url){
@@ -3067,7 +3067,12 @@ function isVehicleOutOfService(v){
   if(isNonRevenueTrain(v)) return true;
   if(isAtInnerbeltYard(v)) return true;
   const carParts = String(consistOverrideCache[carSetKey(v.label)] || v.label).split('-');
-  return carParts.some(c => outOfServiceCarsCache[c]);
+  // isCarNotAcceptingPassengers (defined further down, with getCrowdingForCar)
+  // is a per-car auto-detected signal, same treatment as a manual per-car
+  // outOfServiceCarsCache flag right next to it here — either one on any
+  // single car marks the whole train OOS for the bubble/dot/leader-follower
+  // purposes this function feeds.
+  return carParts.some(c => outOfServiceCarsCache[c] || isCarNotAcceptingPassengers(v, c));
 }
 
 // Type 9 cars can't safely open their doors at Fenwood Road, Mission Park,
@@ -3106,12 +3111,44 @@ const CROWDING_COLORS = {
   FULL: '#D64545',
   NOT_ACCEPTING_PASSENGERS: '#6B7280'
 };
-function getCrowdingForCar(v, carNum){
+// Raw MBTA occupancy_status for a car, with none of getCrowdingForCar's own
+// filtering below — used by isCarNotAcceptingPassengers, which cares about
+// this value even for car types getCrowdingForCar won't display it for (see
+// that function's own comment).
+function getRawOccupancyStatusForCar(v, carNum){
   if(!v || !v.carriages) return null;
-  if(outOfServiceCarsCache[carNum]) return null;
   const match = v.carriages.find(c => String(c.label) === String(carNum));
   if(!match || !match.occupancy_status || match.occupancy_status === 'NO_DATA_AVAILABLE') return null;
   return match.occupancy_status;
+}
+function getCrowdingForCar(v, carNum){
+  if(!v || !v.carriages) return null;
+  if(outOfServiceCarsCache[carNum]) return null;
+  // Type 7 and Type 8 cars have no real crowding sensors — MBTA's feed
+  // still sometimes reports an occupancy_status for them anyway (in
+  // practice, always NOT_ACCEPTING_PASSENGERS, apparently tied to the
+  // trip's non-revenue flag rather than an actual per-car reading), which
+  // isn't meaningful crowding info to show. getCarType is Green Line-
+  // specific and returns 'Unknown' for every other line's car numbers, so
+  // this never affects Orange/Red/Blue. See isCarNotAcceptingPassengers
+  // below, which still uses this same raw signal for those two types —
+  // just not as a "crowding" display.
+  const type = getCarType(carNum);
+  if(type === 'Type 7' || type === 'Type 8') return null;
+  return getRawOccupancyStatusForCar(v, carNum);
+}
+// MBTA's occupancy_status reports NOT_ACCEPTING_PASSENGERS for a specific
+// car even on Type 7/8, which have no real crowding sensors (see
+// getCrowdingForCar's exclusion of those two types from the *display* of
+// this same field). Whatever's actually driving that value there, it's
+// still MBTA's own feed saying passengers can't board this specific car —
+// treated as an out-of-service signal for Type 7/8/9 (the only Green Line
+// types this has been observed for), independent of whether it's ever shown
+// as "crowding".
+function isCarNotAcceptingPassengers(v, carNum){
+  const type = getCarType(carNum);
+  if(type !== 'Type 7' && type !== 'Type 8' && type !== 'Type 9') return false;
+  return getRawOccupancyStatusForCar(v, carNum) === 'NOT_ACCEPTING_PASSENGERS';
 }
 function getCapacityPercentForCar(v, carNum){
   if(!v || !v.carriages) return null;
@@ -5838,7 +5875,7 @@ async function showCarModal(v){
     ? `<div class="modal-section">
         <h4>Crowding by car</h4>
         ${displayCarParts.map(carNum=>{
-          const isCarOOS = carNum !== null && !!outOfServiceCarsCache[carNum];
+          const isCarOOS = carNum !== null && (!!outOfServiceCarsCache[carNum] || isCarNotAcceptingPassengers(v, carNum));
           const status = carNum !== null ? getCrowdingForCar(v, carNum) : null;
           const label = isCarOOS ? 'Out of Service' : (status ? (CROWDING_LABELS[status] || status) : 'Crowding data is not available for this car');
           const color = isCarOOS ? '#6B7280' : (status ? (CROWDING_COLORS[status] || 'inherit') : 'var(--text-faint)');
@@ -6016,6 +6053,19 @@ async function showCarModal(v){
       : '';
 
     const isExpandedGreen = expandedCarDetailKeys.has(carNum);
+    // MBTA's feed reporting this specific car as not accepting passengers \u2014
+    // see isCarNotAcceptingPassengers (with getCrowdingForCar/
+    // getRawOccupancyStatusForCar) for why this is tracked separately from
+    // the Crowding row even though Type 7/8 never show a Crowding row at
+    // all. Gets its own notice here, the same pattern as the whole-train
+    // auto-detected notices up top (soloType7Notice/nonRevenueNotice/etc.)
+    // rather than folding into carOOSBlock's manual toggle+notes flow below,
+    // since there's nothing for a user to toggle back \u2014 it clears on its
+    // own once MBTA's feed does.
+    const notAcceptingPassengersNotice = isCarNotAcceptingPassengers(v, carNum)
+      ? `<div class="modal-row"><span>Status</span><strong style="color:#D64545;">Not accepting passengers (auto-detected)</strong></div>
+         <div class="signin-note">MBTA's feed reports this car as not accepting passengers &mdash; treated as out of service here.</div>`
+      : '';
     return `
       <div class="modal-section">
         <h4 class="car-detail-toggle" data-car-detail-toggle="${carNum}" style="cursor:pointer; display:flex; align-items:center; justify-content:space-between; gap:8px;">
@@ -6027,6 +6077,7 @@ async function showCarModal(v){
         </h4>
         <div class="car-details" id="carDetails-${carNum}" style="display:${isExpandedGreen ? 'block' : 'none'};">
           <div class="modal-row"><span>Type</span><strong>${type}</strong></div>
+          ${notAcceptingPassengersNotice}
           <div class="modal-row"><span>Builder</span><strong>${info.builder}</strong></div>
           <div class="modal-row"><span>Year built</span><strong>${getBuildYear(type, carNum)}</strong></div>
           ${seatsRow}
