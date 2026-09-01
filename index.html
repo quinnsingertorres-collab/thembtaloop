@@ -919,7 +919,19 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
 }
 @media (max-width:480px){
   .bottom-nav{padding-top:8px;}
-  .bottom-nav-inner{flex-wrap:nowrap; gap:2px; padding:4px; overflow-x:auto; -webkit-overflow-scrolling:touch; max-width:calc(100vw - 24px); scrollbar-width:none;}
+  /* justify-content:center (the base rule above) plus overflow-x:auto is a
+     known flexbox trap: centering an overflowing row clips it symmetrically
+     at BOTH edges, with the browser deciding where that centered content
+     starts relative to scrollLeft:0 — and that decision shifts every time
+     buildNav() rebuilds these buttons (it runs on every vehicle-count poll,
+     and something as small as a count going from "8" to "13" changes the
+     row's total content width). Each rebuild re-centers around a slightly
+     different width, so buttons at the edges (the B pill especially)
+     visibly slide in and out with no one touching the screen. flex-start
+     anchors the row to its true beginning regardless of content width, so
+     a rebuild can no longer move anything — the row still scrolls, just
+     only when someone actually swipes it. */
+  .bottom-nav-inner{flex-wrap:nowrap; gap:2px; padding:4px; overflow-x:auto; -webkit-overflow-scrolling:touch; max-width:calc(100vw - 24px); scrollbar-width:none; justify-content:flex-start;}
   .bottom-nav-inner::-webkit-scrollbar{display:none;}
   .nav-btn{padding:5px 8px; font-size:10px; gap:1px; border-radius:11px;}
   .nav-btn .swatch{width:6px; height:6px;}
@@ -2316,7 +2328,7 @@ window.addEventListener('popstate', ()=>{
 // needs to be hand-updated to the current date/time whenever a real change
 // is deployed. Any ISO 8601 string with an offset works — init() renders it
 // in the visitor's own local time regardless of what offset is used here.
-const APP_LAST_UPDATED = '2026-08-31T10:40:29-04:00';
+const APP_LAST_UPDATED = '2026-09-01T01:32:03-04:00';
 const MBTA_API_KEY = '7171c5e6f11c447bb3591c1fc1f3b5a9';
 const MBTA_HEADERS = { 'Accept':'application/vnd.api+json' };
 function withMbtaKey(url){
