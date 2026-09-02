@@ -1408,8 +1408,11 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
 #carDetailMapContainer .leaflet-control-attribution{background:rgba(11,20,32,0.75); color:var(--text-faint); font-size:9px;}
 #carDetailMapContainer .leaflet-control-attribution a{color:var(--text-faint);}
 /* Quick Report page's own copy of the mini-map above (see qrPageMapContainer
-   comment in the JS) — identical sizing/styling, separate DOM node. */
-#qrPageMapContainer{height:240px; border-radius:10px; overflow:hidden; margin-bottom:14px; background:var(--panel); isolation:isolate;}
+   comment in the JS) — identical sizing/styling, separate DOM node. Now
+   placed after the form's Submit button (see the HTML comment there), so
+   margin-top separates it from the note above instead of margin-bottom
+   separating it from the car number field that used to follow it. */
+#qrPageMapContainer{height:240px; border-radius:10px; overflow:hidden; margin-top:14px; margin-bottom:14px; background:var(--panel); isolation:isolate;}
 #qrPageMapContainer .leaflet-control-attribution{background:rgba(11,20,32,0.75); color:var(--text-faint); font-size:9px;}
 #qrPageMapContainer .leaflet-control-attribution a{color:var(--text-faint);}
 </style>
@@ -1933,23 +1936,6 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
       Sign in to file a standing-by or express report.
     </div>
     <div id="qrPageForm">
-      <!-- Shown once the typed car number below resolves to a currently
-           active train (see updateQrPageMap) — same live Leaflet mini-map
-           used on the Fleet Roster car detail page (see
-           #carDetailMapContainer), just against this page's own separate
-           map instance. Sits above the car number field (rather than below
-           it, where the equivalent car-detail-page map lives) so it's the
-           first thing that updates as someone confirms they've typed the
-           right car, without pushing the rest of the form down further
-           each time it appears. Spans the same full width as the input
-           below it (matching this panel's own inner width — see
-           #qrPageMapContainer's CSS, no separate max-width of its own). -->
-      <div id="qrPageMapContainer" style="display:none;"></div>
-      <!-- Leader/this-car/follower box — same one shown on the Fleet Roster
-           car detail page (see renderLeaderFollowerBox), filled in right
-           alongside the map above once the car number resolves. -->
-      <div id="qrPageLeaderFollower" style="display:none;"></div>
-
       <div class="roster-field-label">Car number</div>
       <input type="text" class="roster-input" id="qrPageCarNumber" placeholder="e.g. 1932" inputmode="numeric" autocomplete="off" style="margin-top:6px;">
 
@@ -1982,6 +1968,24 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
 
       <button class="account-btn" id="qrPageSubmitBtn" style="margin-top:12px; width:100%;">Submit report</button>
       <span class="roster-submit-note" id="qrPageNote"></span>
+
+      <!-- Shown once the typed car number above resolves to a currently
+           active train (see updateQrPageMap) — same live Leaflet mini-map
+           used on the Fleet Roster car detail page (see
+           #carDetailMapContainer), just against this page's own separate
+           map instance. Deliberately placed AFTER every input field and the
+           Submit button, not above the car number field — appearing above
+           the form used to push the car number field, both station fields,
+           and Submit down by the map's own height the instant a valid car
+           number resolved (often mid-keystroke), so a tap aimed at the next
+           field could land on whatever the map pushed into its place
+           instead. Down here, showing/hiding it never moves anything the
+           person is actually filling in. -->
+      <div id="qrPageMapContainer" style="display:none;"></div>
+      <!-- Leader/this-car/follower box — same one shown on the Fleet Roster
+           car detail page (see renderLeaderFollowerBox), filled in right
+           alongside the map above once the car number resolves. -->
+      <div id="qrPageLeaderFollower" style="display:none;"></div>
     </div>
    </div>
   </div>
@@ -2329,7 +2333,7 @@ window.addEventListener('popstate', ()=>{
 // needs to be hand-updated to the current date/time whenever a real change
 // is deployed. Any ISO 8601 string with an offset works — init() renders it
 // in the visitor's own local time regardless of what offset is used here.
-const APP_LAST_UPDATED = '2026-09-01T11:31:00-04:00';
+const APP_LAST_UPDATED = '2026-09-02T19:22:09-04:00';
 const MBTA_API_KEY = '7171c5e6f11c447bb3591c1fc1f3b5a9';
 const MBTA_HEADERS = { 'Accept':'application/vnd.api+json' };
 function withMbtaKey(url){
@@ -3056,23 +3060,21 @@ function isNonRevenueTrain(v){
 // as out of service if it's an auto-detected solo Type 7, MBTA's own feed
 // marks its trip non-revenue, MBTA's feed has it at Innerbelt Yard (see
 // isAtInnerbeltYard below — a storage/maintenance yard, not a passenger
-// stop), or if ANY car in its (possibly community-corrected) consist has
-// been marked out of service today. Pulled out as its own helper so
-// getLeaderAndFollower can exclude these trains from being counted as a
-// leader/follower, same as it already never sees hidden trains (those are
-// filtered out of state.vehicles entirely — see refreshVehicles'
-// hiddenTrainsCache pass).
+// stop), or if EVERY car in its (possibly community-corrected) consist has
+// been marked out of service today (manually, or auto-detected via
+// isCarNotAcceptingPassengers below) — a single bad car out of a working
+// pair still shows normally on the map/bubble; see each car's own status in
+// its modal section (carOOSBlock/notAcceptingPassengersNotice) for that.
+// Pulled out as its own helper so getLeaderAndFollower can exclude these
+// trains from being counted as a leader/follower, same as it already never
+// sees hidden trains (those are filtered out of state.vehicles entirely —
+// see refreshVehicles' hiddenTrainsCache pass).
 function isVehicleOutOfService(v){
   if(isSoloType7(v)) return true;
   if(isNonRevenueTrain(v)) return true;
   if(isAtInnerbeltYard(v)) return true;
   const carParts = String(consistOverrideCache[carSetKey(v.label)] || v.label).split('-');
-  // isCarNotAcceptingPassengers (defined further down, with getCrowdingForCar)
-  // is a per-car auto-detected signal, same treatment as a manual per-car
-  // outOfServiceCarsCache flag right next to it here — either one on any
-  // single car marks the whole train OOS for the bubble/dot/leader-follower
-  // purposes this function feeds.
-  return carParts.some(c => outOfServiceCarsCache[c] || isCarNotAcceptingPassengers(v, c));
+  return carParts.every(c => outOfServiceCarsCache[c] || isCarNotAcceptingPassengers(v, c));
 }
 
 // Type 9 cars can't safely open their doors at Fenwood Road, Mission Park,
