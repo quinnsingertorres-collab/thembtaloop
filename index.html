@@ -2339,7 +2339,7 @@ window.addEventListener('popstate', ()=>{
 // needs to be hand-updated to the current date/time whenever a real change
 // is deployed. Any ISO 8601 string with an offset works — init() renders it
 // in the visitor's own local time regardless of what offset is used here.
-const APP_LAST_UPDATED = '2026-09-02T22:10:09-04:00';
+const APP_LAST_UPDATED = '2026-09-02T22:12:53-04:00';
 const MBTA_API_KEY = '7171c5e6f11c447bb3591c1fc1f3b5a9';
 const MBTA_HEADERS = { 'Accept':'application/vnd.api+json' };
 function withMbtaKey(url){
@@ -3195,57 +3195,6 @@ async function refreshEnhancedTripData(){
       };
     });
     enhancedTripDataCache = next;
-  }catch(e){ /* silently ignore -- this feed is supplementary, not required */ }
-}
-
-// MBTA's enhanced GTFS-realtime TripUpdates feed: a predicted arrival/
-// departure time (with an uncertainty figure, in seconds) at every upcoming
-// stop for every active trip — a different data type from the vehicle
-// position feeds above (this is predictions, not GPS pings). Same CORS gap
-// as the other two enhanced feeds in this file, so it goes through our own
-// /api/trip-updates proxy. Deliberately kept to just the single next stop
-// per vehicle: that's the one thing this app doesn't already surface
-// (current stop/status comes from state.vehicles itself) — see the "Next
-// stop" modal row this powers, just below the existing Status row. Reuses
-// ensureStopIdToNameMap (built for the rail feed above) since TripUpdates'
-// stop_id values are the same platform-level ids, not parent stations.
-let tripUpdatesCache = {}; // vehicle id -> { stopName, predictedAt (ISO), etaMinutes }
-async function refreshTripUpdates(){
-  try{
-    const res = await fetch('/api/trip-updates');
-    if(!res.ok) return;
-    const json = await res.json();
-    const entities = Array.isArray(json.entity) ? json.entity : [];
-    const wantRoutes = RAIL_FEED_ROUTE_IDS_BY_LINE[state.activeLine];
-    if(!wantRoutes) return;
-    const stopIdToName = await ensureStopIdToNameMap(state.activeLine);
-    const nowMs = Date.now();
-    const next = {};
-    entities.forEach(entity=>{
-      const tu = entity && entity.trip_update;
-      if(!tu || !tu.trip || !wantRoutes.includes(tu.trip.route_id)) return;
-      const vehicleId = tu.vehicle && tu.vehicle.id;
-      if(!vehicleId) return;
-      const updates = Array.isArray(tu.stop_time_update) ? tu.stop_time_update : [];
-      // First not-skipped stop still ahead of now with a predicted time —
-      // i.e. the very next stop this train is going to reach.
-      const upcoming = updates.find(u=>{
-        if(!u || u.schedule_relationship === 'SKIPPED') return false;
-        const t = (u.arrival && u.arrival.time) || (u.departure && u.departure.time);
-        return typeof t === 'number' && (t * 1000) >= nowMs;
-      });
-      if(!upcoming) return;
-      const stopName = upcoming.stop_id ? stopIdToName[upcoming.stop_id] : null;
-      if(!stopName) return;
-      const timeInfo = upcoming.arrival || upcoming.departure;
-      const predictedMs = timeInfo.time * 1000;
-      next[vehicleId] = {
-        stopName,
-        predictedAt: new Date(predictedMs).toISOString(),
-        etaMinutes: Math.max(0, (predictedMs - nowMs) / 60000)
-      };
-    });
-    tripUpdatesCache = next;
   }catch(e){ /* silently ignore -- this feed is supplementary, not required */ }
 }
 
@@ -5763,7 +5712,7 @@ async function showCarModal(v){
     // saving an edit) still swaps content in once ready instead of blanking
     // the panel first.
     document.getElementById('carModalBody').innerHTML = loadingSceneHtml();
-    // The Status/Next stop/Destination/speed/Last update block gets moved
+    // The Status/Destination/speed/Last update block gets moved
     // OUT of #carModalBody into the sticky header once a render finishes
     // (see the appendChild near the bottom of this function) — so blanking
     // carModalBody alone doesn't touch it. Without this, the previous
@@ -6228,11 +6177,6 @@ async function showCarModal(v){
     : '';
   const lastTripNotice = enhancedTripInfo && enhancedTripInfo.isLastTrip
     ? `<div class="modal-row"><span>Last trip</span><strong>Yes, for this branch/direction today</strong></div>`
-    : '';
-
-  const nextStopInfo = tripUpdatesCache[v.id];
-  const nextStopNotice = nextStopInfo
-    ? `<div class="modal-row"><span>Next stop</span><strong>${displayName(nextStopInfo.stopName)}</strong></div>`
     : '';
 
   const GREEN_BRANCH_NAMES = { B:'Boston College', C:'Cleveland Circle', D:'Riverside', E:'Heath Street' };
@@ -14458,14 +14402,6 @@ async function init(){
   // 5s from refreshVehicles' own 10s cycle (see that call) so the two
   // 10-second polls don't coincide either.
   startGatedPoll(refreshEnhancedTripData, 10000, { scopeToLivePage: false, staggerMs: 5000 });
-
-  // Matches the edge cache's s-maxage=3 on /api/trip-updates (see that
-  // file) — measured against the live feed to update roughly every 3-4s,
-  // so polling faster wouldn't get fresher predictions, just more requests
-  // against the same cached response. Only matters on the live track map
-  // (it powers the train info modal's "Next stop" row), so scoped to that
-  // page like refreshVehicles' vehicle-specific work is elsewhere.
-  startGatedPoll(refreshTripUpdates, 3000, { scopeToLivePage: true, staggerMs: 1500 });
 
   startGatedPoll(refreshSoloType7OverrideCache, 60000, { staggerMs: 44000 });
   startGatedPoll(refreshBranchReassignmentCache, 60000, { staggerMs: 48000 });
