@@ -2333,7 +2333,7 @@ window.addEventListener('popstate', ()=>{
 // needs to be hand-updated to the current date/time whenever a real change
 // is deployed. Any ISO 8601 string with an offset works — init() renders it
 // in the visitor's own local time regardless of what offset is used here.
-const APP_LAST_UPDATED = '2026-09-02T19:22:09-04:00';
+const APP_LAST_UPDATED = '2026-09-02T21:51:42-04:00';
 const MBTA_API_KEY = '7171c5e6f11c447bb3591c1fc1f3b5a9';
 const MBTA_HEADERS = { 'Accept':'application/vnd.api+json' };
 function withMbtaKey(url){
@@ -3859,8 +3859,23 @@ const standingByCacheCtl = makeSnapshotCache('standing_by_reports', (docs)=>{
   standingByCache = map;
 });
 function refreshStandingByCache(){ standingByCacheCtl.start(); }
-async function saveStandingByReport(v, stationName, holdMinutes, notes, untilRelease){
+async function saveStandingByReport(v, stationName, holdMinutes, notes, untilRelease, existingStoppedAtTs){
   if(!firebaseReady) return;
+  // The expected-hold countdown shouldn't start ticking from the moment
+  // someone files the report — a standing-by report can legitimately be
+  // filed a stop or two ahead of the train actually arriving (see
+  // hasVehiclePassedStation's own comment on that), and basing the clock on
+  // report time would run it out before the train even got there. So this
+  // is null unless the train is *already* sitting at the reported station
+  // right now; if it's still approaching, clearStaleDestinationOverrides'
+  // standing-by sweep (see markStandingByReportStopped) fills this in the
+  // moment MBTA's feed actually shows it STOPPED_AT that station.
+  // existingStoppedAtTs carries an already-set timestamp forward across an
+  // "Edit hold time" call (see saveStandingByEditBtn's handler) — changing
+  // just the expected minutes shouldn't restart a clock that already began.
+  const stoppedAtTs = existingStoppedAtTs !== undefined
+    ? existingStoppedAtTs
+    : (v.status === 'STOPPED_AT' && v.stopName && normName(v.stopName) === normName(stationName) ? Date.now() : null);
   const payload = {
     stationName,
     // untilRelease means "holding for dispatch, no set time" — mutually
@@ -3870,6 +3885,7 @@ async function saveStandingByReport(v, stationName, holdMinutes, notes, untilRel
     holdMinutes: untilRelease ? null : (holdMinutes || null),
     untilRelease: !!untilRelease,
     notes: notes || null,
+    stoppedAtTs,
     reportedBy: state.userName, reportedByUid: state.uid || null, ts: Date.now(),
     originalTripId: v.tripId || null
   };
@@ -3909,6 +3925,23 @@ async function clearStandingByReport(vehicleId, isManualCancel){
       logEdit(state.userName, state.uid, `Cancelled standing-by report at ${existing.stationName}, originally reported by ${existing.reportedBy || 'Unknown'}`);
     }
   }
+}
+// Fires the moment a pending standing-by report's train is first observed
+// STOPPED_AT the reported station — see saveStandingByReport's own comment
+// on why the hold-time countdown can't just start from when the report was
+// filed. Called from clearStaleDestinationOverrides' standing-by sweep,
+// once per vehicle per poll, only while stoppedAtTs is still unset. Updates
+// the local cache immediately (not waiting on the write) so the modal's
+// countdown can start on this exact poll tick rather than the next one.
+async function markStandingByReportStopped(vehicleId){
+  if(!firebaseReady) return;
+  const report = standingByCache[vehicleId];
+  if(!report || report.stoppedAtTs) return;
+  const stoppedAtTs = Date.now();
+  standingByCache[vehicleId] = Object.assign({}, report, { stoppedAtTs });
+  try{
+    await fbDb.collection('standing_by_reports').doc(vehicleId).update({ stoppedAtTs });
+  }catch(e){ console.error(e); }
 }
 
 // Community "running express" reports — a train skipping stops between a
@@ -6206,16 +6239,23 @@ async function showCarModal(v){
   // train's own real route (see getValidStopsForVehicle).
   const validStopsForThisVehicle = getValidStopsForVehicle(v);
   const existingStandingBy = standingByCache[v.id];
-  const standingByHoldEndMs = (existingStandingBy && !existingStandingBy.untilRelease && existingStandingBy.holdMinutes)
-    ? existingStandingBy.ts + existingStandingBy.holdMinutes * 60000
+  // Counts down from stoppedAtTs (when the train was actually first seen
+  // stopped at the reported station), not from the report's own ts — see
+  // saveStandingByReport's comment. A report filed ahead of arrival has
+  // stoppedAtTs still null until markStandingByReportStopped fills it in.
+  const standingByHoldEndMs = (existingStandingBy && !existingStandingBy.untilRelease && existingStandingBy.holdMinutes && existingStandingBy.stoppedAtTs)
+    ? existingStandingBy.stoppedAtTs + existingStandingBy.holdMinutes * 60000
     : null;
+  const standingByWaitingToStart = !!(existingStandingBy && !existingStandingBy.untilRelease && existingStandingBy.holdMinutes && !existingStandingBy.stoppedAtTs);
   const standingBySection = existingStandingBy
     ? `<div class="modal-section">
         <h4>Standing by</h4>
         <div class="modal-row"><span>Station</span><strong>${displayName(existingStandingBy.stationName)}</strong></div>
         ${existingStandingBy.untilRelease
           ? `<div class="modal-row"><span>Expected hold</span><strong>Until release</strong></div>`
-          : (standingByHoldEndMs ? `<div class="modal-row"><span>Time remaining</span><strong data-hold-end="${standingByHoldEndMs}">${formatStandingByCountdown(standingByHoldEndMs)}</strong></div>` : '')}
+          : (standingByHoldEndMs
+              ? `<div class="modal-row"><span>Time remaining</span><strong data-hold-end="${standingByHoldEndMs}">${formatStandingByCountdown(standingByHoldEndMs)}</strong></div>`
+              : (standingByWaitingToStart ? `<div class="modal-row"><span>Time remaining</span><strong style="color:var(--text-faint);">Starts once the train stops here</strong></div>` : ''))}
         ${existingStandingBy.notes ? `<div class="signin-note">"${existingStandingBy.notes}"</div>` : ''}
         <div class="signin-note">Reported by ${existingStandingBy.reportedBy || 'Unknown'} \u2014 clears automatically once the train leaves this station.</div>
         ${state.signedIn ? `
@@ -6709,7 +6749,7 @@ async function showCarModal(v){
       const originalLabel = saveStandingByEditBtn.textContent;
       saveStandingByEditBtn.textContent = 'Saving…';
       note.textContent = '';
-      const ok = await saveStandingByReport(v, existingStandingBy.stationName, minutes ? parseInt(minutes, 10) : null, existingStandingBy.notes, untilRelease);
+      const ok = await saveStandingByReport(v, existingStandingBy.stationName, minutes ? parseInt(minutes, 10) : null, existingStandingBy.notes, untilRelease, existingStandingBy.stoppedAtTs);
       if(!ok){
         saveStandingByEditBtn.disabled = false;
         saveStandingByEditBtn.textContent = originalLabel;
@@ -9008,6 +9048,14 @@ function clearStaleDestinationOverrides(now){
     }
     const liveVehicle = state.vehicles.find(v => v.id === vehicleId);
     if(!liveVehicle) return;
+    // The hold-time countdown's own clock — see saveStandingByReport and
+    // markStandingByReportStopped — starts here, the first poll tick where
+    // this pending report's train actually shows STOPPED_AT the reported
+    // station, rather than back when the report was filed.
+    if(!report.stoppedAtTs && liveVehicle.status === 'STOPPED_AT' && liveVehicle.stopName
+       && normName(liveVehicle.stopName) === normName(report.stationName)){
+      markStandingByReportStopped(vehicleId);
+    }
     if(!liveVehicle.branch) return;
     const pageKeyForVehicle = liveVehicle.branch === 'RED'
       ? (getRedLineBranch(liveVehicle) === 'ashmont' ? 'REDASHMONT' : 'REDBRAINTREE')
