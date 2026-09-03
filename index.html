@@ -2339,7 +2339,7 @@ window.addEventListener('popstate', ()=>{
 // needs to be hand-updated to the current date/time whenever a real change
 // is deployed. Any ISO 8601 string with an offset works — init() renders it
 // in the visitor's own local time regardless of what offset is used here.
-const APP_LAST_UPDATED = '2026-09-02T22:22:07-04:00';
+const APP_LAST_UPDATED = '2026-09-02T22:32:28-04:00';
 const MBTA_API_KEY = '7171c5e6f11c447bb3591c1fc1f3b5a9';
 const MBTA_HEADERS = { 'Accept':'application/vnd.api+json' };
 function withMbtaKey(url){
@@ -11207,7 +11207,7 @@ async function buildStatsPanel(forceRefresh){
     { value: (lifetime && lifetime.standingByReports) || 0, label: 'Standing-by reports' },
     { value: (lifetime && lifetime.expressReports) || 0, label: 'Trains reported running express' },
     { value: (lifetime && lifetime.destinationChanges) || 0, label: 'Destination changes reported' },
-    { value: trackedTrips, label: 'Distinct trips tracked' }
+    { value: trackedTrips, label: 'Trips tracked' }
   ];
 
   const backfillNote = lifetime && lifetime.backfilledAt
@@ -11219,7 +11219,7 @@ async function buildStatsPanel(forceRefresh){
       ${cards.map(c => `<div class="stat-card"><div class="stat-value">${c.value.toLocaleString()}</div><div class="stat-label">${c.label}</div></div>`).join('')}
     </div>
     <div class="storage-note" style="margin-top:14px;">
-      ${backfillNote} Distinct trips tracked counts every individual trip the community's live tracking has ever detected a train starting.
+      ${backfillNote} Trips tracked counts every individual trip the community's live tracking has ever detected a train starting.
     </div>
   `;
   meta.textContent = `Updated ${new Date().toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' })}`;
