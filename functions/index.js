@@ -984,7 +984,19 @@ async function fetchLineVehicles(line, url){
       // reverse-parse `key`, which is only unprefixed for Green.
       carEntries.push({ key, stopName, partners, carNum: carNums[i], line });
     });
-    vehicles.push({ id: v.id, label: v.attributes.label, carNums });
+    // trip relationship linkage (data:{type,id}) is present on the vehicle
+    // resource by default from MBTA's API regardless of the include=/fields[]
+    // params used above — those only control whether the full Trip resource
+    // gets added to the response's "included" array, not whether this stub
+    // reference exists — so no URL change was needed to read it here. Used
+    // by the "Distinct trips tracked" lifetime counter in syncLastSeenCars
+    // below: a new trip_id for a given vehicle is exactly "this train just
+    // started a new run." null while a vehicle is briefly between trips or
+    // its trip is otherwise unassigned in the feed.
+    const tripId = (v.relationships && v.relationships.trip && v.relationships.trip.data)
+      ? v.relationships.trip.data.id
+      : null;
+    vehicles.push({ id: v.id, label: v.attributes.label, carNums, tripId });
   });
   return { carEntries, vehicles };
 }
@@ -1056,6 +1068,10 @@ function todayDateString(){
 // write.
 const LAST_SEEN_STATE_REF = () => db.collection('bot_state').doc('roster_last_seen');
 const FIRST_TRACKED_STATE_REF = () => db.collection('bot_state').doc('first_tracked_today');
+// Last trip_id seen per vehicle (key: "line_vehicleId"), used only to detect
+// the moment a vehicle's trip_id changes — see the "Distinct trips tracked"
+// counter further down in syncLastSeenCars.
+const TRIPS_SEEN_STATE_REF = () => db.collection('bot_state').doc('trips_seen');
 // Also holds the Green Line train-spotting alert state (an `alerts` field
 // alongside `cars`) — see the shared read/write at the end of
 // syncLastSeenCars, which piggybacks that onto this same doc rather than
@@ -1330,10 +1346,17 @@ exports.syncLastSeenCars = onSchedule({ schedule: 'every 1 minutes', secrets: [V
 
   const current = [];
   let greenVehicles = [];
+  // One entry per vehicle across ALL FOUR lines (not just Green, unlike
+  // greenVehicles above which only exists for the train-spotting alerts
+  // further down) — feeds the "Distinct trips tracked" counter below. Keyed
+  // by line+id since raw vehicle ids aren't guaranteed unique across lines.
+  const vehiclesForTripTracking = [];
   settled.forEach((result, i) => {
     if(result.status === 'fulfilled'){
+      const line = LAST_SEEN_LINE_FEEDS[i].line;
       current.push(...result.value.carEntries);
-      if(LAST_SEEN_LINE_FEEDS[i].line === 'green') greenVehicles = result.value.vehicles;
+      result.value.vehicles.forEach(v => vehiclesForTripTracking.push({ key: `${line}_${v.id}`, tripId: v.tripId }));
+      if(line === 'green') greenVehicles = result.value.vehicles;
     }else{
       console.error(`Failed to sync ${LAST_SEEN_LINE_FEEDS[i].line} last-seen data:`, result.reason);
     }
@@ -1347,9 +1370,11 @@ exports.syncLastSeenCars = onSchedule({ schedule: 'every 1 minutes', secrets: [V
   // write per car when either changes ----
   const stateRef = LAST_SEEN_STATE_REF();
   const firstTrackedRef = FIRST_TRACKED_STATE_REF();
-  const [stateSnap, firstTrackedSnap] = await Promise.all([stateRef.get(), firstTrackedRef.get()]);
+  const tripsSeenRef = TRIPS_SEEN_STATE_REF();
+  const [stateSnap, firstTrackedSnap, tripsSeenSnap] = await Promise.all([stateRef.get(), firstTrackedRef.get(), tripsSeenRef.get()]);
   const priorStops = stateSnap.exists ? (stateSnap.data().stops || {}) : {};
   const priorActive = firstTrackedSnap.exists ? (firstTrackedSnap.data().cars || {}) : {};
+  const priorTripsByVehicle = tripsSeenSnap.exists ? (tripsSeenSnap.data().tripsByVehicle || {}) : {};
 
   const nextStops = {};
   const nextActive = {};
@@ -1439,6 +1464,31 @@ exports.syncLastSeenCars = onSchedule({ schedule: 'every 1 minutes', secrets: [V
   if(patchEntries.length) await commitRosterPatches(patchEntries);
   await stateRef.set({ stops: nextStops, updatedAt: now });
   await firstTrackedRef.set({ cars: nextActive, updatedAt: now });
+
+  // ---- "Distinct trips tracked" lifetime counter ----
+  // Rebuilt fresh from this run's vehicles each time (same pattern as
+  // nextStops above) rather than mutated incrementally — a vehicle that
+  // drops out of the feed (goes out of service, etc.) just doesn't appear
+  // in nextTripsByVehicle, so if/when it comes back its next real trip_id
+  // still counts as new even though the old key is gone. A vehicle with no
+  // trip_id assigned right now (briefly between trips, or an unassigned
+  // feed row) is skipped entirely rather than compared against — there's
+  // nothing to detect a change against, and a null wouldn't mean anything
+  // useful to store either.
+  let newTripsThisRun = 0;
+  const nextTripsByVehicle = {};
+  vehiclesForTripTracking.forEach(({ key, tripId }) => {
+    if(!tripId) return;
+    nextTripsByVehicle[key] = tripId;
+    if(priorTripsByVehicle[key] !== tripId) newTripsThisRun++;
+  });
+  await tripsSeenRef.set({ tripsByVehicle: nextTripsByVehicle, updatedAt: now });
+  if(newTripsThisRun > 0){
+    await db.collection('app_stats').doc('lifetime').set(
+      { tripsTracked: admin.firestore.FieldValue.increment(newTripsThisRun) },
+      { merge: true }
+    );
+  }
 
   // ---- "Car back after a long gap" push notifications ----
   // Own try/catch, same reasoning as the T-Alerts block further down: a
