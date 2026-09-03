@@ -2339,7 +2339,7 @@ window.addEventListener('popstate', ()=>{
 // needs to be hand-updated to the current date/time whenever a real change
 // is deployed. Any ISO 8601 string with an offset works — init() renders it
 // in the visitor's own local time regardless of what offset is used here.
-const APP_LAST_UPDATED = '2026-09-02T22:32:28-04:00';
+const APP_LAST_UPDATED = '2026-09-02T22:37:07-04:00';
 const MBTA_API_KEY = '7171c5e6f11c447bb3591c1fc1f3b5a9';
 const MBTA_HEADERS = { 'Accept':'application/vnd.api+json' };
 function withMbtaKey(url){
@@ -6334,7 +6334,6 @@ async function showCarModal(v){
       ${innerbeltYardNotice}
       ${lastTripNotice}
       <div class="modal-row"><span>Status</span><strong>${statusPhrase(v.status, v.stopName)}</strong></div>
-      ${nextStopNotice}
       <div class="modal-row"><span>Destination</span><strong${destinationOverride ? ' style="color:#F59E0B;"' : ''}>${effectiveDestination}</strong></div>
       ${originTimeStr ? `<div class="modal-row"><span>Left origin at</span><strong>${originTimeStr}</strong></div>` : ''}
       <div class="modal-row"><span>Last reported speed</span><strong>${
