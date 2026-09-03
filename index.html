@@ -741,7 +741,8 @@ body.dark .stop-dot{background:var(--bg);}
 }
 .train-leader-dot{transition:cx 1s ease, cy 1s ease;}
 .train-bubble.bubble-search-highlight{
-  outline:2px solid #3B82F6; outline-offset:2px;
+  outline:3px solid #3B82F6; outline-offset:3px;
+  box-shadow:0 0 0 6px rgba(59,130,246,0.28);
 }
 .stop-dot.stop-dot-occupied{ background:var(--occupied-color, var(--accent)) !important; box-shadow:0 0 0 1px #000; }
 .modal-row-spacer{ height:8px; }
@@ -943,11 +944,16 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
   .nav-count{font-size:11px;}
   /* The desktop-docked info panel stretches almost the full viewport
      height, which overlaps the bottom bar's corner (clock, weather, line
-     selection). Raised above the panel's z-index so that bar always stays
-     visible and clickable on top of it. Scoped to desktop only — on mobile
-     the bottom bar should stay hidden behind a full-screen modal like it
-     always has. */
-  .bottom-nav{z-index:110;}
+     selection). Raised above the panel's own z-index (55, its toggle tab is
+     56) so that bar always stays visible and clickable on top of it —
+     but deliberately kept below .modal-overlay's z-index:100. This used to
+     be 110, which "worked" for the docked panel but also floated the bottom
+     bar above the car-info modal itself, silently eating clicks on whatever
+     modal content happened to render underneath its fixed footprint (e.g.
+     the "Report standing by" button) until the modal was scrolled enough to
+     clear that strip. On mobile the bottom bar still stays behind a
+     full-screen modal like it always has (this whole block is desktop-only). */
+  .bottom-nav{z-index:57;}
 }
 .nav-btn{display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; padding:8px 14px; border-radius:15px; font-family:'Space Grotesk', sans-serif; font-weight:700; font-size:13px; color:var(--text-dim); cursor:pointer; transition:background 0.15s, color 0.15s;}
 .nav-main{display:flex; align-items:center; gap:5px;}
@@ -2333,7 +2339,7 @@ window.addEventListener('popstate', ()=>{
 // needs to be hand-updated to the current date/time whenever a real change
 // is deployed. Any ISO 8601 string with an offset works — init() renders it
 // in the visitor's own local time regardless of what offset is used here.
-const APP_LAST_UPDATED = '2026-09-02T21:51:42-04:00';
+const APP_LAST_UPDATED = '2026-09-02T22:10:09-04:00';
 const MBTA_API_KEY = '7171c5e6f11c447bb3591c1fc1f3b5a9';
 const MBTA_HEADERS = { 'Accept':'application/vnd.api+json' };
 function withMbtaKey(url){
@@ -6247,6 +6253,12 @@ async function showCarModal(v){
     ? existingStandingBy.stoppedAtTs + existingStandingBy.holdMinutes * 60000
     : null;
   const standingByWaitingToStart = !!(existingStandingBy && !existingStandingBy.untilRelease && existingStandingBy.holdMinutes && !existingStandingBy.stoppedAtTs);
+  // Before the train has actually stopped at the reported station, show the
+  // same "Time remaining" row in the same mm:ss shape as the live countdown
+  // below, just frozen at the full expected hold (no data-hold-end attribute,
+  // so tickStandingByCountdowns leaves it alone). Once markStandingByReportStopped
+  // fills in stoppedAtTs, the next render swaps this for the real ticking version.
+  const standingByFrozenLabel = standingByWaitingToStart ? `${existingStandingBy.holdMinutes}:00` : '';
   const standingBySection = existingStandingBy
     ? `<div class="modal-section">
         <h4>Standing by</h4>
@@ -6255,7 +6267,7 @@ async function showCarModal(v){
           ? `<div class="modal-row"><span>Expected hold</span><strong>Until release</strong></div>`
           : (standingByHoldEndMs
               ? `<div class="modal-row"><span>Time remaining</span><strong data-hold-end="${standingByHoldEndMs}">${formatStandingByCountdown(standingByHoldEndMs)}</strong></div>`
-              : (standingByWaitingToStart ? `<div class="modal-row"><span>Time remaining</span><strong style="color:var(--text-faint);">Starts once the train stops here</strong></div>` : ''))}
+              : (standingByWaitingToStart ? `<div class="modal-row"><span>Time remaining</span><strong>${standingByFrozenLabel}</strong></div>` : ''))}
         ${existingStandingBy.notes ? `<div class="signin-note">"${existingStandingBy.notes}"</div>` : ''}
         <div class="signin-note">Reported by ${existingStandingBy.reportedBy || 'Unknown'} \u2014 clears automatically once the train leaves this station.</div>
         ${state.signedIn ? `
@@ -13068,6 +13080,11 @@ function searchForCar(){
   if(bubble){
     note.textContent = `Found car ${matchedCar} on the ${getDisplayBranch(match.branch)} line.`;
     bubble.classList.add('bubble-search-highlight');
+    // The whole page (not some inner panel) is the real scroll container for
+    // the track map — see applyLadderZoom's comment — so a plain
+    // scrollIntoView on the bubble itself centers it correctly with no extra
+    // math needed, on both the vertical mobile layout and the desktop split.
+    bubble.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
     setTimeout(()=>{ bubble.classList.remove('bubble-search-highlight'); }, 5000);
   }else{
     // The vehicle is in the live feed (findMatchingCarVehicle found it) but
