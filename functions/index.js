@@ -1265,6 +1265,87 @@ exports.getPairHistory = onRequest({ secrets: [GOOGLE_SHEETS_CREDENTIALS] }, asy
   }
 });
 
+// ---- Pair-history sheet maintenance: retention + dedup ----
+// The sheet is append-only in normal operation (see commitPairChanges
+// above) — nothing ever gets removed there. This is the one place anything
+// actually gets deleted, run on its own once-a-day schedule rather than on
+// every 1-minute append: a full-sheet read+rewrite is far too expensive to
+// do every minute, and doesn't need to happen that often anyway. Two things
+// happen in the same pass since both require reading the whole sheet, so
+// there's no reason to pay for that read twice:
+//   1. Retention — anything older than PAIR_HISTORY_SHEET_RETENTION_MS (2
+//      months) is dropped for good, along with anything before
+//      PAIR_HISTORY_PRE_FIX_CUTOFF_MS (the old AVL-blip noise — see that
+//      constant's own comment; its 3-week READ-side filter in getPairHistory
+//      no longer reliably excludes it now that the sheet itself can hold up
+//      to 2 months, so it's enforced here too, for good).
+//   2. Dedup — if the exact same car ever gets reported with the exact same
+//      partner set more than once (the common cause: two cars that are
+//      semi-permanently coupled getting momentarily split and rejoined by
+//      ops, which used to write a fresh near-identical row every time),
+//      only the OLDEST occurrence is kept — every later repeat of that same
+//      (car, partner set) combination gets dropped. Deliberate: a pairing
+//      that recurs doesn't get a second entry, unlike a genuinely different
+//      pairing, which still gets its own row as always.
+// Ends by clearing the sheet's whole data range and writing back just the
+// survivors in chronological order — an actual overwrite of the sheet
+// itself, not just a read-side filter like PAIR_HISTORY_MAX_AGE_MS above.
+const PAIR_HISTORY_SHEET_RETENTION_MS = 60 * 24 * 60 * 60 * 1000; // ~2 months
+async function cleanupPairHistorySheet(){
+  const sheets = await getSheetsClient();
+  const result = await sheets.spreadsheets.values.get({
+    spreadsheetId: PAIR_HISTORY_SHEET_ID,
+    range: `${PAIR_HISTORY_SHEET_TAB}!A2:C`
+  });
+  const rows = result.data.values || [];
+  if(!rows.length) return;
+
+  const cutoff = Math.max(Date.now() - PAIR_HISTORY_SHEET_RETENTION_MS, PAIR_HISTORY_PRE_FIX_CUTOFF_MS);
+
+  const parsed = rows
+    .map(r => ({ key: r[0], partners: r[1], from: new Date(r[2]).getTime(), fromIso: r[2] }))
+    .filter(r => r.key && r.partners !== undefined && !isNaN(r.from) && r.from >= cutoff);
+
+  // Keep only the oldest row for each distinct (car, partner set) combination.
+  const oldestByPairing = new Map();
+  parsed.forEach(row=>{
+    const dedupeKey = `${row.key}|${row.partners}`;
+    const existing = oldestByPairing.get(dedupeKey);
+    if(!existing || row.from < existing.from) oldestByPairing.set(dedupeKey, row);
+  });
+
+  const survivors = Array.from(oldestByPairing.values()).sort((a, b) => a.from - b.from);
+
+  try{
+    // Clear first, then write back only the survivors — if nothing at all
+    // survived (every row was either stale or a duplicate), the sheet is
+    // correctly left with just its header row.
+    await sheets.spreadsheets.values.clear({
+      spreadsheetId: PAIR_HISTORY_SHEET_ID,
+      range: `${PAIR_HISTORY_SHEET_TAB}!A2:C`
+    });
+    if(survivors.length){
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: PAIR_HISTORY_SHEET_ID,
+        range: `${PAIR_HISTORY_SHEET_TAB}!A2:C`,
+        valueInputOption: 'RAW',
+        requestBody: { values: survivors.map(r => [r.key, r.partners, r.fromIso]) }
+      });
+    }
+    console.log(`Pair history cleanup: kept ${survivors.length} of ${rows.length} rows.`);
+  }catch(e){
+    console.error('Pair history sheet cleanup failed:', e.code || e.status || '', e.message || e);
+  }
+}
+
+exports.cleanupPairHistory = onSchedule({ schedule: 'every 24 hours', secrets: [GOOGLE_SHEETS_CREDENTIALS] }, async () => {
+  try{
+    await cleanupPairHistorySheet();
+  }catch(e){
+    console.error('cleanupPairHistory run failed:', e);
+  }
+});
+
 /* ---------------- Fleet photos (mbtapics.vercel.app proxy) ----------------
    Quinn's other app, mbtapics.vercel.app ("Trackside"), lets people upload
    spotting photos tagged to a specific car. Its /api/photos endpoint

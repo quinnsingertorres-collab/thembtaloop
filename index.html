@@ -2220,13 +2220,12 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
       </div>
 
       <!-- Moderator-only, temporary: lets a moderator test which
-           combination of vehicle-location sources (MBTA v3 API, MBTA's
-           enhanced rail GTFS-rt feed, Swiftly) actually behaves best,
-           without needing a code change per experiment. See
-           menuLocationSourcesSection visibility toggles (completeSignIn /
-           resetSignedOutUI) and the state.locSourceV3/RailFeed/Swiftly
-           reads in refreshVehicles. Kept as the very last section on the
-           page on purpose. -->
+           combination of vehicle-location sources (MBTA's internal rail
+           GTFS-rt feed, MBTA v3 API) actually behaves best, without needing
+           a code change per experiment. See menuLocationSourcesSection
+           visibility toggles (completeSignIn / resetSignedOutUI) and the
+           state.locSourceV3/RailFeed reads in refreshVehicles. Kept as the
+           very last section on the page on purpose. -->
       <div id="menuLocationSourcesSection" style="display:none;">
         <div class="settings-section" data-section="locationSources">
           <div class="menu-section-label section-toggle">
@@ -2235,20 +2234,16 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
           </div>
           <div class="section-body">
             <div class="menu-row" style="flex-direction:column; align-items:flex-start; gap:2px;">
-              <span class="menu-note" style="margin-left:0;">Moderator-only, temporary for testing. Controls which sources refreshVehicles actually uses right now — turning a source off is treated the same as that source being down, so the others take over exactly like a real outage. Visible only to you.</span>
+              <span class="menu-note" style="margin-left:0;">Moderator-only, temporary for testing. Controls which sources refreshVehicles actually uses right now — turning a source off is treated the same as that source being down, so the other takes over exactly like a real outage. Visible only to you.</span>
             </div>
             <div class="menu-divider"></div>
             <div class="menu-row">
-              <span>MBTA v3 API<span class="menu-note">(primary source)</span></span>
-              <div class="switch" id="locSourceV3Switch"><div class="knob"></div></div>
-            </div>
-            <div class="menu-row">
-              <span>MBTA rail feed (GTFS-rt)<span class="menu-note">(S3-hosted)</span></span>
+              <span>MBTA rail feed (GTFS-rt)<span class="menu-note">(primary source)</span></span>
               <div class="switch" id="locSourceRailFeedSwitch"><div class="knob"></div></div>
             </div>
             <div class="menu-row">
-              <span>Swiftly<span class="menu-note">(bus/rail only today)</span></span>
-              <div class="switch" id="locSourceSwiftlySwitch"><div class="knob"></div></div>
+              <span>MBTA v3 API<span class="menu-note">(secondary source)</span></span>
+              <div class="switch" id="locSourceV3Switch"><div class="knob"></div></div>
             </div>
           </div>
         </div>
@@ -2339,7 +2334,7 @@ window.addEventListener('popstate', ()=>{
 // needs to be hand-updated to the current date/time whenever a real change
 // is deployed. Any ISO 8601 string with an offset works — init() renders it
 // in the visitor's own local time regardless of what offset is used here.
-const APP_LAST_UPDATED = '2026-09-05T01:20:05-04:00';
+const APP_LAST_UPDATED = '2026-09-05T01:48:41-04:00';
 const MBTA_API_KEY = '7171c5e6f11c447bb3591c1fc1f3b5a9';
 const MBTA_HEADERS = { 'Accept':'application/vnd.api+json' };
 function withMbtaKey(url){
@@ -3450,7 +3445,7 @@ function rosterBuildYearFor(line, type, car){
   return rosterCarInfoFor(line, type).year;
 }
 
-let state = { vehicles: [], vehiclesEverLoaded: false, currentPage: 'B', lastMainPage: 'B', live: null, abbreviate: false, staggerBunchedTrains: false, signedIn: false, userName: '', photoURL: '', isModerator: false, isTrustedMember: false, filterDirection: 'ALL', filterType: 'ALL', rosterSearch: '', rosterTypeFilter: 'ALL', notifMaster: true, notifDoubleType8: false, notifPride: false, notifType9: false, notifCarBackInService: false, activeLine: 'green', otherBranchesVisible: { B:false, C:false, D:false, E:false, ashmont:false, braintree:false }, statusChipShowDate: true, statusChipShowWeather: true, clockShowSeconds: true, clock24Hour: false, statusChipPosition: 'below', viewingCarKey: null, viewingCarNumber: null, ladderZoom: 1, locSourceV3: true, locSourceRailFeed: true, locSourceSwiftly: true };
+let state = { vehicles: [], vehiclesEverLoaded: false, currentPage: 'B', lastMainPage: 'B', live: null, abbreviate: false, staggerBunchedTrains: false, signedIn: false, userName: '', photoURL: '', isModerator: false, isTrustedMember: false, filterDirection: 'ALL', filterType: 'ALL', rosterSearch: '', rosterTypeFilter: 'ALL', notifMaster: true, notifDoubleType8: false, notifPride: false, notifType9: false, notifCarBackInService: false, activeLine: 'green', otherBranchesVisible: { B:false, C:false, D:false, E:false, ashmont:false, braintree:false }, statusChipShowDate: true, statusChipShowWeather: true, clockShowSeconds: true, clock24Hour: false, statusChipPosition: 'below', viewingCarKey: null, viewingCarNumber: null, ladderZoom: 1, locSourceV3: true, locSourceRailFeed: true };
 
 // Same markup as the static placeholder in the vehicle-list HTML (see
 // #vehicleList in the body) — reused here so it also reappears while
@@ -4266,8 +4261,7 @@ async function savePrefs(){
       statusChipPosition: state.statusChipPosition,
       hideSnapshotWatermark: state.hideSnapshotWatermark,
       locSourceV3: state.locSourceV3,
-      locSourceRailFeed: state.locSourceRailFeed,
-      locSourceSwiftly: state.locSourceSwiftly
+      locSourceRailFeed: state.locSourceRailFeed
     }));
   }catch(e){ console.error(e); }
 }
@@ -5658,12 +5652,20 @@ async function deleteVehicleOperator(vehicleId, carNum){
 
 /* ---------------- Trip notes (open to anyone, cleared when destination changes) ---------------- */
 
+// Live-listened the same way as vehicle_operators/car_out_of_service/etc
+// above, rather than a fresh doc .get() every time — showCarModal (and its
+// own 15s auto-refresh while open) calls loadTripNotes on every open, so
+// this was paying for a real read that often just as frequently before.
+let tripNotesCache = {};
+const tripNotesCacheCtl = makeSnapshotCache('trip_notes', (docs)=>{
+  const map = {};
+  docs.forEach(doc => { map[doc.id] = doc.data(); });
+  tripNotesCache = map;
+});
+function refreshTripNotesCache(){ tripNotesCacheCtl.start(); }
 async function loadTripNotes(vehicleId){
   if(!firebaseReady) return null;
-  try{
-    const doc = await fbDb.collection('trip_notes').doc(vehicleId).get();
-    return doc.exists ? doc.data() : null;
-  }catch(e){ console.error(e); return null; }
+  return tripNotesCache[vehicleId] || null;
 }
 async function addTripNoteEntry(vehicleId, text, headsign){
   if(!firebaseReady) return;
@@ -5671,36 +5673,49 @@ async function addTripNoteEntry(vehicleId, text, headsign){
   const today = todayDateString();
   try{
     const ref = fbDb.collection('trip_notes').doc(vehicleId);
-    const doc = await ref.get();
     // Same thread only if BOTH the destination and the service day still
     // match — a vehicle id can get reused on a later day running the exact
     // same headsign, and matching on headsign alone let old notes silently
     // carry over onto an unrelated future trip instead of expiring like
     // every other "today only" record in the app (car OOS, hidden trains).
-    if(doc.exists && doc.data().headsign === headsign && doc.data().date === today){
+    // Read from the live cache above instead of a fresh .get() — it's kept
+    // current by the same onSnapshot listener loadTripNotes reads from.
+    const existing = tripNotesCache[vehicleId];
+    let nextData;
+    if(existing && existing.headsign === headsign && existing.date === today){
       await ref.update({ entries: firebase.firestore.FieldValue.arrayUnion(entry) });
+      nextData = { ...existing, entries: [...(existing.entries || []), entry] };
     }else{
-      await ref.set({ headsign, date: today, entries: [entry] });
+      nextData = { headsign, date: today, entries: [entry] };
+      await ref.set(nextData);
     }
+    // Same immediate-cache-sync reasoning as saveVehicleOperator/
+    // markCarOutOfService — showCarModal re-renders right after this
+    // resolves, before the listener's own echo would necessarily arrive.
+    tripNotesCache[vehicleId] = nextData;
     logEdit(state.userName, state.uid, `Added trip note: "${text.slice(0,60)}"`);
   }catch(e){ console.error(e); }
 }
 async function clearTripNotes(vehicleId){
   if(!firebaseReady) return;
-  try{ await fbDb.collection('trip_notes').doc(vehicleId).delete(); }catch(e){ console.error(e); }
+  try{
+    await fbDb.collection('trip_notes').doc(vehicleId).delete();
+    delete tripNotesCache[vehicleId];
+  }catch(e){ console.error(e); }
 }
 async function deleteSingleTripNote(vehicleId, entryTs){
   if(!firebaseReady) return;
   try{
+    const existing = tripNotesCache[vehicleId];
+    if(!existing) return;
     const ref = fbDb.collection('trip_notes').doc(vehicleId);
-    const doc = await ref.get();
-    if(!doc.exists) return;
-    const data = doc.data();
-    const updatedEntries = (data.entries || []).filter(e => e.ts !== entryTs);
+    const updatedEntries = (existing.entries || []).filter(e => e.ts !== entryTs);
     if(updatedEntries.length === 0){
       await ref.delete();
+      delete tripNotesCache[vehicleId];
     }else{
       await ref.update({ entries: updatedEntries });
+      tripNotesCache[vehicleId] = { ...existing, entries: updatedEntries };
     }
     logEdit(state.userName, state.uid, `Removed a trip note`);
   }catch(e){ console.error(e); }
@@ -6226,8 +6241,7 @@ async function showCarModal(v){
 
   const enhancedTripInfo = enhancedTripDataCache[v.id];
   const nonRevenueNotice = enhancedTripInfo && enhancedTripInfo.isNonRevenue
-    ? `<div class="modal-row"><span>Status</span><strong style="color:#D64545;">Non-revenue trip</strong></div>
-       <div class="signin-note">MBTA's data marks this as a non-revenue move (e.g. traveling to the start of a route or a yard move) &mdash; it isn't accepting passengers.</div>`
+    ? `<div class="modal-row"><span>Status</span><strong style="color:#D64545;">Non-revenue trip</strong></div>`
     : '';
 
   // Innerbelt Yard is a storage/maintenance yard, not a passenger stop —
@@ -7225,6 +7239,102 @@ async function fetchTerminusSchedule(branchKey, directionId){
     .slice(0, 15);
 }
 
+// Automatic car-number predictions from MBTA's own GTFS `block_id` — a
+// block is the chain of trips one physical vehicle runs back-to-back over
+// a whole service day (e.g. inbound to Government Center, then straight
+// back outbound to Boston College, over and over). block_id isn't
+// filterable on its own (no filter[block] on either /trips or /schedules —
+// confirmed against MBTA's own swagger doc), but it IS a plain attribute
+// on every trip, so one unfiltered-by-direction /schedules call per branch
+// (omitting filter[direction_id] returns both directions in one response —
+// confirmed live: Green-B returns 138+138) gets every trip's block_id and
+// origin departure time for the whole day in a single request. From there,
+// finding "what does this exact vehicle run next" is just: look up its
+// CURRENT trip's block_id, find that trip's position in the same block's
+// time-sorted list, and read off the trip(s) after it — no MBTA prediction
+// endpoint involved at all, just the published schedule.
+//
+// Cached per branch for 20 minutes — this is the static published
+// schedule, not live data, so it only needs refreshing a few times a day.
+const BLOCK_SCHEDULE_CACHE_MS = 20 * 60 * 1000;
+let blockScheduleCache = {}; // branchKey -> { ts, tripBlockMap, blockTripsMap }
+
+async function fetchBlockScheduleForBranch(branchKey){
+  const cached = blockScheduleCache[branchKey];
+  if(cached && (Date.now() - cached.ts) < BLOCK_SCHEDULE_CACHE_MS) return cached;
+
+  const routeId = terminusRouteId(branchKey);
+  // No filter[direction_id] — deliberately fetches both directions in one
+  // call (see comment above). page[limit] of 500 comfortably covers even
+  // the busiest branch's full-day trip count (Green-B, the largest, is
+  // ~276) with no pagination needed.
+  const url = withMbtaKey(`https://api-v3.mbta.com/schedules?filter[route]=${routeId}&filter[stop_sequence]=first&include=trip&fields[schedule]=departure_time&fields[trip]=block_id,direction_id&page[limit]=500`);
+  const tripBlockMap = {};
+  const blockTripsMap = {};
+  try{
+    const res = await fetch(url, { headers: MBTA_HEADERS });
+    if(!res.ok) throw new Error('bad status ' + res.status);
+    const json = await res.json();
+    const included = {};
+    (json.included || []).forEach(item => { included[item.id] = item.attributes; });
+
+    (json.data || []).forEach(s=>{
+      const tripRel = s.relationships && s.relationships.trip && s.relationships.trip.data;
+      if(!tripRel) return;
+      const tripId = tripRel.id;
+      const attrs = included[tripId] || {};
+      const blockId = attrs.block_id;
+      const departureTime = s.attributes.departure_time;
+      if(!blockId || !departureTime) return;
+      tripBlockMap[tripId] = blockId;
+      (blockTripsMap[blockId] = blockTripsMap[blockId] || []).push({ tripId, departureTime });
+    });
+    Object.values(blockTripsMap).forEach(list => list.sort((a,b) => new Date(a.departureTime) - new Date(b.departureTime)));
+  }catch(e){
+    console.error('Block schedule fetch failed for', branchKey, e);
+  }
+  const result = { ts: Date.now(), tripBlockMap, blockTripsMap };
+  blockScheduleCache[branchKey] = result;
+  return result;
+}
+
+// Given the currently-tracked live vehicles for a branch, predicts which
+// upcoming scheduled trip(s) each one will run next by following its
+// current trip forward through its own block (see fetchBlockScheduleForBranch
+// above). Returns { [futureTripId]: vehicle } — deliberately just the
+// vehicle object (not a car number string) so callers can pull whatever
+// display/consist info they need from it, same as a real live match.
+//
+// A block can have several live-tracked vehicles' worth of predictions
+// converge on the same trip only if something's gone wrong (two vehicles
+// somehow both associated with one block), which shouldn't happen in
+// practice — but if it ever does, the vehicle whose OWN current trip
+// departs latest (the most recently confirmed position in the chain) wins,
+// since that's the freshest real signal.
+function predictBlockCarsForBranch(vehicles, tripBlockMap, blockTripsMap){
+  const predictions = {};
+  const sourceDepartureByTripId = {};
+  vehicles.forEach(v=>{
+    if(!v.tripId) return;
+    const blockId = tripBlockMap[v.tripId];
+    if(!blockId) return;
+    const chain = blockTripsMap[blockId];
+    if(!chain) return;
+    const idx = chain.findIndex(t => t.tripId === v.tripId);
+    if(idx === -1) return;
+    const ownDeparture = chain[idx].departureTime;
+    for(let i = idx + 1; i < chain.length; i++){
+      const futureTripId = chain[i].tripId;
+      const existingSourceDeparture = sourceDepartureByTripId[futureTripId];
+      if(!existingSourceDeparture || new Date(ownDeparture) > new Date(existingSourceDeparture)){
+        predictions[futureTripId] = v;
+        sourceDepartureByTripId[futureTripId] = ownDeparture;
+      }
+    }
+  });
+  return predictions;
+}
+
 // Scoped to just the tripIds actually being shown, instead of reading the
 // WHOLE car_predictions collection every time someone opens a station's
 // departures — that collection gets a doc per trip ever predicted, with
@@ -7411,8 +7521,9 @@ async function showTerminusSchedule(branchKey, stopName, directionId){
 
   // Shares the same 15-minute roster-page cache as showCarModal above,
   // instead of a fresh uncached full read of the users collection.
-  const [predictions, rosterCache] = await Promise.all([
-    loadCarPredictions(trips.map(t => t.tripId)), loadRosterPanelData()
+  const [predictions, rosterCache, blockSchedule] = await Promise.all([
+    loadCarPredictions(trips.map(t => t.tripId)), loadRosterPanelData(),
+    fetchBlockScheduleForBranch(branchKey)
   ]);
   const userInfoMap = rosterCache.tagMap;
   if(modalRefreshToken !== myToken) return;
@@ -7426,6 +7537,21 @@ async function showTerminusSchedule(branchKey, stopName, directionId){
   // this trip) — not a guess, so it takes priority over any manual entry.
   const liveVehicleByTripId = {};
   state.vehicles.forEach(v => { if(v.tripId) liveVehicleByTripId[v.tripId] = v; });
+
+  // Automatic predictions for trips that HAVEN'T started yet, derived from
+  // whichever currently-live vehicle's own trip is earlier in the same
+  // GTFS block (see fetchBlockScheduleForBranch/predictBlockCarsForBranch
+  // above) — a real schedule-grounded prediction, not a guess, so it
+  // outranks any manual community entry the same way liveMatch does above.
+  const blockCarPredictionByTripId = predictBlockCarsForBranch(
+    state.vehicles, blockSchedule.tripBlockMap, blockSchedule.blockTripsMap
+  );
+  // Feeds the "View full consist" button below — a block prediction is
+  // still a real, currently-tracked vehicle, so its live info is just as
+  // viewable as an exact liveMatch's; liveVehicleByTripId itself stays
+  // untouched so the "Confirmed via MBTA API" vs "Predicted" distinction
+  // below still only depends on an EXACT trip id match.
+  const viewConsistByTripId = Object.assign({}, blockCarPredictionByTripId, liveVehicleByTripId);
 
   // A dropped trip comes back automatically the moment a real train starts
   // tracking on it — a live tripId match is solid proof it's actually
@@ -7490,14 +7616,22 @@ async function showTerminusSchedule(branchKey, stopName, directionId){
     // used elsewhere for non-Green display labels (see e.g. line ~6047's
     // displayCarLabel) \u2014 just applied here too.
     const isGreenLine = state.activeLine === 'green';
-    const carNumber = liveMatch
-      ? (isGreenLine ? liveMatch.label : formatCarNumberForDisplay(String(liveMatch.label).split('-')[0]))
+    // A block prediction only applies to a trip that hasn't started yet
+    // (liveMatch already covers the trip actually being live right now),
+    // so it only ever kicks in when liveMatch is absent \u2014 see
+    // predictBlockCarsForBranch above for how it's derived.
+    const blockMatch = !liveMatch ? blockCarPredictionByTripId[trip.tripId] : null;
+    const confirmedVehicle = liveMatch || blockMatch;
+    const carNumber = confirmedVehicle
+      ? (isGreenLine ? confirmedVehicle.label : formatCarNumberForDisplay(String(confirmedVehicle.label).split('-')[0]))
       : ((pred && pred.carNumber) ? pred.carNumber : '');
     const predictedTag = liveMatch
       ? `<span class="signin-note" style="color:#0F8A4B;">Confirmed via MBTA API</span>`
-      : (pred && pred.carNumber)
-        ? `<span class="signin-note">By ${liveName(pred.editedBy, pred.editedByUid, userInfoMap)} \u2014 ${formatEditLogTimestamp(pred.ts)}</span>`
-        : `<span class="signin-note">No prediction has been submitted yet.</span>`;
+      : blockMatch
+        ? `<span class="signin-note" style="color:#0F8A4B;">Predicted from MBTA's schedule \u2014 same train's next trip</span>`
+        : (pred && pred.carNumber)
+          ? `<span class="signin-note">By ${liveName(pred.editedBy, pred.editedByUid, userInfoMap)} \u2014 ${formatEditLogTimestamp(pred.ts)}</span>`
+          : `<span class="signin-note">No prediction has been submitted yet.</span>`;
     const predictionExample = isGreenLine ? carNumberExample() : carNumberExample().split('-')[0];
     const editControl = state.signedIn
       ? `<div class="modal-edit-row">
@@ -7527,7 +7661,7 @@ async function showTerminusSchedule(branchKey, stopName, directionId){
     // itself (see the Predicted lead car row below) rather than on its
     // own separate row below it — .modal-info-btn's default margin-top
     // was meant for that old standalone placement.
-    const fullConsistBtn = (!isGreenLine && liveMatch)
+    const fullConsistBtn = (!isGreenLine && confirmedVehicle)
       ? `<button class="modal-info-btn" data-view-consist="${trip.tripId}" style="margin:0;">View full consist</button>`
       : '';
 
@@ -7599,7 +7733,7 @@ async function showTerminusSchedule(branchKey, stopName, directionId){
   // showCarModal instead of re-deriving/duplicating a consist display here.
   document.querySelectorAll('[data-view-consist]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
-      const v = liveVehicleByTripId[btn.dataset.viewConsist];
+      const v = viewConsistByTripId[btn.dataset.viewConsist];
       if(v) showCarModal(v);
     });
   });
@@ -8756,74 +8890,24 @@ async function fetchBlueLineVehicles(){
   }).filter(v => v.stopName);
 }
 
-// Swiftly integration — server-side proxy lives at
-// /api/swiftly-vehicle-positions.js (reads the API key from a server-side
-// env var; see that file for setup). Swiftly reports a raw lat/lon ping
-// per vehicle with a GTFS route_type ("vehicleType") but no MBTA stop
-// association, so these vehicles deliberately come back with
-// stopName/status null rather than guessing — every part of this app that
-// positions or counts a vehicle keys off stopName (via findStopIndex,
-// which already treats a null stopName as "not on this page"), so a
-// Swiftly-sourced vehicle is safely inert everywhere except a plain live
-// id/lat/lon lookup, until/unless something adds real stop-snapping for it.
-// vehicleType per GTFS route_type: 0 = light rail (Green), 1 = subway/heavy
-// rail (Red/Orange/Blue), 3 = bus, 2 = commuter rail.
-const SWIFTLY_ROUTE_TYPE_BY_LINE = { green: '0', red: '1', orange: '1', blue: '1' };
-
-async function fetchSwiftlyVehicles(){
-  try{
-    const controller = new AbortController();
-    const timeout = setTimeout(()=>controller.abort(), 6000);
-    const res = await fetch('/api/swiftly-vehicle-positions', { signal: controller.signal });
-    clearTimeout(timeout);
-    if(!res.ok) return []; // includes the "not configured" 501 — silently no-op, not an error state for the app
-    const json = await res.json();
-    const raw = (json && json.data && Array.isArray(json.data.vehicles)) ? json.data.vehicles : [];
-    const wantType = SWIFTLY_ROUTE_TYPE_BY_LINE[state.activeLine];
-    return raw
-      .filter(v => v && v.loc && typeof v.loc.lat === 'number' && typeof v.loc.lon === 'number')
-      .filter(v => wantType === undefined || v.vehicleType === wantType)
-      .map(v => ({
-        id: 'swiftly-' + v.id,
-        // Green Line pages route by branch (B/C/D/E/Mattapan), which Swiftly's
-        // routeId can't be reliably mapped to without a published id table —
-        // rather than guess wrong, Green Line vehicles are left branch-less
-        // and dropped just below. Red/Orange/Blue have no such requirement.
-        branch: state.activeLine === 'green' ? null : state.activeLine.toUpperCase(),
-        label: String(v.id),
-        status: null,
-        direction: (v.directionId !== undefined && v.directionId !== null) ? parseInt(v.directionId, 10) : null,
-        stopName: null,
-        headsign: v.headsign || null,
-        lat: v.loc.lat,
-        lon: v.loc.lon,
-        tripId: null,
-        speedMph: (typeof v.loc.speed === 'number') ? Math.round(v.loc.speed * 2.23694) : null,
-        updatedAt: v.loc.time ? new Date(v.loc.time * 1000).toISOString() : null,
-        source: 'swiftly'
-      }))
-      .filter(v => v.branch !== null || state.activeLine !== 'green');
-  }catch(e){
-    return [];
-  }
-}
-
-// MBTA enhanced rail vehicle-positions feed (S3-hosted mirror, no key
-// required) — server-side proxy at /api/rail-vehicle-positions.js. Fetched
-// on every poll alongside the primary api-v3.mbta.com /vehicles call (not
-// only when it fails) and combined with it via mergeVehicleFeeds below:
-// same underlying MBTA AVL data, but the two paths (REST API cluster vs.
-// S3-hosted static file) can each briefly lag or drop a vehicle
-// independently, so checking both and taking whichever is more current
-// per vehicle catches gaps and staleness that trusting either one alone
-// would miss. Structurally near-identical to the fetch*Vehicles functions
-// above (same route ids, current_status enum, and stop_id/stopName
-// association), the one real gap being trip headsign, which this feed
-// doesn't carry — left null, and mergeVehicleFeeds always prefers v3's
-// headsign when merging a vehicle present in both. Bonus: multi_carriage_details
-// gives per-car occupancy in the same shape getOccupancyForCar/
-// getCapacityPercentForCar already expect, including for Green Line, which
-// the v3 fetch never requests carriages for.
+// MBTA's internal enhanced rail vehicle-positions feed (S3-hosted mirror,
+// no key required) — server-side proxy at /api/rail-vehicle-positions.js.
+// Treated as the PRIMARY source (see refreshVehicles): this internal feed
+// is observed to update at least as promptly as the REST v3 API and
+// without v3's occasional cluster lag, so it's fetched and applied first,
+// with the v3 API merged in afterward via mergeVehicleFeeds. That merge
+// still resolves each vehicle field to whichever source actually observed
+// it more recently, so a vehicle where v3 genuinely has fresher data still
+// shows v3's position/status — this just changes which source wins when
+// both are equally fresh. Structurally near-identical to the
+// fetch*Vehicles functions above (same route ids, current_status enum,
+// and stop_id/stopName association), the one real gap being trip
+// headsign, which this feed doesn't carry — left null, and
+// mergeVehicleFeeds fills it in from v3 when merging a vehicle present in
+// both. Bonus: multi_carriage_details gives per-car occupancy in the same
+// shape getOccupancyForCar/getCapacityPercentForCar already expect,
+// including for Green Line, which the v3 fetch never requests carriages
+// for.
 const RAIL_FEED_ROUTE_IDS_BY_LINE = {
   green: ['Green-B','Green-C','Green-D','Green-E','Mattapan'],
   red: ['Red'], orange: ['Orange'], blue: ['Blue']
@@ -8875,17 +8959,17 @@ async function fetchRailPositionsFeed(){
   }
 }
 
-// Combines the primary v3 vehicle list with a second source (the rail
-// feed above, or Swiftly) by vehicle id: a vehicle only one side reports
-// is always included (so nothing either source alone would show gets
-// dropped), and a vehicle both sides report gets the fresher side's
-// position/status/stop/direction/speed, judged by each source's own
-// reported timestamp — whichever actually observed the vehicle more
-// recently wins, rather than either source being trusted by default.
-// v3's headsign and carriages are kept unless only the other side has
-// them (v3 doesn't carry a headsign for the merge partners at all, and
-// doesn't request carriages for Green Line), since those fields don't
-// go stale the way position/status do.
+// Combines two vehicle-position sources by vehicle id — called with the
+// internal rail feed as primary and the v3 API as secondary (see
+// refreshVehicles): a vehicle only one side reports is always included
+// (so nothing either source alone would show gets dropped), and a vehicle
+// both sides report gets the fresher side's position/status/stop/
+// direction/speed, judged by each source's own reported timestamp —
+// whichever actually observed the vehicle more recently wins, rather than
+// either source being trusted by default. The primary's headsign and
+// carriages are kept unless only the secondary has them (the rail feed
+// doesn't carry a headsign at all, so v3's fills in there), since those
+// fields don't go stale the way position/status do.
 function mergeVehicleFeeds(primaryVehicles, secondaryVehicles){
   const byId = new Map();
   primaryVehicles.forEach(v => byId.set(v.id, v));
@@ -9349,27 +9433,61 @@ function applyTripBoundaryEvents(v){
 }
 
 async function refreshVehicles(){
-  let primaryFeedFailed = false;
   // Only flips the "no connection" banner (setLiveStatus) once, at the very
   // end, after every enabled source has actually had a chance to produce
-  // data — NOT eagerly the moment V3 alone fails or is toggled off. Calling
-  // setLiveStatus(false) immediately after a failed/disabled V3 and then
-  // setLiveStatus(true) moments later once the rail feed's await resolved
-  // was exactly what caused the banner to visibly flash on and off every
-  // single poll when testing with V3 off — each call synchronously toggles
-  // the banner's CSS class, so two calls in the same refreshVehicles run
-  // painted twice regardless of how briefly. Resolving this only once here
-  // means a source that's merely disabled (not actually down) never shows
-  // as a connection problem as long as some other enabled source came
-  // through.
+  // data — NOT eagerly the moment one source fails or is toggled off.
+  // Calling setLiveStatus(false) immediately after a failed/disabled source
+  // and then setLiveStatus(true) moments later once the other await
+  // resolved was exactly what caused the banner to visibly flash on and off
+  // every single poll when testing with a source off — each call
+  // synchronously toggles the banner's CSS class, so two calls in the same
+  // refreshVehicles run painted twice regardless of how briefly. Resolving
+  // this only once here means a source that's merely disabled (not
+  // actually down) never shows as a connection problem as long as the
+  // other enabled source came through.
   let anySourceSucceeded = false;
+  let railFeedSucceeded = false;
 
-  // state.locSourceV3/RailFeed/Swiftly gate each source on/off — see the
+  // state.locSourceV3/RailFeed gate each source on/off — see the
   // moderator-only "Vehicle location sources" settings section (temporary,
   // for testing which combination of sources actually behaves best; default
-  // is all three on, matching the app's normal behavior). Turning V3 off is
-  // treated exactly like a real V3 outage for fallback/merge purposes, but
-  // NOT as a live/offline signal on its own (see anySourceSucceeded above).
+  // is both on, matching the app's normal behavior). MBTA's internal rail
+  // GTFS-rt feed is tried FIRST and used as the primary result — it's
+  // observed to update at least as promptly as the v3 API without v3's
+  // occasional cluster lag. The v3 API is fetched right after and merged
+  // in via mergeVehicleFeeds, which still resolves each vehicle field to
+  // whichever source actually observed it more recently — so this changes
+  // which source wins by default, not which one is "trusted blindly."
+  // Turning either source off is treated exactly like a real outage for
+  // fallback/merge purposes, but NOT as a live/offline signal on its own
+  // (see anySourceSucceeded above).
+  if(state.locSourceRailFeed){
+    try{
+      const railVehicles = await fetchRailPositionsFeed();
+      if(railVehicles.length){
+        state.vehicles = railVehicles;
+        anySourceSucceeded = true;
+        railFeedSucceeded = true;
+      }else{
+        state.vehicles = [];
+      }
+    }catch(e){
+      state.vehicles = [];
+    }
+  }else{
+    state.vehicles = [];
+  }
+
+  // v3 API — see fetchLiveVehicles/fetchRedLineVehicles/etc above and
+  // mergeVehicleFeeds. Fetched on every poll, not only when the rail feed
+  // fails/is disabled: if the rail feed had no data, v3's data is used
+  // outright; if the rail feed succeeded, its vehicles stay primary and
+  // v3's are merged in by mergeVehicleFeeds, which resolves each vehicle to
+  // whichever side actually observed it more recently, and adds any
+  // vehicle only v3 reported at all. Two independent sources for the same
+  // MBTA AVL data can each briefly lag or drop a vehicle on their own, so
+  // checking both is what actually gets "most up to date and accurate,"
+  // not just resilience to one being fully down.
   if(state.locSourceV3){
     try{
       const vehicles = state.activeLine === 'red' ? await fetchRedLineVehicles()
@@ -9380,64 +9498,16 @@ async function refreshVehicles(){
       // night when the Green Line has little/no overnight service) is real
       // live data, not a broken feed — only an actual thrown error (network
       // failure, CORS, bad HTTP status) should fall back to demo mode.
-      state.vehicles = vehicles;
+      if(railFeedSucceeded){
+        state.vehicles = mergeVehicleFeeds(state.vehicles, vehicles);
+      }else{
+        state.vehicles = vehicles;
+      }
       anySourceSucceeded = true;
     }catch(err){
       console.error('Live vehicle feed failed:', err);
-      state.vehicles = [];
-      primaryFeedFailed = true;
+      if(!railFeedSucceeded) state.vehicles = [];
     }
-  }else{
-    state.vehicles = [];
-    primaryFeedFailed = true;
-  }
-
-  // MBTA rail-feed combination — see fetchRailPositionsFeed and
-  // mergeVehicleFeeds above, and /api/rail-vehicle-positions.js. Fetched on
-  // every poll, not only when v3 fails/is disabled: if v3 has no data, this
-  // feed's data is used outright; if v3 succeeded, its vehicles are still
-  // merged with this feed's by mergeVehicleFeeds, which resolves each
-  // vehicle to whichever side actually observed it more recently, and adds
-  // any vehicle only one side reported at all. Two independent hosting
-  // paths for the same MBTA AVL data (REST API cluster vs. S3-hosted static
-  // file) can each briefly lag or drop a vehicle on their own, so checking
-  // both is what actually gets "most up to date and accurate," not just
-  // resilience to one being fully down.
-  if(state.locSourceRailFeed){
-    try{
-      const railVehicles = await fetchRailPositionsFeed();
-      if(railVehicles.length){
-        if(primaryFeedFailed){
-          state.vehicles = railVehicles;
-          primaryFeedFailed = false;
-        }else{
-          state.vehicles = mergeVehicleFeeds(state.vehicles, railVehicles);
-        }
-        anySourceSucceeded = true;
-      }
-    }catch(e){ /* falls through to the Swiftly fallback below */ }
-  }
-
-  // Swiftly fallback/merge — see fetchSwiftlyVehicles above and
-  // /api/swiftly-vehicle-positions.js for full context. If MBTA's own feed
-  // (and the rail-feed fallback just above) both failed or are disabled,
-  // try Swiftly instead of going straight to an empty map. Either way,
-  // merge in any vehicle id Swiftly reports that MBTA's feed didn't.
-  // Wrapped defensively so any problem here — including simply not having
-  // a Swiftly key configured — can never break the primary feed.
-  if(state.locSourceSwiftly){
-    try{
-      const swiftlyVehicles = await fetchSwiftlyVehicles();
-      if(swiftlyVehicles.length){
-        if(primaryFeedFailed){
-          state.vehicles = swiftlyVehicles;
-        }else{
-          const existingIds = new Set(state.vehicles.map(v => v.id));
-          swiftlyVehicles.forEach(v=>{ if(!existingIds.has(v.id)) state.vehicles.push(v); });
-        }
-        anySourceSucceeded = true;
-      }
-    }catch(e){ /* Swiftly is strictly additive/fallback — ignore and keep whatever MBTA already gave us */ }
   }
 
   setLiveStatus(anySourceSucceeded);
@@ -10161,7 +10231,7 @@ async function loadRosterPanelData(forceRefresh){
 }
 
 async function buildRosterPanel(){
-  const { rosterData, gltpsMap, tagMap, photosMap } = await loadRosterPanelData();
+  const { rosterData, gltpsMap, photosMap } = await loadRosterPanelData();
   const activeSet = getActiveCarSet();
   const search = state.rosterSearch.trim();
   const searchLower = search.toLowerCase();
@@ -12917,11 +12987,6 @@ document.getElementById('locSourceRailFeedSwitch').addEventListener('click', ()=
   document.getElementById('locSourceRailFeedSwitch').classList.toggle('on', state.locSourceRailFeed);
   savePrefs();
 });
-document.getElementById('locSourceSwiftlySwitch').addEventListener('click', ()=>{
-  state.locSourceSwiftly = !state.locSourceSwiftly;
-  document.getElementById('locSourceSwiftlySwitch').classList.toggle('on', state.locSourceSwiftly);
-  savePrefs();
-});
 document.getElementById('statusChipDateSwitch').addEventListener('click', ()=>{
   state.statusChipShowDate = !state.statusChipShowDate;
   document.getElementById('statusChipDateSwitch').classList.toggle('on', state.statusChipShowDate);
@@ -14382,14 +14447,12 @@ async function init(){
   // Moderator-only testing toggle (see menuLocationSourcesSection) —
   // restored regardless of current sign-in/moderator state, same as every
   // other saved pref; the section itself is what's gated to moderators,
-  // not whether this is readable here. Default true on all three (today's
+  // not whether this is readable here. Default true on both (today's
   // normal behavior) so a never-set pref changes nothing.
   state.locSourceV3 = Object.prototype.hasOwnProperty.call(prefs, 'locSourceV3') ? !!prefs.locSourceV3 : true;
   state.locSourceRailFeed = Object.prototype.hasOwnProperty.call(prefs, 'locSourceRailFeed') ? !!prefs.locSourceRailFeed : true;
-  state.locSourceSwiftly = Object.prototype.hasOwnProperty.call(prefs, 'locSourceSwiftly') ? !!prefs.locSourceSwiftly : true;
   document.getElementById('locSourceV3Switch').classList.toggle('on', state.locSourceV3);
   document.getElementById('locSourceRailFeedSwitch').classList.toggle('on', state.locSourceRailFeed);
-  document.getElementById('locSourceSwiftlySwitch').classList.toggle('on', state.locSourceSwiftly);
 
   buildNav();
   buildLadder();
@@ -14446,9 +14509,10 @@ async function init(){
     document.getElementById('notifPermissionBtn').textContent = 'Not supported in this browser';
   }
 
-  // These 8 only feed data shown on the live track map / car-info modal
+  // These only feed data shown on the live track map / car-info modal
   // (consist corrections, destination overrides, OOS badges, dropped
-  // trips, hidden trains, operator search, branch reassignments) — see
+  // trips, hidden trains, operator search, branch reassignments, trip
+  // notes) — see
   // isOnLiveTrackPage/startGatedPoll above. Each used to be a full,
   // uncached collection read fired every 60s no matter what page you were
   // on or whether the tab was even visible.
@@ -14474,6 +14538,7 @@ async function init(){
   startGatedPoll(refreshBranchReassignmentCache, 60000, { staggerMs: 48000 });
   startGatedPoll(refreshStandingByCache, 60000, { staggerMs: 52000 });
   startGatedPoll(refreshExpressReportCache, 60000, { staggerMs: 56000 });
+  startGatedPoll(refreshTripNotesCache, 60000, { staggerMs: 60000 });
 
   // All of the refresh*Cache functions above (except refreshDisruptionModeCache,
   // which has its own 1-hour wall-clock timeout logic and stays on a plain
