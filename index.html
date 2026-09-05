@@ -2334,7 +2334,7 @@ window.addEventListener('popstate', ()=>{
 // needs to be hand-updated to the current date/time whenever a real change
 // is deployed. Any ISO 8601 string with an offset works — init() renders it
 // in the visitor's own local time regardless of what offset is used here.
-const APP_LAST_UPDATED = '2026-09-05T01:55:35-04:00';
+const APP_LAST_UPDATED = '2026-09-05T16:24:03-04:00';
 const MBTA_API_KEY = '7171c5e6f11c447bb3591c1fc1f3b5a9';
 const MBTA_HEADERS = { 'Accept':'application/vnd.api+json' };
 function withMbtaKey(url){
@@ -7259,6 +7259,18 @@ async function fetchTerminusSchedule(branchKey, directionId){
 const BLOCK_SCHEDULE_CACHE_MS = 20 * 60 * 1000;
 let blockScheduleCache = {}; // branchKey -> { ts, tripBlockMap, blockTripsMap }
 
+// Synchronous check for "is this branch's block schedule already warm" —
+// used by showTerminusSchedule below to avoid ever making the whole
+// schedule modal wait on this specific fetch. It's a much bigger request
+// than the modal's other data (a full day's trips across both directions,
+// ~276 rows for Green-B) — real but non-critical latency, so on a cold
+// cache the modal renders immediately without block predictions and fills
+// them in a moment later, rather than everyone paying that cost up front.
+function peekBlockScheduleCache(branchKey){
+  const cached = blockScheduleCache[branchKey];
+  return (cached && (Date.now() - cached.ts) < BLOCK_SCHEDULE_CACHE_MS) ? cached : null;
+}
+
 async function fetchBlockScheduleForBranch(branchKey){
   const cached = blockScheduleCache[branchKey];
   if(cached && (Date.now() - cached.ts) < BLOCK_SCHEDULE_CACHE_MS) return cached;
@@ -7521,12 +7533,24 @@ async function showTerminusSchedule(branchKey, stopName, directionId){
 
   // Shares the same 15-minute roster-page cache as showCarModal above,
   // instead of a fresh uncached full read of the users collection.
-  const [predictions, rosterCache, blockSchedule] = await Promise.all([
-    loadCarPredictions(trips.map(t => t.tripId)), loadRosterPanelData(),
-    fetchBlockScheduleForBranch(branchKey)
+  const [predictions, rosterCache] = await Promise.all([
+    loadCarPredictions(trips.map(t => t.tripId)), loadRosterPanelData()
   ]);
   const userInfoMap = rosterCache.tagMap;
   if(modalRefreshToken !== myToken) return;
+
+  // Block schedule is checked synchronously (see peekBlockScheduleCache) —
+  // if it's not already warm for this branch, render everything else right
+  // now with no block predictions rather than making this whole modal wait
+  // on that one much bigger fetch, then silently re-render (same pattern
+  // every other action below already uses) the moment it resolves.
+  let blockSchedule = peekBlockScheduleCache(branchKey);
+  if(!blockSchedule){
+    blockSchedule = { tripBlockMap: {}, blockTripsMap: {} };
+    fetchBlockScheduleForBranch(branchKey).then(()=>{
+      if(modalRefreshToken === myToken) showTerminusSchedule(branchKey, stopName, directionId, true);
+    });
+  }
 
   const PREDICTION_WINDOW_MS = 90 * 60 * 1000; // 1.5 hours
   // Block-derived predictions get their own, much tighter window than the
