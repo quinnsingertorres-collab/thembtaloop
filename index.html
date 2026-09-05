@@ -2334,7 +2334,7 @@ window.addEventListener('popstate', ()=>{
 // needs to be hand-updated to the current date/time whenever a real change
 // is deployed. Any ISO 8601 string with an offset works — init() renders it
 // in the visitor's own local time regardless of what offset is used here.
-const APP_LAST_UPDATED = '2026-09-05T01:48:41-04:00';
+const APP_LAST_UPDATED = '2026-09-05T01:55:35-04:00';
 const MBTA_API_KEY = '7171c5e6f11c447bb3591c1fc1f3b5a9';
 const MBTA_HEADERS = { 'Accept':'application/vnd.api+json' };
 function withMbtaKey(url){
@@ -7529,6 +7529,15 @@ async function showTerminusSchedule(branchKey, stopName, directionId){
   if(modalRefreshToken !== myToken) return;
 
   const PREDICTION_WINDOW_MS = 90 * 60 * 1000; // 1.5 hours
+  // Block-derived predictions get their own, much tighter window than the
+  // general 1.5-hour one above — the further out a trip is, the more
+  // chances there are for something to break the chain (the vehicle goes
+  // OOS, gets pulled for a swap, a block gets reassigned) between now and
+  // then, so this only publishes a block-based guess once a trip is close
+  // enough that those odds are low. Manual community predictions aren't
+  // affected by this — only how long block_id's own automatic guess stays
+  // trusted.
+  const BLOCK_PREDICTION_WINDOW_MS = 35 * 60 * 1000; // 35 minutes
   const now = Date.now();
 
   // If a currently-tracked train's own tripId exactly matches one of these
@@ -7619,8 +7628,13 @@ async function showTerminusSchedule(branchKey, stopName, directionId){
     // A block prediction only applies to a trip that hasn't started yet
     // (liveMatch already covers the trip actually being live right now),
     // so it only ever kicks in when liveMatch is absent \u2014 see
-    // predictBlockCarsForBranch above for how it's derived.
-    const blockMatch = !liveMatch ? blockCarPredictionByTripId[trip.tripId] : null;
+    // predictBlockCarsForBranch above for how it's derived. Also gated to
+    // BLOCK_PREDICTION_WINDOW_MS (35 minutes) \u2014 see that constant's own
+    // comment for why block-based guesses specifically stay this close to
+    // departure, tighter than the general prediction window below.
+    const blockMatch = (!liveMatch && (dep.getTime() - now) <= BLOCK_PREDICTION_WINDOW_MS)
+      ? blockCarPredictionByTripId[trip.tripId]
+      : null;
     const confirmedVehicle = liveMatch || blockMatch;
     const carNumber = confirmedVehicle
       ? (isGreenLine ? confirmedVehicle.label : formatCarNumberForDisplay(String(confirmedVehicle.label).split('-')[0]))
