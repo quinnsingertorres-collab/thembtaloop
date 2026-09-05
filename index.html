@@ -2339,7 +2339,7 @@ window.addEventListener('popstate', ()=>{
 // needs to be hand-updated to the current date/time whenever a real change
 // is deployed. Any ISO 8601 string with an offset works — init() renders it
 // in the visitor's own local time regardless of what offset is used here.
-const APP_LAST_UPDATED = '2026-09-04T23:42:17-04:00';
+const APP_LAST_UPDATED = '2026-09-05T01:20:05-04:00';
 const MBTA_API_KEY = '7171c5e6f11c447bb3591c1fc1f3b5a9';
 const MBTA_HEADERS = { 'Accept':'application/vnd.api+json' };
 function withMbtaKey(url){
@@ -5891,8 +5891,7 @@ async function showCarModal(v){
       <h4>Out of service</h4>
       ${allCarsOOS
         ? `<div class="modal-row"><span>Status</span><strong style="color:#D64545;">Out of Service</strong></div>
-           ${oosMarkedByEntry.reason ? `<div class="modal-row"><span>Reason</span><strong>${oosMarkedByEntry.reason.replace(/</g,'&lt;')}</strong></div>` : ''}
-           <span class="signin-note">Marked by ${liveName(oosMarkedByEntry.markedBy, oosMarkedByEntry.markedByUid, userInfoMap)} today. Clears automatically at the end of the service day.</span>`
+           ${oosMarkedByEntry.reason ? `<div class="modal-row"><span>Reason</span><strong>${oosMarkedByEntry.reason.replace(/</g,'&lt;')}</strong></div>` : ''}`
         : (anyCarOOS ? `<div class="signin-note">Some but not all cars in this set are currently marked Out of Service.</div>` : '')}
       ${state.signedIn
         ? (allCarsOOS
@@ -6119,7 +6118,7 @@ async function showCarModal(v){
     // since there's nothing for a user to toggle back \u2014 it clears on its
     // own once MBTA's feed does.
     const notAcceptingPassengersNotice = isCarNotAcceptingPassengers(v, carNum)
-      ? `<div class="modal-row"><span>Status</span><strong style="color:#D64545;">Not accepting passengers (auto-detected)</strong></div>
+      ? `<div class="modal-row"><span>Status</span><strong style="color:#D64545;">Not accepting passengers</strong></div>
          <div class="signin-note">MBTA's feed reports this car as not accepting passengers &mdash; treated as out of service here.</div>`
       : '';
     return `
@@ -6215,19 +6214,19 @@ async function showCarModal(v){
     : `<div class="signin-note">Sign in to add trip notes.</div>`;
 
   const soloType7Notice = isSoloType7(v)
-    ? `<div class="modal-row"><span>Status</span><strong style="color:#D64545;">Out of Service (auto-detected)</strong></div>
+    ? `<div class="modal-row"><span>Status</span><strong style="color:#D64545;">Out of Service</strong></div>
        <div class="signin-note">Type 7 cars do not typically run solo. This is likely a deadhead or maintenance move, and is automatically flagged and shown gray on the track map.</div>
        ${state.signedIn ? `<button class="account-btn" id="soloType7InServiceBtn" style="margin-top:6px; background:#0F8A4B;">Mark this car in service</button>` : `<div class="signin-note">Sign in to mark this car in service.</div>`}`
     : '';
 
   const type9RestrictedZoneNotice = isType9InRestrictedZone(v)
-    ? `<div class="modal-row"><span>Status</span><strong style="color:#D64545;">May not be in service (auto-detected)</strong></div>
+    ? `<div class="modal-row"><span>Status</span><strong style="color:#D64545;">May not be in service</strong></div>
        <div class="signin-note">This train may not be in service &mdash; Type 9 trains cannot service Fenwood Road, Mission Park, Riverway, and Back of the Hill due to the lack of a stop sign, which makes it unsafe for passengers to alight the train.</div>`
     : '';
 
   const enhancedTripInfo = enhancedTripDataCache[v.id];
   const nonRevenueNotice = enhancedTripInfo && enhancedTripInfo.isNonRevenue
-    ? `<div class="modal-row"><span>Status</span><strong style="color:#D64545;">Non-revenue trip (auto-detected)</strong></div>
+    ? `<div class="modal-row"><span>Status</span><strong style="color:#D64545;">Non-revenue trip</strong></div>
        <div class="signin-note">MBTA's data marks this as a non-revenue move (e.g. traveling to the start of a route or a yard move) &mdash; it isn't accepting passengers.</div>`
     : '';
 
@@ -6238,7 +6237,7 @@ async function showCarModal(v){
   // yard move is usually also flagged non-revenue, but not always, and
   // this stays accurate either way), so both can show together.
   const innerbeltYardNotice = isAtInnerbeltYard(v)
-    ? `<div class="modal-row"><span>Status</span><strong style="color:#D64545;">At Innerbelt Yard (auto-detected)</strong></div>
+    ? `<div class="modal-row"><span>Status</span><strong style="color:#D64545;">At Innerbelt Yard</strong></div>
        <div class="signin-note">MBTA's feed has this train at Innerbelt Yard, a storage/maintenance yard &mdash; it isn't in active revenue service. If it stays parked here, it's removed from the map after a couple minutes.</div>`
     : '';
   const lastTripNotice = enhancedTripInfo && enhancedTripInfo.isLastTrip
