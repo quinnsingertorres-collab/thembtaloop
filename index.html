@@ -2334,7 +2334,7 @@ window.addEventListener('popstate', ()=>{
 // needs to be hand-updated to the current date/time whenever a real change
 // is deployed. Any ISO 8601 string with an offset works — init() renders it
 // in the visitor's own local time regardless of what offset is used here.
-const APP_LAST_UPDATED = '2026-09-05T16:24:03-04:00';
+const APP_LAST_UPDATED = '2026-09-05T16:36:49-04:00';
 const MBTA_API_KEY = '7171c5e6f11c447bb3591c1fc1f3b5a9';
 const MBTA_HEADERS = { 'Accept':'application/vnd.api+json' };
 function withMbtaKey(url){
@@ -4042,17 +4042,29 @@ async function getUserTagMap(){ return getUserInfoMap(); }
 // string that was stored at the time of some past action — so if someone
 // renames themselves, every place that already recorded their old name
 // updates automatically instead of staying frozen on the old snapshot.
+// Escaped here, at the one choke point every call site already renders
+// straight into innerHTML — display names are entirely self-service (any
+// signed-in user sets their own via account settings), so this is the
+// difference between a name and a stored XSS payload showing up on every
+// report that name is ever attached to.
 function liveName(storedName, uid, userInfoMap){
   if(uid && userInfoMap && userInfoMap[uid] && userInfoMap[uid].displayName){
-    return userInfoMap[uid].displayName;
+    return escapeHtml(userInfoMap[uid].displayName);
   }
-  return storedName || 'Unknown';
+  return escapeHtml(storedName || 'Unknown');
 }
 
+// Same escaping for the tag text; tagColor is moderator-set but only ever
+// validated against /^#[0-9A-Fa-f]{6}$/ client-side at SAVE time (see
+// data-save-tag above) — that alone doesn't stop a value written some other
+// way (direct API call, a rules gap) from landing here, and this gets
+// dropped straight into a style attribute, so it's re-validated at RENDER
+// time too rather than trusted just because it came from Firestore.
 function renderNameWithTag(name, uid, tagMap){
   const info = uid && tagMap ? tagMap[uid] : null;
   const resolvedName = liveName(name, uid, tagMap);
-  const tagHtml = (info && info.tag) ? ` <span class="user-tag-bubble" style="background:${info.tagColor};">${info.tag}</span>` : '';
+  const safeTagColor = (info && /^#[0-9A-Fa-f]{6}$/.test(info.tagColor || '')) ? info.tagColor : '#6B7280';
+  const tagHtml = (info && info.tag) ? ` <span class="user-tag-bubble" style="background:${safeTagColor};">${escapeHtml(info.tag)}</span>` : '';
   return `<strong>${resolvedName}</strong>${tagHtml}`;
 }
 
@@ -6111,12 +6123,12 @@ async function showCarModal(v){
     const carNotesBlock = `<div class="modal-row-spacer"></div>
       <div class="roster-field-label">Car notes</div>
       ${state.signedIn
-        ? `<textarea class="roster-textarea" id="carNotesInput-${carNum}" data-old-value="${carRosterNotes.replace(/"/g,'&quot;')}" placeholder="Notes about this car...">${carRosterNotes}</textarea>
+        ? `<textarea class="roster-textarea" id="carNotesInput-${carNum}" data-old-value="${escapeHtml(carRosterNotes)}" placeholder="Notes about this car...">${escapeHtml(carRosterNotes)}</textarea>
            <button class="account-btn" id="carNotesSaveBtn-${carNum}" data-car-notes-save="${carNum}" style="margin-top:6px;">Save notes</button>
            <span class="roster-submit-note" id="carNotesSaveNote-${carNum}"></span>`
-        : `<div class="roster-readonly">${carRosterNotes ? carRosterNotes : '<span style="opacity:.5;">No notes have been added</span>'}</div>`}`;
+        : `<div class="roster-readonly">${carRosterNotes ? escapeHtml(carRosterNotes) : '<span style="opacity:.5;">No notes have been added</span>'}</div>`}`;
 
-    const livery = (rosterData[carNum] && rosterData[carNum].livery) ? rosterData[carNum].livery : 'Not reported';
+    const livery = (rosterData[carNum] && rosterData[carNum].livery) ? escapeHtml(rosterData[carNum].livery) : 'Not reported';
     const seats = getSeatCount(type, gltps ? gltps.status : null);
     const seatsRow = seats !== null
       ? `<div class="modal-row"><span>Seats</span><strong>${seats}${(gltps && gltps.status === 'Installed' && (type === 'Type 7' || type === 'Type 8')) ? ' (2 fewer \u2014 GLTPS installed)' : ''}</strong></div>`
@@ -6285,14 +6297,14 @@ async function showCarModal(v){
   const standingBySection = existingStandingBy
     ? `<div class="modal-section">
         <h4>Standing by</h4>
-        <div class="modal-row"><span>Station</span><strong>${displayName(existingStandingBy.stationName)}</strong></div>
+        <div class="modal-row"><span>Station</span><strong>${escapeHtml(displayName(existingStandingBy.stationName))}</strong></div>
         ${existingStandingBy.untilRelease
           ? `<div class="modal-row"><span>Expected hold</span><strong>Until release</strong></div>`
           : (standingByHoldEndMs
               ? `<div class="modal-row"><span>Time remaining</span><strong data-hold-end="${standingByHoldEndMs}">${formatStandingByCountdown(standingByHoldEndMs)}</strong></div>`
               : (standingByWaitingToStart ? `<div class="modal-row"><span>Time remaining</span><strong>${standingByFrozenLabel}</strong></div>` : ''))}
-        ${existingStandingBy.notes ? `<div class="signin-note">"${existingStandingBy.notes}"</div>` : ''}
-        <div class="signin-note">Reported by ${existingStandingBy.reportedBy || 'Unknown'} \u2014 clears automatically once the train leaves this station.</div>
+        ${existingStandingBy.notes ? `<div class="signin-note">"${escapeHtml(existingStandingBy.notes)}"</div>` : ''}
+        <div class="signin-note">Reported by ${escapeHtml(existingStandingBy.reportedBy) || 'Unknown'} \u2014 clears automatically once the train leaves this station.</div>
         ${state.signedIn ? `
         <div style="display:flex; gap:8px; margin-top:8px;">
           <button class="roster-reset-btn" id="editStandingByBtn" style="flex:1;">Edit hold time</button>
@@ -6331,10 +6343,10 @@ async function showCarModal(v){
   const expressSection = existingExpress
     ? `<div class="modal-section">
         <h4>Running express</h4>
-        <div class="modal-row"><span>From</span><strong>${displayName(existingExpress.startStation)}</strong></div>
-        ${existingExpress.intermediateStop ? `<div class="modal-row"><span>Still stops at</span><strong>${displayName(existingExpress.intermediateStop)}</strong></div>` : ''}
-        <div class="modal-row"><span>To</span><strong>${displayName(existingExpress.endStation)}</strong></div>
-        <div class="signin-note">Reported by ${existingExpress.reportedBy || 'Unknown'} \u2014 clears automatically once the train reaches ${displayName(existingExpress.endStation)}.</div>
+        <div class="modal-row"><span>From</span><strong>${escapeHtml(displayName(existingExpress.startStation))}</strong></div>
+        ${existingExpress.intermediateStop ? `<div class="modal-row"><span>Still stops at</span><strong>${escapeHtml(displayName(existingExpress.intermediateStop))}</strong></div>` : ''}
+        <div class="modal-row"><span>To</span><strong>${escapeHtml(displayName(existingExpress.endStation))}</strong></div>
+        <div class="signin-note">Reported by ${escapeHtml(existingExpress.reportedBy) || 'Unknown'} \u2014 clears automatically once the train reaches ${escapeHtml(displayName(existingExpress.endStation))}.</div>
         ${state.signedIn ? `<button class="roster-reset-btn" id="clearExpressBtn" style="margin-top:8px;">Cancel express</button>` : ''}
       </div>`
     : (state.signedIn ? `<div class="modal-section">
@@ -7485,10 +7497,10 @@ function operatorFieldHtml(tripId, position, pred, userInfoMap){
   const setBy = pred ? pred['operator' + position + 'SetBy'] : null;
   const setByUid = pred ? pred['operator' + position + 'SetByUid'] : null;
   const viewLine = value
-    ? `<div class="modal-row"><span>${position} car operator</span><strong>${value}</strong></div><span class="signin-note">Set by ${liveName(setBy, setByUid, userInfoMap)}</span>`
+    ? `<div class="modal-row"><span>${position} car operator</span><strong>${escapeHtml(value)}</strong></div><span class="signin-note">Set by ${liveName(setBy, setByUid, userInfoMap)}</span>`
     : '';
   const editForm = state.isModerator
-    ? `<input type="text" class="roster-input" data-op-trip="${tripId}" data-op-pos="${position}" value="${value || ''}" placeholder="${position} car operator name">
+    ? `<input type="text" class="roster-input" data-op-trip="${tripId}" data-op-pos="${position}" value="${escapeHtml(value)}" placeholder="${position} car operator name">
        <button class="account-btn" data-save-op="${tripId}" data-save-op-pos="${position}" style="margin-top:6px;">Save</button>
        ${value ? `<button class="roster-reset-btn" data-remove-op="${tripId}" data-remove-op-pos="${position}" style="margin-top:6px;">Remove</button>` : ''}`
     : '';
@@ -7837,11 +7849,16 @@ function showBypassNotice(stopName, info){
   clearStaleModalStickyInfo();
   modalRefreshToken++;
   info = info || { reason: 'All trains will bypass this station.' };
+  // reason/moreInfoUrl are moderator-authored diversion fields (see
+  // diversion composer) — a direct Firestore write could still land
+  // anything here, so both get escaped, and the href additionally gets a
+  // scheme check so a "javascript:" URL can't ride along as a clickable link.
+  const safeUrl = (info.moreInfoUrl && /^https?:\/\//i.test(info.moreInfoUrl)) ? info.moreInfoUrl : null;
   document.getElementById('carModalTitle').textContent = displayName(stopName);
   document.getElementById('carModalBody').innerHTML = `
     <div class="modal-section">
       <div class="alert-header" style="color:#D64545;">&#9888; Station bypassed</div>
-      <div class="alert-desc">${info.reason}${info.moreInfoUrl ? ` For more information visit: <a href="${info.moreInfoUrl}" target="_blank" rel="noopener" style="color:var(--accent); text-decoration:underline;">${info.moreInfoUrl.replace(/^https?:\/\//,'')}</a>` : ''}</div>
+      <div class="alert-desc">${escapeHtml(info.reason)}${safeUrl ? ` For more information visit: <a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener" style="color:var(--accent); text-decoration:underline;">${escapeHtml(safeUrl.replace(/^https?:\/\//,''))}</a>` : ''}</div>
     </div>
   `;
   document.getElementById('carModalOverlay').classList.add('show');
@@ -7901,7 +7918,7 @@ async function showStationModal(pageKey, idx, stopName, side){
       // doesn't apply.
       const expressEntry = expressReportCache[v.id];
       const eta = expressEntry
-        ? `<span style="color:#D64545;">Running express to ${displayName(expressEntry.endStation)}</span>`
+        ? `<span style="color:#D64545;">Running express to ${escapeHtml(displayName(expressEntry.endStation))}</span>`
         : formatEtaMinutesDisplay(etaMinutes, isRealPrediction);
       const displayCarLabel = state.activeLine === 'green' ? v.label : formatCarNumberForDisplay(String(v.label).split('-')[0]);
       return `<div class="modal-row" style="flex-wrap:wrap;"><span>Car ${displayCarLabel} (${getDisplayBranch(v.branch)})</span><strong>${eta}</strong></div>`;
@@ -7976,7 +7993,7 @@ async function showStationDeparturesByName(stopName){
         // report instead of an ETA that no longer applies.
         const expressEntry = expressReportCache[v.id];
         const eta = expressEntry
-          ? `<span style="color:#D64545;">Running express to ${displayName(expressEntry.endStation)}</span>`
+          ? `<span style="color:#D64545;">Running express to ${escapeHtml(displayName(expressEntry.endStation))}</span>`
           : formatEtaMinutesDisplay(etaMinutes, isRealPrediction);
         const displayCarLabel = state.activeLine === 'green' ? v.label : formatCarNumberForDisplay(String(v.label).split('-')[0]);
         return `<div class="modal-row" style="flex-wrap:wrap;"><span>Car ${displayCarLabel} (${getDisplayBranch(v.branch)})</span><strong>${eta}</strong></div>`;
@@ -8276,7 +8293,7 @@ async function showAlertsAndNotificationsModal(){
       <div class="modal-section" style="border-left:3px solid var(--accent);">
         <div class="alert-header">${routeLine}</div>
         ${notesHtml}
-        <div class="alert-posted">${ALERT_ROUTE_LABELS[a.route] || a.route} · Reported by ${a.postedBy || 'a member'} · ${timeSincePosted(new Date(a.ts).toISOString())}</div>
+        <div class="alert-posted">${escapeHtml(ALERT_ROUTE_LABELS[a.route] || a.route)} · Reported by ${escapeHtml(a.postedBy) || 'a member'} · ${timeSincePosted(new Date(a.ts).toISOString())}</div>
         ${removeBtn}
       </div>`;
   }).join('');
@@ -10328,7 +10345,7 @@ async function buildRosterPanel(){
       || (/^Scrapped/.test(effectiveStatus) ? STATUS_COLORS['Scrapped'] : '')
       || (/^Retired/.test(effectiveStatus) ? STATUS_COLORS['Retired'] : '');
     const statusBadge = effectiveStatus
-      ? `<span class="roster-status-badge" style="background:${statusColor}">${effectiveStatus}</span>`
+      ? `<span class="roster-status-badge" style="background:${statusColor}">${escapeHtml(effectiveStatus)}</span>`
       : '';
 
     const lastSeenLine = `<div class="roster-edited-by" data-last-seen-line="${entry.key}"${data.lastSeenStop ? '' : ' style="opacity:.6;"'}>${renderLastSeenText(data)}</div>`;
@@ -11022,12 +11039,12 @@ async function buildCarDetailPanel(){
     : '';
 
   const liveryField = state.signedIn
-    ? `<input type="text" class="roster-input" data-car="${entry.car}" data-field="livery" data-old-value="${(data.livery||'').replace(/"/g,'&quot;')}" value="${(data.livery || '').replace(/"/g, '&quot;')}" placeholder="e.g. Standard livery, Pride wrap...">`
-    : `<div class="roster-readonly">${data.livery ? data.livery : '<span style="opacity:.5;">No livery info yet</span>'}</div>`;
+    ? `<input type="text" class="roster-input" data-car="${entry.car}" data-field="livery" data-old-value="${escapeHtml(data.livery)}" value="${escapeHtml(data.livery)}" placeholder="e.g. Standard livery, Pride wrap...">`
+    : `<div class="roster-readonly">${data.livery ? escapeHtml(data.livery) : '<span style="opacity:.5;">No livery info yet</span>'}</div>`;
 
   const notesField = state.signedIn
-    ? `<textarea class="roster-textarea" data-car="${entry.car}" data-field="notes" data-old-value="${(data.notes||'').replace(/"/g,'&quot;')}" placeholder="Notes about this car...">${data.notes || ''}</textarea>`
-    : `<div class="roster-readonly">${data.notes ? data.notes : '<span style="opacity:.5;">No notes have been added</span>'}</div>`;
+    ? `<textarea class="roster-textarea" data-car="${entry.car}" data-field="notes" data-old-value="${escapeHtml(data.notes)}" placeholder="Notes about this car...">${escapeHtml(data.notes)}</textarea>`
+    : `<div class="roster-readonly">${data.notes ? escapeHtml(data.notes) : '<span style="opacity:.5;">No notes have been added</span>'}</div>`;
 
   const statusField = state.signedIn
     ? `<select class="roster-input" data-car="${entry.car}" data-field="status" data-old-value="${effectiveStatus}" style="color:${statusColor};">
@@ -11041,20 +11058,20 @@ async function buildCarDetailPanel(){
          <option value="Retired" ${effectiveStatus==='Retired' ? 'selected' : ''}>Retired</option>
          <option value="Scrapped" ${effectiveStatus==='Scrapped' ? 'selected' : ''}>Scrapped</option>
        </select>`
-    : `<div class="roster-readonly" style="color:${statusColor};">${effectiveStatus || '<span style="opacity:.5;">Not set</span>'}</div>`;
+    : `<div class="roster-readonly" style="color:${statusColor};">${effectiveStatus ? escapeHtml(effectiveStatus) : '<span style="opacity:.5;">Not set</span>'}</div>`;
 
   const scrapDateField = (data.status === 'Scrapped') ? `
       <div class="roster-field-label">Scrap date (if known)</div>
       ${state.signedIn
-        ? `<input type="text" class="roster-input" data-car="${entry.car}" data-field="scrapDate" data-old-value="${(data.scrapDate||'').replace(/"/g,'&quot;')}" value="${(data.scrapDate || '').replace(/"/g, '&quot;')}" placeholder="e.g. 2019 or 2019-05">`
-        : `<div class="roster-readonly">${data.scrapDate ? data.scrapDate : '<span style="opacity:.5;">Unknown</span>'}</div>`}
+        ? `<input type="text" class="roster-input" data-car="${entry.car}" data-field="scrapDate" data-old-value="${escapeHtml(data.scrapDate)}" value="${escapeHtml(data.scrapDate)}" placeholder="e.g. 2019 or 2019-05">`
+        : `<div class="roster-readonly">${data.scrapDate ? escapeHtml(data.scrapDate) : '<span style="opacity:.5;">Unknown</span>'}</div>`}
     ` : '';
 
   const workCarTypeField = (data.status === 'Work Car') ? `
       <div class="roster-field-label">Work car type</div>
       ${state.signedIn
-        ? `<input type="text" class="roster-input" data-car="${entry.car}" data-field="workCarType" data-old-value="${(data.workCarType||'').replace(/"/g,'&quot;')}" value="${(data.workCarType || '').replace(/"/g, '&quot;')}" placeholder="e.g. Snow plow, rail grinder, de-icer...">`
-        : `<div class="roster-readonly">${data.workCarType ? data.workCarType : '<span style="opacity:.5;">Unknown</span>'}</div>`}
+        ? `<input type="text" class="roster-input" data-car="${entry.car}" data-field="workCarType" data-old-value="${escapeHtml(data.workCarType)}" value="${escapeHtml(data.workCarType)}" placeholder="e.g. Snow plow, rail grinder, de-icer...">`
+        : `<div class="roster-readonly">${data.workCarType ? escapeHtml(data.workCarType) : '<span style="opacity:.5;">Unknown</span>'}</div>`}
     ` : '';
 
   const rebuildField = entry.hasRebuildStatus ? `
@@ -11065,7 +11082,7 @@ async function buildCarDetailPanel(){
              <option value="Rebuilt" ${data.rebuildStatus==='Rebuilt' ? 'selected' : ''}>Rebuilt</option>
              <option value="Not rebuilt" ${data.rebuildStatus==='Not rebuilt' ? 'selected' : ''}>Not rebuilt</option>
            </select>`
-        : `<div class="roster-readonly">${data.rebuildStatus || '<span style="opacity:.5;">Not set</span>'}</div>`}
+        : `<div class="roster-readonly">${data.rebuildStatus ? escapeHtml(data.rebuildStatus) : '<span style="opacity:.5;">Not set</span>'}</div>`}
     ` : '';
 
   const gltpsField = showGltps ? `
@@ -11468,23 +11485,28 @@ async function buildMembersPanel(){
 
   body.innerHTML = users.map(u=>{
     const joined = u.createdAt ? new Date(u.createdAt).toLocaleDateString('en-US', { year:'numeric', month:'short', day:'numeric' }) : 'Unknown';
-    const tagBubble = u.tag ? `<span class="user-tag-bubble" style="background:${u.tagColor || '#6B7280'};">${u.tag}</span>` : '';
+    // displayName/tag are both self-service-or-moderator free text \u2014 never
+    // trusted raw into innerHTML here, same reasoning as liveName/
+    // renderNameWithTag above (this panel just doesn't go through those
+    // helpers, since it's rendering the account docs directly).
+    const safeTagColor = /^#[0-9A-Fa-f]{6}$/.test(u.tagColor || '') ? u.tagColor : '#6B7280';
+    const tagBubble = u.tag ? `<span class="user-tag-bubble" style="background:${safeTagColor};">${escapeHtml(u.tag)}</span>` : '';
     const rCount = rosterCounts[u.uid] || 0;
     const gCount = gltpsCounts[u.uid] || 0;
     return `
       <div class="roster-row" data-uid="${u.uid}">
         <div class="roster-row-head" data-member-toggle="${u.uid}" style="cursor:pointer;">
-          <span class="roster-car-chip">${u.displayName || '(no name)'}</span>
+          <span class="roster-car-chip">${escapeHtml(u.displayName) || '(no name)'}</span>
           ${tagBubble}
           ${u.uid === state.uid ? '<span class="roster-active-badge">You</span>' : ''}
           <span class="signin-note" style="margin-left:auto;">Tap for details \u25be</span>
         </div>
         <div class="member-details" id="memberDetails-${u.uid}" style="display:none;">
-          <div class="roster-edited-by">${u.email || '(no email on file)'} \u00b7 joined ${joined}</div>
+          <div class="roster-edited-by">${escapeHtml(u.email) || '(no email on file)'} \u00b7 joined ${joined}</div>
           <div class="roster-edited-by">${rCount} roster edit${rCount===1?'':'s'} \u00b7 ${gCount} GLTPS report${gCount===1?'':'s'}</div>
 
           <div class="roster-field-label">Display name</div>
-          <input type="text" class="roster-input" data-uid="${u.uid}" data-admin-field="name" value="${(u.displayName || '').replace(/"/g, '&quot;')}">
+          <input type="text" class="roster-input" data-uid="${u.uid}" data-admin-field="name" value="${escapeHtml(u.displayName)}">
           <button class="account-btn" data-save-user="${u.uid}" style="margin-top:6px;">Save name</button>
 
           <div class="roster-field-label">Points</div>
@@ -11492,8 +11514,8 @@ async function buildMembersPanel(){
           <button class="account-btn" data-save-points="${u.uid}" style="margin-top:6px;">Save points</button>
 
           <div class="roster-field-label">User tag</div>
-          <input type="text" class="roster-input" data-tag-uid="${u.uid}" value="${u.tag || ''}" placeholder="e.g. Founding Member">
-          <input type="text" class="roster-input" data-tagcolor-uid="${u.uid}" value="${u.tagColor || '#6B7280'}" placeholder="#6B7280" style="margin-top:6px;">
+          <input type="text" class="roster-input" data-tag-uid="${u.uid}" value="${escapeHtml(u.tag)}" placeholder="e.g. Founding Member">
+          <input type="text" class="roster-input" data-tagcolor-uid="${u.uid}" value="${escapeHtml(u.tagColor) || '#6B7280'}" placeholder="#6B7280" style="margin-top:6px;">
           <button class="account-btn" data-save-tag="${u.uid}" style="margin-top:6px;">Save tag</button>
 
           <div class="roster-field-label">Trusted Member</div>
@@ -11633,7 +11655,7 @@ async function buildPointsPanel(){
     ? `<div class="roster-row" style="margin-bottom:14px;">
          <div class="roster-row-head">
            <span class="roster-car-chip">Your points</span>
-           ${you && you.tag ? `<span class="user-tag-bubble" style="background:${you.tagColor || '#6B7280'};">${you.tag}</span>` : ''}
+           ${you && you.tag ? `<span class="user-tag-bubble" style="background:${/^#[0-9A-Fa-f]{6}$/.test(you.tagColor || '') ? you.tagColor : '#6B7280'};">${escapeHtml(you.tag)}</span>` : ''}
          </div>
          <div class="roster-edited-by" style="font-size:20px; font-weight:700; color:var(--text);">${(you && you.points) || 0} pts</div>
          <div class="roster-edited-by">Earn points by reporting GLTPS status (+3), editing a car's status (+5), livery (+8), rebuild status (+15), or adding notes (+1 per word) on the Fleet Roster.</div>
@@ -11641,11 +11663,12 @@ async function buildPointsPanel(){
     : `<div class="empty-state">Sign in to start earning points.</div>`;
 
   const rows = users.filter(u => (u.points || 0) > 0).map((u, i)=>{
-    const tagBubble = u.tag ? `<span class="user-tag-bubble" style="background:${u.tagColor || '#6B7280'};">${u.tag}</span>` : '';
+    const safeTagColor = /^#[0-9A-Fa-f]{6}$/.test(u.tagColor || '') ? u.tagColor : '#6B7280';
+    const tagBubble = u.tag ? `<span class="user-tag-bubble" style="background:${safeTagColor};">${escapeHtml(u.tag)}</span>` : '';
     return `
       <div class="roster-row">
         <div class="roster-row-head">
-          <span class="roster-car-chip">#${i+1} &nbsp;${u.displayName || '(no name)'}</span>
+          <span class="roster-car-chip">#${i+1} &nbsp;${escapeHtml(u.displayName) || '(no name)'}</span>
           ${tagBubble}
           ${u.uid === state.uid ? '<span class="roster-active-badge">You</span>' : ''}
         </div>
