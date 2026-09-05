@@ -2339,7 +2339,7 @@ window.addEventListener('popstate', ()=>{
 // needs to be hand-updated to the current date/time whenever a real change
 // is deployed. Any ISO 8601 string with an offset works — init() renders it
 // in the visitor's own local time regardless of what offset is used here.
-const APP_LAST_UPDATED = '2026-09-02T22:37:07-04:00';
+const APP_LAST_UPDATED = '2026-09-04T23:42:17-04:00';
 const MBTA_API_KEY = '7171c5e6f11c447bb3591c1fc1f3b5a9';
 const MBTA_HEADERS = { 'Accept':'application/vnd.api+json' };
 function withMbtaKey(url){
@@ -3721,14 +3721,25 @@ function carSetKey(label){
 // Cache of carSetKey -> corrected label, kept in sync so train bubbles on the
 // track map reflect community consist corrections, not just the car modal.
 let consistOverrideCache = {};
+// Full doc data (label/editedBy/editedByUid/ts) for the same keys, built
+// alongside consistOverrideCache above from this same listener — lets
+// loadConsistOverride below read full detail straight from here instead of
+// its own redundant per-open Firestore .get(). Kept as a second map rather
+// than widening consistOverrideCache itself, since that one's read as a
+// plain label STRING all over this file (isVehicleOutOfService,
+// isCarNotAcceptingPassengers, etc.) — changing its shape would break every
+// one of those call sites.
+let consistOverrideFullCache = {};
 const consistOverrideCacheCtl = makeSnapshotCache('consist_corrections', (docs)=>{
   const map = {};
+  const fullMap = {};
   const now = Date.now();
   docs.forEach(doc=>{
     const d = doc.data();
-    if(!d.expiresAt || d.expiresAt > now) map[doc.id] = d.label;
+    if(!d.expiresAt || d.expiresAt > now){ map[doc.id] = d.label; fullMap[doc.id] = d; }
   });
   consistOverrideCache = map;
+  consistOverrideFullCache = fullMap;
 });
 function refreshConsistOverrideCache(){ consistOverrideCacheCtl.start(); }
 
@@ -3743,16 +3754,16 @@ const destinationOverrideCacheCtl = makeSnapshotCache('destination_overrides', (
 });
 function refreshDestinationOverrideCache(){ destinationOverrideCacheCtl.start(); }
 
+// Reads straight from consistOverrideFullCache — a live onSnapshot listener
+// (see consistOverrideCacheCtl above) that's already running continuously
+// for the track-map bubbles' own consist corrections. This used to run its
+// own fresh per-open Firestore .get(), called once every single time the
+// car modal opens (showCarModal); the cache already carries the exact same
+// data for free.
 async function loadConsistOverride(v){
   const key = carSetKey(v.label);
   if(firebaseReady){
-    try{
-      const doc = await fbDb.collection('consist_corrections').doc(key).get();
-      if(!doc.exists) return null;
-      const data = doc.data();
-      if(data.expiresAt && data.expiresAt < Date.now()) return null;
-      return data;
-    }catch(e){ console.error(e); return null; }
+    return consistOverrideFullCache[key] || null;
   }
   try{
     const raw = localStorage.getItem(CONSIST_KEY);
@@ -3772,6 +3783,12 @@ async function saveConsistOverride(v, label){
   };
   if(firebaseReady){
     try{ await fbDb.collection('consist_corrections').doc(key).set(payload); }catch(e){ console.error(e); }
+    // Written directly rather than waiting on this write's own onSnapshot
+    // echo — every call site re-opens the modal right after this resolves,
+    // and loadConsistOverride now reads from these caches instead of its own
+    // fresh .get() (see its own comment).
+    consistOverrideCache[key] = label;
+    consistOverrideFullCache[key] = payload;
     logEdit(state.userName, state.uid, `Corrected consist to ${label}`);
     return payload;
   }
@@ -3787,6 +3804,9 @@ async function deleteConsistOverride(v){
   const key = carSetKey(v.label);
   if(firebaseReady){
     try{ await fbDb.collection('consist_corrections').doc(key).delete(); }catch(e){ console.error(e); }
+    // Same reasoning as saveConsistOverride above.
+    delete consistOverrideCache[key];
+    delete consistOverrideFullCache[key];
     return;
   }
   try{
@@ -5368,7 +5388,14 @@ const outOfServiceCacheCtl = makeSnapshotCache('car_out_of_service', (docs)=>{
   const staleDocs = [];
   docs.forEach(doc=>{
     const d = doc.data();
-    if(d.date === today && d.outOfService) map[doc.id] = { reason: d.reason || '', markedBy: d.markedBy || '', setLabel: d.setLabel || null };
+    // Full doc data (not just the reason/markedBy/setLabel subset the track-
+    // map bubbles need) so loadCarOutOfService below can read straight from
+    // this same live-synced cache — see that function's own comment — rather
+    // than firing its own redundant per-car Firestore .get() on every single
+    // modal open. markedByUid/notes/outOfService are additive fields no
+    // existing consumer of outOfServiceCarsCache reads, so widening the
+    // shape here doesn't change any of their behavior.
+    if(d.date === today && d.outOfService) map[doc.id] = { reason: d.reason || '', markedBy: d.markedBy || '', markedByUid: d.markedByUid || null, setLabel: d.setLabel || null, notes: d.notes || [], outOfService: true, date: d.date };
     else staleDocs.push(doc.ref);
   });
   outOfServiceCarsCache = map;
@@ -5376,19 +5403,18 @@ const outOfServiceCacheCtl = makeSnapshotCache('car_out_of_service', (docs)=>{
 });
 function refreshOutOfServiceCache(){ outOfServiceCacheCtl.start(); }
 
+// Reads straight from outOfServiceCarsCache — a live onSnapshot listener
+// (see outOfServiceCacheCtl above) that's already running continuously for
+// the track-map bubbles, and already carries every field this needs. This
+// used to run its own fresh .get() per car, called once per car in the
+// consist on every single car-modal open (showCarModal); with the cache
+// already holding the exact same (now widened) data for free, that was pure
+// redundant read volume for no fresher information — the cache is at most
+// one Firestore round-trip behind, same as any onSnapshot listener. Stays
+// async (and keeps its firebaseReady guard) so no call site needs to change.
 async function loadCarOutOfService(carNum){
   if(!firebaseReady) return null;
-  try{
-    const doc = await fbDb.collection('car_out_of_service').doc(carNum).get();
-    if(!doc.exists) return null;
-    const data = doc.data();
-    if(data.date !== todayDateString()){
-      // Stale from a previous service day — clean it up and treat as cleared.
-      fbDb.collection('car_out_of_service').doc(carNum).delete().catch(e => console.error(e));
-      return null;
-    }
-    return data;
-  }catch(e){ console.error(e); return null; }
+  return outOfServiceCarsCache[carNum] || null;
 }
 
 // Hiding a specific train from the map/list entirely, for the rest of the
@@ -5457,7 +5483,13 @@ async function markCarOutOfService(carNum, reason, pushBatch, setLabel){
       else payload.suppressPush = true;
     }
     await fbDb.collection('car_out_of_service').doc(carNum).set(payload);
-    outOfServiceCarsCache[carNum] = { reason: reason || '', markedBy: state.userName, setLabel: payload.setLabel || null };
+    // Full shape (matches what the outOfServiceCacheCtl snapshot handler
+    // above now stores) rather than the old reduced one — loadCarOutOfService
+    // reads this cache directly now (see its own comment), and showCarModal
+    // needs outOfService/markedByUid/notes too, not just reason/markedBy/
+    // setLabel. Written directly rather than waiting on this write's own
+    // onSnapshot echo, same reasoning as saveVehicleOperator.
+    outOfServiceCarsCache[carNum] = { reason: reason || '', markedBy: state.userName, markedByUid: state.uid || null, setLabel: payload.setLabel || null, notes: [], outOfService: true, date: payload.date };
     logEdit(state.userName, state.uid, `Marked car ${carNum} out of service${reason ? `: "${reason.slice(0,60)}"` : ''}`);
   }catch(e){ console.error(e); }
 }
@@ -5541,6 +5573,11 @@ async function addOOSNote(carNum, text){
     const doc = await ref.get();
     if(!doc.exists || !doc.data().outOfService) return; // car isn't OOS anymore — nothing to attach the note to
     await ref.update({ notes: firebase.firestore.FieldValue.arrayUnion(entry) });
+    // showCarModal reads notes straight from outOfServiceCarsCache now (see
+    // loadCarOutOfService's comment) — the call site re-renders the modal
+    // immediately after this resolves, so keep the cache in sync directly
+    // rather than depending on this write's own onSnapshot echo.
+    if(outOfServiceCarsCache[carNum]) outOfServiceCarsCache[carNum].notes = (outOfServiceCarsCache[carNum].notes || []).concat([entry]);
     logEdit(state.userName, state.uid, `Added a note to car ${carNum}'s Out of Service report: "${text.slice(0,60)}"`);
   }catch(e){ console.error(e); }
 }
@@ -5552,23 +5589,37 @@ async function deleteOOSNote(carNum, entryTs){
     if(!doc.exists) return;
     const updatedNotes = (doc.data().notes || []).filter(n => n.ts !== entryTs);
     await ref.update({ notes: updatedNotes });
+    // Same reasoning as addOOSNote above.
+    if(outOfServiceCarsCache[carNum]) outOfServiceCarsCache[carNum].notes = updatedNotes;
     logEdit(state.userName, state.uid, `Removed a note from car ${carNum}'s Out of Service report`);
   }catch(e){ console.error(e); }
 }
 
+// Reads straight from vehicleOperatorCache — a live onSnapshot listener over
+// the WHOLE vehicle_operators collection that's already running continuously
+// for the car-search-by-operator-name feature below, so this data is already
+// sitting in memory for free. This used to run its own fresh per-doc .get(),
+// called once per car in the consist on every single car-modal open
+// (showCarModal) — with the listener already receiving every one of these
+// docs, that was pure redundant read volume. Stays async (and keeps its
+// firebaseReady guard) so no call site needs to change.
 async function loadVehicleOperator(vehicleId, carNum){
   if(!firebaseReady) return null;
-  try{
-    const doc = await fbDb.collection('vehicle_operators').doc(operatorDocId(vehicleId, carNum)).get();
-    return doc.exists ? doc.data() : null;
-  }catch(e){ console.error(e); return null; }
+  return vehicleOperatorCache[operatorDocId(vehicleId, carNum)] || null;
 }
 async function saveVehicleOperator(vehicleId, carNum, operator){
   if(!firebaseReady) return;
   try{
-    await fbDb.collection('vehicle_operators').doc(operatorDocId(vehicleId, carNum)).set({
-      operator, vehicleId, carNum, setBy: state.userName, setByUid: state.uid || null, ts: Date.now()
-    });
+    const payload = { operator, vehicleId, carNum, setBy: state.userName, setByUid: state.uid || null, ts: Date.now() };
+    await fbDb.collection('vehicle_operators').doc(operatorDocId(vehicleId, carNum)).set(payload);
+    // Written into the cache directly rather than waiting on this write's own
+    // onSnapshot echo — the call site immediately re-opens the modal right
+    // after this resolves (see that click handler), and loadVehicleOperator
+    // now reads from this cache instead of its own fresh .get() (see its own
+    // comment), so this keeps that re-render correct without depending on
+    // listener timing. Same pattern saveStandingByReport already uses for
+    // standingByCache.
+    vehicleOperatorCache[operatorDocId(vehicleId, carNum)] = payload;
     logEdit(state.userName, state.uid, `Set operator info for car ${carNum}`);
   }catch(e){ console.error(e); }
 }
@@ -5576,18 +5627,33 @@ async function saveVehicleOperator(vehicleId, carNum, operator){
 // Not surfaced anywhere in the UI on purpose — lets the car search box also
 // match on an operator's name/badge, without documenting or hinting at it.
 let operatorSearchCache = [];
+// Full doc data keyed by doc id (== operatorDocId(vehicleId, carNum), see
+// saveVehicleOperator) — built from this same listener alongside
+// operatorSearchCache above, so loadVehicleOperator can read the exact same
+// data other consumers of this snapshot already receive instead of paying
+// for its own separate read. See that function's own comment.
+let vehicleOperatorCache = {};
 const operatorSearchCacheCtl = makeSnapshotCache('vehicle_operators', (docs)=>{
   const list = [];
+  const map = {};
   docs.forEach(doc=>{
     const d = doc.data();
     if(d.operator && d.vehicleId) list.push({ operator: d.operator, vehicleId: d.vehicleId });
+    map[doc.id] = d;
   });
   operatorSearchCache = list;
+  vehicleOperatorCache = map;
 });
 function refreshOperatorSearchCache(){ operatorSearchCacheCtl.start(); }
 async function deleteVehicleOperator(vehicleId, carNum){
   if(!firebaseReady) return;
-  try{ await fbDb.collection('vehicle_operators').doc(operatorDocId(vehicleId, carNum)).delete(); }catch(e){ console.error(e); }
+  try{
+    await fbDb.collection('vehicle_operators').doc(operatorDocId(vehicleId, carNum)).delete();
+    // Same reasoning as saveVehicleOperator above — keep the cache
+    // loadVehicleOperator now reads from immediately correct rather than
+    // depending on this delete's own onSnapshot echo arriving in time.
+    delete vehicleOperatorCache[operatorDocId(vehicleId, carNum)];
+  }catch(e){ console.error(e); }
 }
 
 /* ---------------- Trip notes (open to anyone, cleared when destination changes) ---------------- */
