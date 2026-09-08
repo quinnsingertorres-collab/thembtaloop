@@ -34,8 +34,43 @@
     if(isAppleMobile) document.documentElement.classList.add('apple-mobile');
   })();
 </script>
-<title>In the Loop</title>
-<meta name="description" content="In the Loop is a transit enthusiast built train tracker for all MBTA Subway lines with many community features to increase accuracy and reliability">
+<title>In the Loop — Live MBTA Green, Red, Orange &amp; Blue Line Tracker</title>
+<meta name="description" content="Real-time MBTA train tracker for the Green, Red, Orange, and Blue Lines plus Mattapan — live car numbers, GLTPS status, service alerts, and diversions, all community-verified for accuracy.">
+<meta name="robots" content="index, follow">
+<link rel="canonical" href="https://thembtaloop.com/">
+<!-- Open Graph / Twitter Card — same copy as the description above, so a
+     link shared to Discord/iMessage/Twitter/Facebook shows a real title,
+     description, and preview image instead of a bare URL. og:image points
+     at the 512x512 app icon since that's the only image on hand at that
+     resolution; not the ideal 1200x630 social-card aspect ratio, but every
+     platform still renders it. -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="In the Loop">
+<meta property="og:url" content="https://thembtaloop.com/">
+<meta property="og:title" content="In the Loop — Live MBTA Subway Tracker">
+<meta property="og:description" content="Real-time MBTA train tracker for the Green, Red, Orange, and Blue Lines plus Mattapan — live car numbers, GLTPS status, service alerts, and diversions, all community-verified for accuracy.">
+<meta property="og:image" content="https://thembtaloop.com/icon-512.png">
+<meta property="og:image:width" content="512">
+<meta property="og:image:height" content="512">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="In the Loop — Live MBTA Subway Tracker">
+<meta name="twitter:description" content="Real-time MBTA train tracker for the Green, Red, Orange, and Blue Lines plus Mattapan — live car numbers, GLTPS status, service alerts, and diversions, all community-verified for accuracy.">
+<meta name="twitter:image" content="https://thembtaloop.com/icon-512.png">
+<!-- Structured data so Google can understand what this site is (and, for
+     an installable PWA like this one, potentially show it as an app result)
+     without having to infer it purely from rendered content. -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  "name": "In the Loop",
+  "url": "https://thembtaloop.com/",
+  "description": "Real-time MBTA train tracker for the Green, Red, Orange, and Blue Lines plus Mattapan — live car numbers, GLTPS status, service alerts, and diversions, all community-verified for accuracy.",
+  "applicationCategory": "TravelApplication",
+  "operatingSystem": "Any",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+}
+</script>
 <script>
   window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
 </script>
@@ -128,7 +163,7 @@ html::-webkit-scrollbar, body::-webkit-scrollbar{display:none;}
   padding:24px; text-align:center;
 }
 .gate-card{max-width:420px; width:100%;}
-.gate-card h1{font-family:'Space Grotesk', sans-serif; font-size:22px; font-weight:700; letter-spacing:-0.01em; margin:0 0 12px; color:var(--text);}
+.gate-card h1, .gate-card h2{font-family:'Space Grotesk', sans-serif; font-size:22px; font-weight:700; letter-spacing:-0.01em; margin:0 0 12px; color:var(--text);}
 .gate-card p{color:var(--text-dim); font-size:14px; margin:0 0 22px; line-height:1.5;}
 .gate-signin-btn{
   display:inline-flex; align-items:center; gap:10px; background:#fff; color:#3c4043;
@@ -1449,13 +1484,13 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
 
 <div id="welcomeScreen" class="gate-screen" style="display:none;">
   <div class="gate-card">
-    <h1 id="welcomeText" class="welcome-text">Welcome</h1>
+    <h2 id="welcomeText" class="welcome-text">Welcome</h2>
   </div>
 </div>
 
 <div id="privacyWarningScreen" class="gate-screen" style="display:none;">
   <div class="gate-card">
-    <h1>Before you continue</h1>
+    <h2>Before you continue</h2>
     <p>Any edits you make (roster changes, GLTPS reports, notes, and more) are visible to everyone using this app, shown alongside your first name. You can change your display name anytime in Settings.</p>
     <button id="privacyWarningDismissBtn" class="gate-signin-btn">Continue</button>
   </div>
@@ -1463,13 +1498,13 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
 
 <div id="checkingAccessScreen" class="gate-screen" style="display:none;">
   <div class="gate-card">
-    <h1>Checking access&hellip;</h1>
+    <h2>Checking access&hellip;</h2>
   </div>
 </div>
 
 <div id="accessDeniedScreen" class="gate-screen" style="display:none;">
   <div class="gate-card">
-    <h1>Access Restricted</h1>
+    <h2>Access Restricted</h2>
     <p>This page is for signed-in moderators only.</p>
     <button id="accessDeniedBackBtn" class="gate-signin-btn">Return to In the Loop</button>
   </div>
@@ -2334,7 +2369,7 @@ window.addEventListener('popstate', ()=>{
 // needs to be hand-updated to the current date/time whenever a real change
 // is deployed. Any ISO 8601 string with an offset works — init() renders it
 // in the visitor's own local time regardless of what offset is used here.
-const APP_LAST_UPDATED = '2026-09-08T06:30:24-04:00';
+const APP_LAST_UPDATED = '2026-09-08T16:24:36-04:00';
 const MBTA_API_KEY = '7171c5e6f11c447bb3591c1fc1f3b5a9';
 const MBTA_HEADERS = { 'Accept':'application/vnd.api+json' };
 function withMbtaKey(url){
