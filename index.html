@@ -2334,7 +2334,7 @@ window.addEventListener('popstate', ()=>{
 // needs to be hand-updated to the current date/time whenever a real change
 // is deployed. Any ISO 8601 string with an offset works — init() renders it
 // in the visitor's own local time regardless of what offset is used here.
-const APP_LAST_UPDATED = '2026-09-05T16:36:49-04:00';
+const APP_LAST_UPDATED = '2026-09-08T06:30:24-04:00';
 const MBTA_API_KEY = '7171c5e6f11c447bb3591c1fc1f3b5a9';
 const MBTA_HEADERS = { 'Accept':'application/vnd.api+json' };
 function withMbtaKey(url){
@@ -5245,24 +5245,30 @@ function renderTrainDots(){
         : '';
       const expressEntry = expressReportCache[entry.v.id];
       const expressBadge = expressEntry
-        ? `<span class="bubble-express-badge" title="Reported running express from ${expressEntry.startStation} to ${expressEntry.endStation}"><svg viewBox="0 0 24 24" width="12" height="12" fill="none"><path d="M5 5l7 7-7 7" stroke="#F59E0B" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><path d="M13 5l7 7-7 7" stroke="#F59E0B" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg></span>`
+        ? `<span class="bubble-express-badge" title="Reported running express from ${escapeHtml(expressEntry.startStation)} to ${escapeHtml(expressEntry.endStation)}"><svg viewBox="0 0 24 24" width="12" height="12" fill="none"><path d="M5 5l7 7-7 7" stroke="#F59E0B" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><path d="M13 5l7 7-7 7" stroke="#F59E0B" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg></span>`
         : '';
       const standingByEntry = standingByCache[entry.v.id];
       const hasArrivedAtStandingByStation = standingByEntry && entry.v.stopName
         && normName(entry.v.stopName) === normName(standingByEntry.stationName);
       const standingByBadge = hasArrivedAtStandingByStation
-        ? `<span class="bubble-standingby-badge" title="Reported standing by at ${standingByEntry.stationName}"><svg viewBox="0 0 24 24" fill="none"><path d="M8 2h8l6 6v8l-6 6H8l-6-6V8l6-6z" fill="#D64545" stroke="#fff" stroke-width="1.5"/></svg></span>`
+        ? `<span class="bubble-standingby-badge" title="Reported standing by at ${escapeHtml(standingByEntry.stationName)}"><svg viewBox="0 0 24 24" fill="none"><path d="M8 2h8l6 6v8l-6 6H8l-6-6V8l6-6z" fill="#D64545" stroke="#fff" stroke-width="1.5"/></svg></span>`
         : '';
+      // carParts/effectiveBubbleLabel trace back to consistOverrideCache —
+      // a community-editable correction (see consistEditForm's Save consist
+      // correction button above) — so, same as every other free-text
+      // field in this app, escaped here rather than trusted, since this is
+      // the highest-visibility render in the whole app (every train bubble
+      // on the main track map).
       if(state.activeLine === 'red'){
         bubble.innerHTML = redBranch
-          ? `<span class="${bletterClass}">${bubbleBranch}</span><span class="bnums"><span class="bline bline-first">${formatCarNumberForDisplay(carParts[0])}</span></span>${destBadge}${expressBadge}${standingByBadge}`
-          : `<span class="bnums"><span class="bline bline-first">${formatCarNumberForDisplay(carParts[0])}</span></span>${destBadge}${expressBadge}${standingByBadge}`;
+          ? `<span class="${bletterClass}">${bubbleBranch}</span><span class="bnums"><span class="bline bline-first">${escapeHtml(formatCarNumberForDisplay(carParts[0]))}</span></span>${destBadge}${expressBadge}${standingByBadge}`
+          : `<span class="bnums"><span class="bline bline-first">${escapeHtml(formatCarNumberForDisplay(carParts[0]))}</span></span>${destBadge}${expressBadge}${standingByBadge}`;
       }else if(state.activeLine !== 'green'){
-        bubble.innerHTML = `<span class="bnums"><span class="bline bline-first">${formatCarNumberForDisplay(carParts[0])}</span></span>${destBadge}${expressBadge}${standingByBadge}`;
+        bubble.innerHTML = `<span class="bnums"><span class="bline bline-first">${escapeHtml(formatCarNumberForDisplay(carParts[0]))}</span></span>${destBadge}${expressBadge}${standingByBadge}`;
       }else if(carParts.length >= 2){
-        bubble.innerHTML = `<span class="${bletterClass}">${bubbleBranch}</span><span class="bnums">${carParts.map((p,i) => `<span class="bline${i===0?' bline-first':''}">${p}</span>`).join('')}</span>${destBadge}${expressBadge}${standingByBadge}`;
+        bubble.innerHTML = `<span class="${bletterClass}">${bubbleBranch}</span><span class="bnums">${carParts.map((p,i) => `<span class="bline${i===0?' bline-first':''}">${escapeHtml(p)}</span>`).join('')}</span>${destBadge}${expressBadge}${standingByBadge}`;
       }else{
-        bubble.innerHTML = `<span class="${bletterClass}">${bubbleBranch}</span><span class="bnums"><span class="bline bline-first">${effectiveBubbleLabel}</span></span>${destBadge}${expressBadge}${standingByBadge}`;
+        bubble.innerHTML = `<span class="${bletterClass}">${bubbleBranch}</span><span class="bnums"><span class="bline bline-first">${escapeHtml(effectiveBubbleLabel)}</span></span>${destBadge}${expressBadge}${standingByBadge}`;
       }
 
       // Anchored a few px INSIDE the bubble's edge, not exactly on it — a
@@ -6190,7 +6196,7 @@ async function showCarModal(v){
        <input type="text" class="roster-input" id="consistAddInput" data-enter-target="consistAddBtn" placeholder="Car number to add, e.g. 3868" style="margin-top:6px;">
        <button class="account-btn" id="consistAddBtn" style="margin-top:6px;">Add car</button>
        <div class="roster-field-label" style="margin-top:10px;">Or directly edit the whole set</div>
-       <input type="text" class="roster-input" id="consistEditInput" data-enter-target="consistSaveBtn" value="${effectiveLabel}" placeholder="e.g. ${carNumberExample()}">
+       <input type="text" class="roster-input" id="consistEditInput" data-enter-target="consistSaveBtn" value="${escapeHtml(effectiveLabel)}" placeholder="e.g. ${carNumberExample()}">
        <button class="account-btn" id="consistSaveBtn" style="margin-top:6px;">Save consist correction</button>`
     : `<div class="signin-note">Sign in to correct this train's car numbers.</div>`;
 
@@ -7645,7 +7651,7 @@ async function showTerminusSchedule(branchKey, stopName, directionId){
     if(!withinPredictionWindow){
       return `
         <div class="modal-section">
-          <div class="modal-row"><span>${timeStr}</span><strong>to ${trip.headsign || 'Unknown'}</strong></div>
+          <div class="modal-row"><span>${timeStr}</span><strong>to ${escapeHtml(trip.headsign) || 'Unknown'}</strong></div>
           <span class="signin-note">Car prediction available within 1.5 hours of departure</span>
           ${timeCorrectionNote}
           ${timeEditControl}
@@ -7685,7 +7691,7 @@ async function showTerminusSchedule(branchKey, stopName, directionId){
     const predictionExample = isGreenLine ? carNumberExample() : carNumberExample().split('-')[0];
     const editControl = state.signedIn
       ? `<div class="modal-edit-row">
-           <input type="text" class="roster-input" data-predict-trip="${trip.tripId}" data-old-value="${carNumber}" value="${carNumber}" placeholder="e.g. ${predictionExample}">
+           <input type="text" class="roster-input" data-predict-trip="${trip.tripId}" data-old-value="${escapeHtml(carNumber)}" value="${escapeHtml(carNumber)}" placeholder="e.g. ${predictionExample}">
            <button class="account-btn" data-save-predict="${trip.tripId}">Save</button>
          </div>`
       : '';
@@ -7722,7 +7728,7 @@ async function showTerminusSchedule(branchKey, stopName, directionId){
     return `
       <div class="modal-section">
         <div class="modal-row"><span>${timeStr}</span><strong>to ${trip.headsign || 'Unknown'}</strong></div>
-        <div class="modal-row"><span>${isGreenLine ? 'Predicted cars (lead-trailer)' : 'Predicted lead car'}</span><strong style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:flex-end;">${carNumber || '\u2014'}${fullConsistBtn}</strong></div>
+        <div class="modal-row"><span>${isGreenLine ? 'Predicted cars (lead-trailer)' : 'Predicted lead car'}</span><strong style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:flex-end;">${carNumber ? escapeHtml(carNumber) : '\u2014'}${fullConsistBtn}</strong></div>
         ${predictedTag}
         ${editControl}
         ${timeCorrectionNote}
