@@ -646,65 +646,13 @@ exports.trackLifetimeDestinationChange = onDocumentCreated(
   }
 );
 
-// One-time seed for the three counters above, run manually (visit this
-// function's URL once in a browser after deploying) rather than on its own
-// trigger — there's no event to hang it off of. Self-guards with a
-// backfilledAt flag so visiting it again, or it somehow firing twice, is a
-// safe no-op rather than double-counting on top of real activity the live
-// triggers above have already recorded since deploy.
-//
-// This can only recover a LOWER BOUND on true lifetime activity, not the
-// real total — none of these three collections were ever a complete
-// historical log before now (see the big comment above the three triggers):
-// standing_by_reports/express_reports are deleted the moment a report
-// clears, with only manually-cancelled ones (not the more common
-// auto-cleared-on-departure case) preserved in their own *_cancelled
-// collection; destination_overrides has no history trail at all. So this
-// adds up whatever partial signal still exists — current live reports
-// (standing_by_reports/express_reports/destination_overrides) plus the
-// manually-cancelled logs — as the best available starting point, and the
-// Stats page in index.html says as much rather than presenting it as exact.
-exports.backfillLifetimeStats = onRequest(async (req, res) => {
-  applyCors(res);
-  if(req.method === 'OPTIONS'){ res.status(204).send(''); return; }
-  try{
-    const lifetimeRef = db.collection('app_stats').doc('lifetime');
-    const existing = await lifetimeRef.get();
-    if(existing.exists && existing.data().backfilledAt){
-      res.status(200).json({ alreadyBackfilled: true, backfilledAt: existing.data().backfilledAt, counts: existing.data() });
-      return;
-    }
-    const [standingByActive, standingByCancelled, expressActive, expressCancelled, destinationActive] = await Promise.all([
-      db.collection('standing_by_reports').count().get(),
-      db.collection('standingby_reports_cancelled').count().get(),
-      db.collection('express_reports').count().get(),
-      db.collection('express_reports_cancelled').count().get(),
-      db.collection('destination_overrides').count().get()
-    ]);
-    const standingBySeed = standingByActive.data().count + standingByCancelled.data().count;
-    const expressSeed = expressActive.data().count + expressCancelled.data().count;
-    const destinationSeed = destinationActive.data().count;
-    // FieldValue.increment rather than a literal number — if any of the
-    // live triggers above have already counted a real new report by the
-    // time this runs (visited after deploy, not before), writing a literal
-    // count here would overwrite that field outright and silently erase
-    // the real activity instead of adding this historical baseline on top
-    // of it. increment() is safe regardless of which order those land in.
-    await lifetimeRef.set({
-      standingByReports: admin.firestore.FieldValue.increment(standingBySeed),
-      expressReports: admin.firestore.FieldValue.increment(expressSeed),
-      destinationChanges: admin.firestore.FieldValue.increment(destinationSeed),
-      backfilledAt: Date.now()
-    }, { merge: true });
-    res.status(200).json({
-      alreadyBackfilled: false,
-      addedFromBackfill: { standingByReports: standingBySeed, expressReports: expressSeed, destinationChanges: destinationSeed }
-    });
-  }catch(e){
-    console.error('backfillLifetimeStats failed:', e);
-    res.status(500).json({ error: 'Backfill failed' });
-  }
-});
+// backfillLifetimeStats (the one-time seed for the three counters above) has
+// been removed — it already ran successfully (see app_stats/lifetime's
+// backfilledAt field) and had no client caller, so it was just sitting
+// around as a public, unauthenticated endpoint with nothing left to do.
+// Same cleanup this codebase already did for the old pair-history migration
+// endpoint: once a one-time migration has run, delete it rather than leave
+// it reachable.
 
 // car_out_of_service docs are keyed by car number and deleted the moment a
 // car is cleared back to service (see index.html's clearCarOutOfService) —

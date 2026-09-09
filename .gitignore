@@ -62,8 +62,11 @@ node_modules/
 # Yarn Integrity file
 .yarn-integrity
 
-# dotenv environment variables file
+# dotenv environment variables file — the trailing * also catches
+# per-project variants like .env.green-o (functions-webhooks' own MBTA API
+# key), which the exact-match ".env" alone was missing entirely.
 .env
+.env.*
 
 # dataconnect generated files
 .dataconnect
