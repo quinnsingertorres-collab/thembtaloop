@@ -1662,6 +1662,17 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
         </select>
       </div>
       <div class="vehicle-list" id="vehicleList"><div class="train-loading-scene"><div class="train-loading-caption">Loading trains<span class="train-loading-dot">.</span><span class="train-loading-dot">.</span><span class="train-loading-dot">.</span></div></div></div>
+      <!-- Low-emphasis link to the standalone Quick Report page, sitting
+           below the vehicle list itself (not inside it, so it's unaffected
+           by vehicleList's own re-renders) — same restrained pill style as
+           Snapshot Map above, and shown on every device (no mobile-only
+           gate) since the mobile-only quick-report drawer/tab elsewhere on
+           this page is a faster path for standing on a train right now, not
+           a substitute for this one being reachable from here too. -->
+      <button class="snapshot-map-btn" id="trainsPanelQuickReportBtn" data-navto="QUICKREPORT" title="Report standing by or running express">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="9" r="2.5" stroke="currentColor" stroke-width="2"/></svg>
+        <span>Quick Report</span>
+      </button>
       </div>
     </div>
   </div>
@@ -2369,7 +2380,7 @@ window.addEventListener('popstate', ()=>{
 // needs to be hand-updated to the current date/time whenever a real change
 // is deployed. Any ISO 8601 string with an offset works — init() renders it
 // in the visitor's own local time regardless of what offset is used here.
-const APP_LAST_UPDATED = '2026-09-08T16:24:36-04:00';
+const APP_LAST_UPDATED = '2026-09-09T22:32:05-04:00';
 const MBTA_API_KEY = '7171c5e6f11c447bb3591c1fc1f3b5a9';
 const MBTA_HEADERS = { 'Accept':'application/vnd.api+json' };
 function withMbtaKey(url){
@@ -12684,6 +12695,13 @@ document.querySelectorAll('.menu-link[data-navto]').forEach(link=>{
     switchPage(link.dataset.navto);
     document.getElementById('menuDropdown').classList.remove('show');
   });
+});
+
+// Trains panel's own Quick Report link (see #trainsPanelQuickReportBtn) —
+// same data-navto convention as the menu links above, just without the
+// dropdown-closing step since it isn't inside one.
+document.getElementById('trainsPanelQuickReportBtn').addEventListener('click', ()=>{
+  switchPage('QUICKREPORT');
 });
 
 // Icon: opens a quick-switch dropdown to jump straight to another line
