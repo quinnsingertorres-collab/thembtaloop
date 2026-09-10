@@ -779,6 +779,17 @@ body.dark .stop-dot{background:var(--bg);}
   outline:3px solid #3B82F6; outline-offset:3px;
   box-shadow:0 0 0 6px rgba(59,130,246,0.28);
 }
+/* Same treatment as .bubble-search-highlight above, applied to a station
+   label instead of a train bubble — see showOfficialStationOnMap(). Needs
+   its own background fill (labels are transparent text, not a filled pill
+   like a bubble) so the outline reads clearly against the track lines
+   behind it. */
+.stop-label.stop-label-highlight{
+  outline:3px solid #3B82F6; outline-offset:3px; border-radius:4px;
+  background:var(--panel); box-shadow:0 0 0 6px rgba(59,130,246,0.28);
+}
+.official-location-link{cursor:pointer;}
+.official-location-link:hover{color:var(--accent); text-decoration:underline;}
 .stop-dot.stop-dot-occupied{ background:var(--occupied-color, var(--accent)) !important; box-shadow:0 0 0 1px #000; }
 .modal-row-spacer{ height:8px; }
 .train-bubble .bletter{font-family:'Space Grotesk', sans-serif; font-size:19px; font-weight:800; line-height:1;}
@@ -1281,6 +1292,12 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
 /* Fixed at 5 columns (rather than auto-fill's previous ~220px-per-card,
    which fit 6 across on a full-width desktop layout) so cards are wider —
    each one gets a full 1/5 share of the row instead of a fixed minimum. */
+/* Green Line Officials list — same "just flow with the page" override as
+   #rosterList above, requested separately for this panel. Still a plain
+   stacked .roster-row list (no grid), so only the scroll-related
+   properties need overriding. */
+#inspectorsList{max-height:none; overflow-y:visible; padding-right:0;}
+
 #rosterList{display:grid; grid-template-columns:repeat(5, 1fr); align-items:start; gap:10px; max-height:none; overflow-y:visible; padding-right:0;}
 #rosterList .roster-row{cursor:pointer;}
 #rosterList .roster-row.expanded{grid-column:1 / -1; cursor:default;}
@@ -2380,7 +2397,7 @@ window.addEventListener('popstate', ()=>{
 // needs to be hand-updated to the current date/time whenever a real change
 // is deployed. Any ISO 8601 string with an offset works — init() renders it
 // in the visitor's own local time regardless of what offset is used here.
-const APP_LAST_UPDATED = '2026-09-10T17:26:13-04:00';
+const APP_LAST_UPDATED = '2026-09-10T18:03:07-04:00';
 const MBTA_API_KEY = '7171c5e6f11c447bb3591c1fc1f3b5a9';
 const MBTA_HEADERS = { 'Accept':'application/vnd.api+json' };
 function withMbtaKey(url){
@@ -10023,35 +10040,74 @@ function updateRosterLiveState(){
   });
 }
 
+// `station` is the exact stop name as it appears in PAGES[line].stops for at
+// least one of `lines` — used by showOfficialStationOnMap() below to jump the
+// track map to that stop when a post's location is clicked. Left null where
+// the post's location doesn't correspond to one single passenger station
+// (a roaming "MCI" post covering a whole corridor, a yard rather than a
+// platform, or a post whose `lines` is empty so there's no line to show it
+// on) — deliberately not guessed, since a wrong jump is worse than none.
 const INSPECTOR_POSTS = [
-  { num:'900', location:'Medford/Tufts', lines:['E'] },
-  { num:'901', location:'North Station', lines:['D','E'] },
-  { num:'902', location:"Gov't Center", lines:['B','C','D','E'] },
-  { num:'903', location:'Park Street East', lines:['B','C','D','E'] },
-  { num:'904', location:'Park Street West (CI)', lines:['B','C','D','E'] },
-  { num:'905', location:'Boylston', lines:['B','C','D','E'] },
-  { num:'906', location:'Arlington', lines:['B','C','D','E'] },
-  { num:'907', location:'Copley', lines:['B','C','D','E'] },
-  { num:'908', location:'Prudential', lines:['E'] },
-  { num:'909', location:'Kenmore', lines:['B','C','D','E'] },
-  { num:'912', location:'Beacon Street (MCI)', lines:['C'] },
-  { num:'913', location:'Cleveland Circle (Crossback Operator)', lines:['C'] },
-  { num:'914', location:'Reservoir', lines:['D'] },
-  { num:'915', location:'Newton Highlands', lines:['D'] },
-  { num:'916', location:'Fenway', lines:['D'] },
-  { num:'917', location:'Commonwealth Ave (MCI)', lines:['B'] },
-  { num:'918', location:'Riverside', lines:['D'] },
-  { num:'920', location:'Huntington Ave (MCI)', lines:['E'] },
-  { num:'921', location:'Mattapan', lines:['M'] },
-  { num:'922', location:'Upper End Comm Ave (MCI)', lines:['B'] },
-  { num:'925', location:'Ashmont', lines:['M'] },
-  { num:'926', location:'Reservoir/Cleveland Circle Yardmaster', lines:[] },
-  { num:'927', location:'Riverside Yardmaster', lines:[] },
-  { num:'928', location:'Inner Belt Yardmaster', lines:[] },
-  { num:'950', location:'Union Square', lines:['D'] },
-  { num:'952', location:'Lechmere', lines:['D','E'] },
-  { num:'953', location:'GLX (MCI)', lines:['E'] }
+  { num:'900', location:'Medford/Tufts', lines:['E'], station:'Medford/Tufts' },
+  { num:'901', location:'North Station', lines:['D','E'], station:'North Station' },
+  { num:'902', location:"Gov't Center", lines:['B','C','D','E'], station:'Government Center' },
+  { num:'903', location:'Park Street East', lines:['B','C','D','E'], station:'Park Street' },
+  { num:'904', location:'Park Street West (CI)', lines:['B','C','D','E'], station:'Park Street' },
+  { num:'905', location:'Boylston', lines:['B','C','D','E'], station:'Boylston' },
+  { num:'906', location:'Arlington', lines:['B','C','D','E'], station:'Arlington' },
+  { num:'907', location:'Copley', lines:['B','C','D','E'], station:'Copley' },
+  { num:'908', location:'Prudential', lines:['E'], station:'Prudential' },
+  { num:'909', location:'Kenmore', lines:['B','C','D','E'], station:'Kenmore' },
+  { num:'912', location:'Beacon Street (MCI)', lines:['C'], station:null },
+  { num:'913', location:'Cleveland Circle (Crossback Operator)', lines:['C'], station:'Cleveland Circle' },
+  { num:'914', location:'Reservoir', lines:['D'], station:'Reservoir' },
+  { num:'915', location:'Newton Highlands', lines:['D'], station:'Newton Highlands' },
+  { num:'916', location:'Fenway', lines:['D'], station:'Fenway' },
+  { num:'917', location:'Commonwealth Ave (MCI)', lines:['B'], station:null },
+  { num:'918', location:'Riverside', lines:['D'], station:'Riverside' },
+  { num:'920', location:'Huntington Ave (MCI)', lines:['E'], station:null },
+  { num:'921', location:'Mattapan', lines:['M'], station:'Mattapan' },
+  { num:'922', location:'Upper End Comm Ave (MCI)', lines:['B'], station:null },
+  { num:'925', location:'Ashmont', lines:['M'], station:'Ashmont' },
+  { num:'926', location:'Reservoir/Cleveland Circle Yardmaster', lines:[], station:null },
+  { num:'927', location:'Riverside Yardmaster', lines:[], station:null },
+  { num:'928', location:'Inner Belt Yardmaster', lines:[], station:null },
+  { num:'950', location:'Union Square', lines:['D'], station:'Union Square' },
+  { num:'952', location:'Lechmere', lines:['D','E'], station:'Lechmere' },
+  { num:'953', location:'GLX (MCI)', lines:['E'], station:null }
 ];
+
+// Officials use 'M' for Mattapan (matches the lineHex map in
+// buildInspectorsPanel below); PAGES itself keys that line as 'MATTAPAN'.
+const INSPECTOR_LINE_TO_PAGE_KEY = { B:'B', C:'C', D:'D', E:'E', M:'MATTAPAN' };
+
+// Jumps the track map to the station tied to an official's post (see the
+// `station` field above), same spirit as searchForCar()'s bubble highlight:
+// switch to a line that actually serves the stop (preferring whichever line
+// is already open, so a click doesn't yank the user off their current
+// branch unnecessarily), then scroll to and briefly highlight its label.
+function showOfficialStationOnMap(p){
+  if(!p.station || !p.lines || !p.lines.length) return;
+  const pageKeys = p.lines.map(l => INSPECTOR_LINE_TO_PAGE_KEY[l]).filter(Boolean);
+  const servesStation = (key) => PAGES[key] && Array.isArray(PAGES[key].stops) && PAGES[key].stops.includes(p.station);
+  const orderedKeys = pageKeys.includes(state.activeLine)
+    ? [state.activeLine, ...pageKeys.filter(k => k !== state.activeLine)]
+    : pageKeys;
+  const targetKey = orderedKeys.find(servesStation);
+  if(!targetKey) return;
+
+  switchPage(targetKey);
+  // buildLadder() (triggered by switchPage above) rebuilds #ladder's
+  // contents synchronously, but wait a frame anyway so any layout it
+  // depends on (panel becoming visible, etc.) has settled before querying it.
+  requestAnimationFrame(()=>{
+    const label = Array.from(document.querySelectorAll('#ladder .stop-label')).find(el => el.title === p.station);
+    if(!label) return;
+    label.classList.add('stop-label-highlight');
+    label.scrollIntoView({ behavior:'smooth', block:'center', inline:'center' });
+    setTimeout(()=>{ label.classList.remove('stop-label-highlight'); }, 5000);
+  });
+}
 
 function buildInspectorsPanel(){
   const list = document.getElementById('inspectorsList');
@@ -10068,19 +10124,27 @@ function buildInspectorsPanel(){
     list.innerHTML = `<div class="signin-note">No official posts match "${search}".</div>`;
     return;
   }
-  list.innerHTML = filtered.map(p => {
+  list.innerHTML = filtered.map((p, i) => {
     const badges = p.lines.length
       ? p.lines.map(l => `<span class="line-bubble" style="background:${lineHex[l]}; color:${getTextColorFor(lineHex[l])};">${l}</span>`).join('')
       : '';
+    // Only posts with a resolved `station` (see INSPECTOR_POSTS above) are
+    // clickable — everything else renders as plain text, same as before.
+    const locationHtml = p.station
+      ? `<span class="roster-type-tag official-location-link" data-inspector-idx="${i}" title="Show ${escapeHtml(p.station)} on the track map">${escapeHtml(p.location)}</span>`
+      : `<span class="roster-type-tag">${escapeHtml(p.location)}</span>`;
     return `
       <div class="roster-row">
         <div class="roster-row-head">
           <span class="roster-car-chip">${p.num}</span>
-          <span class="roster-type-tag">${p.location}</span>
+          ${locationHtml}
           ${badges}
         </div>
       </div>`;
   }).join('');
+  list.querySelectorAll('.official-location-link').forEach(el => {
+    el.addEventListener('click', () => showOfficialStationOnMap(filtered[parseInt(el.dataset.inspectorIdx, 10)]));
+  });
 }
 document.getElementById('inspectorsSearch').addEventListener('input', (e)=>{
   state.inspectorsSearch = e.target.value;
