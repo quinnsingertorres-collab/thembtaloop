@@ -682,10 +682,17 @@ body.dark .discord-banner{background:#5865F2; border-color:#5865F2; color:#fff;}
    .mobile-trains-open-tab{display:none;} fallback its sibling tab already
    had (see near the top of this file). */
 .mobile-quick-report-open-tab{display:none;}
-/* Standing By / Express toggle inside the quick-report drawer. */
-.quick-report-type-toggle{display:flex; gap:6px; margin:10px 0 14px;}
+/* Report-type toggle inside the quick-report drawer/page. Now 4 buttons
+   (Standing by / Running express / Destination change / Mark OOS) — 4
+   across in one row got cramped once "Destination change" and "Mark OOS"
+   joined the original 2, so this wraps into 2 rows of 2 instead of
+   squeezing every label down to fit. flex-basis is a real percentage (not
+   flex:1's default auto-basis) specifically so wrapping lands exactly 2
+   per row instead of however many fit at whatever width each label happens
+   to shrink to. */
+.quick-report-type-toggle{display:flex; flex-wrap:wrap; gap:6px; margin:10px 0 14px;}
 .quick-report-type-btn{
-  flex:1; padding:9px 6px; border-radius:8px; border:1px solid var(--border);
+  flex:1 1 calc(50% - 3px); padding:9px 6px; border-radius:8px; border:1px solid var(--border);
   background:var(--panel-alt, rgba(255,255,255,0.05)); color:var(--text-dim);
   font-family:'Space Grotesk', sans-serif; font-size:13px; font-weight:600;
   cursor:pointer; transition:background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
@@ -1781,6 +1788,8 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
       <div class="quick-report-type-toggle">
         <button type="button" class="quick-report-type-btn active" id="quickReportTypeStandingBy">Standing by</button>
         <button type="button" class="quick-report-type-btn" id="quickReportTypeExpress">Running express</button>
+        <button type="button" class="quick-report-type-btn" id="quickReportTypeDestination">Destination change</button>
+        <button type="button" class="quick-report-type-btn" id="quickReportTypeOOS">Mark OOS</button>
       </div>
 
       <datalist id="quickReportStationsDatalist"></datalist>
@@ -1803,6 +1812,19 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
         <input type="text" class="roster-input" id="quickReportExpressIntermediate" list="quickReportStationsDatalist" placeholder="Optional — enter only if the train makes one intermediate stop" autocomplete="off">
         <div class="roster-field-label">Express to</div>
         <input type="text" class="roster-input" id="quickReportExpressEnd" list="quickReportStationsDatalist" placeholder="Start typing a station&hellip;" autocomplete="off">
+      </div>
+
+      <div id="quickReportDestinationFields" style="display:none;">
+        <div class="roster-field-label">New destination</div>
+        <select class="roster-input" id="quickReportDestinationSelect" style="margin-top:6px;">
+          <option value="">Choose an updated destination&hellip;</option>
+        </select>
+        <input type="text" class="roster-input" id="quickReportDestinationOtherInput" placeholder="Enter destination" style="display:none; margin-top:6px;">
+      </div>
+
+      <div id="quickReportOOSFields" style="display:none;">
+        <div class="signin-note">Marks every car in this train's current set out of service &mdash; not just one car.</div>
+        <input type="text" class="roster-input" id="quickReportOOSReason" placeholder="Reason (optional) &mdash; e.g. mechanical issue, door problem" style="margin-top:6px;">
       </div>
 
       <button class="account-btn" id="quickReportSubmitBtn" style="margin-top:12px; width:100%;">Submit report</button>
@@ -2056,6 +2078,8 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
       <div class="quick-report-type-toggle">
         <button type="button" class="quick-report-type-btn active" id="qrPageTypeStandingBy">Standing by</button>
         <button type="button" class="quick-report-type-btn" id="qrPageTypeExpress">Running express</button>
+        <button type="button" class="quick-report-type-btn" id="qrPageTypeDestination">Destination change</button>
+        <button type="button" class="quick-report-type-btn" id="qrPageTypeOOS">Mark OOS</button>
       </div>
 
       <datalist id="qrPageStationsDatalist"></datalist>
@@ -2078,6 +2102,19 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
         <input type="text" class="roster-input" id="qrPageExpressIntermediate" list="qrPageStationsDatalist" placeholder="Optional — enter only if the train makes one intermediate stop" autocomplete="off">
         <div class="roster-field-label">Express to</div>
         <input type="text" class="roster-input" id="qrPageExpressEnd" list="qrPageStationsDatalist" placeholder="Start typing a station&hellip;" autocomplete="off">
+      </div>
+
+      <div id="qrPageDestinationFields" style="display:none;">
+        <div class="roster-field-label">New destination</div>
+        <select class="roster-input" id="qrPageDestinationSelect" style="margin-top:6px;">
+          <option value="">Choose an updated destination&hellip;</option>
+        </select>
+        <input type="text" class="roster-input" id="qrPageDestinationOtherInput" placeholder="Enter destination" style="display:none; margin-top:6px;">
+      </div>
+
+      <div id="qrPageOOSFields" style="display:none;">
+        <div class="signin-note">Marks every car in this train's current set out of service &mdash; not just one car.</div>
+        <input type="text" class="roster-input" id="qrPageOOSReason" placeholder="Reason (optional) &mdash; e.g. mechanical issue, door problem" style="margin-top:6px;">
       </div>
 
       <button class="account-btn" id="qrPageSubmitBtn" style="margin-top:12px; width:100%;">Submit report</button>
@@ -2442,7 +2479,7 @@ window.addEventListener('popstate', ()=>{
 // needs to be hand-updated to the current date/time whenever a real change
 // is deployed. Any ISO 8601 string with an offset works — init() renders it
 // in the visitor's own local time regardless of what offset is used here.
-const APP_LAST_UPDATED = '2026-09-10T23:44:58-04:00';
+const APP_LAST_UPDATED = '2026-09-10T23:56:12-04:00';
 const MBTA_API_KEY = '7171c5e6f11c447bb3591c1fc1f3b5a9';
 const MBTA_HEADERS = { 'Accept':'application/vnd.api+json' };
 function withMbtaKey(url){
@@ -3074,6 +3111,18 @@ function hasVehiclePassedStation(v, stationName){
   if(curIdx === null || targetIdx === null) return false;
   return v.direction === 0 ? curIdx > targetIdx : curIdx < targetIdx;
 }
+
+// These four consecutive E branch stops sit close enough together (and
+// trains pass through them quickly enough) that a "standing by" hold report
+// filed against one isn't useful information — by the time anyone reads it
+// the train's typically already moved to the next one. Excluded from
+// standing-by specifically, not from the route generally: they're still
+// valid stops for an express report's start/intermediate/end (see
+// expressStopOptions/getValidStopsForVehicle, both left untouched), just
+// not a place to report a hold. Checked by station NAME rather than index,
+// so it applies the same way regardless of which datalist/list a report
+// came through.
+const STANDING_BY_EXCLUDED_STOPS = ['Fenwood Road', 'Mission Park', 'Riverway', 'Back of the Hill'];
 
 function getRedCarType(label){
   const firstNum = parseInt(String(label).split(/[^0-9]+/).filter(Boolean)[0], 10);
@@ -6438,10 +6487,10 @@ async function showCarModal(v){
         <h4>Standing by</h4>
         <div class="signin-note">Report this train holding at a station along its route.</div>
         <datalist id="standingByStationsDatalist">
-          ${validStopsForThisVehicle.map(s => `<option value="${s.replace(/"/g,'&quot;')}">`).join('')}
-          ${validStopsForThisVehicle.filter(s => ABBREVIATIONS[s]).map(s => `<option value="${ABBREVIATIONS[s].replace(/"/g,'&quot;')}">`).join('')}
+          ${validStopsForThisVehicle.filter(s => !STANDING_BY_EXCLUDED_STOPS.includes(s)).map(s => `<option value="${s.replace(/"/g,'&quot;')}">`).join('')}
+          ${validStopsForThisVehicle.filter(s => ABBREVIATIONS[s] && !STANDING_BY_EXCLUDED_STOPS.includes(s)).map(s => `<option value="${ABBREVIATIONS[s].replace(/"/g,'&quot;')}">`).join('')}
         </datalist>
-        <input type="text" class="roster-input" id="standingByStation" list="standingByStationsDatalist" data-enter-target="reportStandingByBtn" placeholder="Start typing a station&hellip;" autocomplete="off" value="${v.stopName ? v.stopName.replace(/"/g,'&quot;') : ''}" style="margin-top:6px;">
+        <input type="text" class="roster-input" id="standingByStation" list="standingByStationsDatalist" data-enter-target="reportStandingByBtn" placeholder="Start typing a station&hellip;" autocomplete="off" value="${(v.stopName && !STANDING_BY_EXCLUDED_STOPS.includes(v.stopName)) ? v.stopName.replace(/"/g,'&quot;') : ''}" style="margin-top:6px;">
         <input type="number" class="roster-input" id="standingByMinutes" data-enter-target="reportStandingByBtn" placeholder="Expected hold time in minutes (optional)" min="0">
         <label style="display:flex; align-items:center; gap:6px; margin:6px 0 2px; font-size:13px; color:var(--text-dim);">
           <input type="checkbox" id="standingByUntilRelease" style="width:auto;">
@@ -6847,6 +6896,10 @@ async function showCarModal(v){
         note.textContent = "That doesn't match a real station on this train's route \u2014 pick one from the suggestions.";
         return;
       }
+      if(STANDING_BY_EXCLUDED_STOPS.includes(station)){
+        note.textContent = `Standing-by reports aren't accepted for ${displayName(station)} \u2014 pick a different station along the route.`;
+        return;
+      }
       if(hasVehiclePassedStation(v, station)){
         note.textContent = `This train has already passed ${displayName(station)} \u2014 pick a station it hasn't reached yet.`;
         return;
@@ -7138,14 +7191,30 @@ function getUpcoming(pageKey, idx, direction){
     // Lechmere), so it shouldn't be predicted to "arrive" there. Same idea
     // applies to Red Line's Ashmont/Braintree split.
     // Exception: if a community-reported destination override exists for
-    // this specific train (e.g. a C branch train confirmed extended to
-    // Medford/Tufts for the day), that's a real, human-confirmed service
-    // change — trust it over the normal per-branch stop list.
+    // this specific train AND that new destination is actually a stop on
+    // THIS page's own route (e.g. a C branch train confirmed extended to
+    // Medford/Tufts for the day — a real stop on E's route), that's a real,
+    // human-confirmed service change — trust it over the normal per-branch
+    // stop list, but only for the page(s) it could actually now reach.
+    //
+    // This used to trust ANY override unconditionally on EVERY page,
+    // regardless of what the reported destination even was — so a car
+    // short-turned to "Park St Loop" (not a real stop name; nothing in any
+    // page's own stops list matches it) still passed this filter for every
+    // single page, including ones with no route relationship to it at all —
+    // e.g. a C car short-turning at Park Street showed up as "upcoming" at
+    // Ball Square, an E-only station the C line doesn't run anywhere near.
+    // Checking the override's actual destination against THIS page's own
+    // stop list fixes that: a loop/yard name like "Park St Loop" or
+    // "Innerbelt Yard" never matches any page's stops, so those overrides
+    // now correctly fall through to the normal own-route check below
+    // instead of leaking onto every branch.
     .filter(v=>{
       const ownBranch = getEffectiveBranchForToggle(v);
       const ownPageKey = BRANCH_ID_TO_PAGE_KEY[ownBranch] || ownBranch;
       if(ownPageKey === pageKey) return true;
-      if(destinationOverrideCache[v.id]) return true;
+      const override = destinationOverrideCache[v.id];
+      if(override && findStopIndex(pageKey, override.destination) !== null) return true;
       return findStopIndex(ownPageKey, targetStopName) !== null;
     });
   const withIdx = pool
@@ -13948,8 +14017,12 @@ function initQuickReportForm(idPrefix, onSuccess){
   const carInput = document.getElementById(id('CarNumber'));
   const typeStandingByBtn = document.getElementById(id('TypeStandingBy'));
   const typeExpressBtn = document.getElementById(id('TypeExpress'));
+  const typeDestinationBtn = document.getElementById(id('TypeDestination'));
+  const typeOOSBtn = document.getElementById(id('TypeOOS'));
   const standingByFields = document.getElementById(id('StandingByFields'));
   const expressFields = document.getElementById(id('ExpressFields'));
+  const destinationFields = document.getElementById(id('DestinationFields'));
+  const oosFields = document.getElementById(id('OOSFields'));
   const untilReleaseCheckbox = document.getElementById(id('UntilRelease'));
   const minutesInput = document.getElementById(id('Minutes'));
   const stationInput = document.getElementById(id('Station'));
@@ -13957,6 +14030,9 @@ function initQuickReportForm(idPrefix, onSuccess){
   const expressStartInput = document.getElementById(id('ExpressStart'));
   const expressIntermediateInput = document.getElementById(id('ExpressIntermediate'));
   const expressEndInput = document.getElementById(id('ExpressEnd'));
+  const destinationSelect = document.getElementById(id('DestinationSelect'));
+  const destinationOtherInput = document.getElementById(id('DestinationOtherInput'));
+  const oosReasonInput = document.getElementById(id('OOSReason'));
   const note = document.getElementById(id('Note'));
   const submitBtn = document.getElementById(id('SubmitBtn'));
   const datalist = document.getElementById(id('StationsDatalist'));
@@ -13970,17 +14046,39 @@ function initQuickReportForm(idPrefix, onSuccess){
   // there — this just makes the field autocomplete-friendly beforehand.
   datalist.innerHTML = ALL_STATIONS.map(s => `<option value="${s.replace(/"/g,'&quot;')}">`).join('');
 
+  // Same DESTINATION_OPTIONS list the car modal's own destination-change
+  // form uses (see destinationOptionsHtml there) — no "Regular route
+  // (revert)" option here, though, unlike that one: this form doesn't know
+  // yet whether the not-yet-resolved car even HAS an active override to
+  // revert, and reverting one is a "fix a mistake" action better suited to
+  // the modal (where you can see the current state first) than this
+  // fast/blind report path.
+  if(destinationSelect){
+    destinationSelect.innerHTML = `<option value="">Choose an updated destination&hellip;</option>` +
+      DESTINATION_OPTIONS.map(opt => `<option value="${opt}">${opt}</option>`).join('') +
+      `<option value="__OTHER__">Other&hellip;</option>`;
+    destinationSelect.addEventListener('change', ()=>{
+      destinationOtherInput.style.display = destinationSelect.value === '__OTHER__' ? 'block' : 'none';
+    });
+  }
+
   let activeType = 'standingby';
   function setType(type){
     activeType = type;
     typeStandingByBtn.classList.toggle('active', type === 'standingby');
     typeExpressBtn.classList.toggle('active', type === 'express');
+    if(typeDestinationBtn) typeDestinationBtn.classList.toggle('active', type === 'destination');
+    if(typeOOSBtn) typeOOSBtn.classList.toggle('active', type === 'oos');
     standingByFields.style.display = type === 'standingby' ? '' : 'none';
     expressFields.style.display = type === 'express' ? '' : 'none';
+    if(destinationFields) destinationFields.style.display = type === 'destination' ? '' : 'none';
+    if(oosFields) oosFields.style.display = type === 'oos' ? '' : 'none';
     note.textContent = '';
   }
   typeStandingByBtn.addEventListener('click', ()=> setType('standingby'));
   typeExpressBtn.addEventListener('click', ()=> setType('express'));
+  if(typeDestinationBtn) typeDestinationBtn.addEventListener('click', ()=> setType('destination'));
+  if(typeOOSBtn) typeOOSBtn.addEventListener('click', ()=> setType('oos'));
 
   if(untilReleaseCheckbox && minutesInput){
     untilReleaseCheckbox.addEventListener('change', ()=>{
@@ -14044,7 +14142,7 @@ function initQuickReportForm(idPrefix, onSuccess){
     const current = stationInput.value.trim();
     if(current && current !== lastAutoFilledStation) return;
     const v = resolveTypedCar(carInput.value);
-    if(v && v.stopName && v.stopName !== current){
+    if(v && v.stopName && v.stopName !== current && !STANDING_BY_EXCLUDED_STOPS.includes(v.stopName)){
       stationInput.value = v.stopName;
       lastAutoFilledStation = v.stopName;
     }
@@ -14074,6 +14172,9 @@ function initQuickReportForm(idPrefix, onSuccess){
     expressStartInput.value = '';
     expressIntermediateInput.value = '';
     expressEndInput.value = '';
+    if(destinationSelect) destinationSelect.value = '';
+    if(destinationOtherInput){ destinationOtherInput.value = ''; destinationOtherInput.style.display = 'none'; }
+    if(oosReasonInput) oosReasonInput.value = '';
     note.textContent = '';
     // Otherwise the NEXT car number typed after a successful submit would
     // see the (now-cleared, empty) station field as "the user's own text"
@@ -14107,6 +14208,10 @@ function initQuickReportForm(idPrefix, onSuccess){
         note.textContent = `That doesn't match a real station on car ${formatCarNumberForDisplay(v.label)}'s route — pick one from the suggestions.`;
         return;
       }
+      if(STANDING_BY_EXCLUDED_STOPS.includes(station)){
+        note.textContent = `Standing-by reports aren't accepted for ${displayName(station)} — pick a different station along the route.`;
+        return;
+      }
       if(hasVehiclePassedStation(v, station)){
         note.textContent = `Car ${formatCarNumberForDisplay(v.label)} has already passed ${displayName(station)} — pick a station it hasn't reached yet.`;
         return;
@@ -14125,7 +14230,7 @@ function initQuickReportForm(idPrefix, onSuccess){
         return;
       }
       awardPoints((minutes || untilRelease) ? 6 : 3);
-    }else{
+    }else if(activeType === 'express'){
       const startTyped = expressStartInput.value.trim();
       const endTyped = expressEndInput.value.trim();
       const intermediateTyped = expressIntermediateInput.value.trim();
@@ -14154,6 +14259,45 @@ function initQuickReportForm(idPrefix, onSuccess){
         return;
       }
       awardPoints(6);
+    }else if(activeType === 'destination'){
+      // Destination change — no station validation needed (the choice is
+      // either one of DESTINATION_OPTIONS or free text from "Other…", not
+      // a stop on the route). Mirrors the car modal's own
+      // destinationSaveBtn handler: same confirm-before-writing step (this
+      // is publicly visible the instant it saves) and the same
+      // saveDestinationOverride call — just reached by car number instead
+      // of an already-open modal for a specific vehicle, and with no
+      // awardPoints call, matching that the modal's version doesn't award
+      // points for this action either.
+      const choice = destinationSelect ? destinationSelect.value : '';
+      if(!choice){ note.textContent = 'Choose a destination first.'; return; }
+      let destination = choice;
+      if(choice === '__OTHER__'){
+        destination = destinationOtherInput.value.trim();
+        if(!destination){ note.textContent = 'Enter a destination first.'; return; }
+      }
+      if(!window.confirm('Everyone will be able to see this change. Continue?')) return;
+      submitBtn.disabled = true;
+      const originalSubmitLabel = submitBtn.textContent;
+      submitBtn.textContent = 'Reporting…';
+      await saveDestinationOverride(v, destination);
+      refreshDestinationOverrideCache();
+    }else{
+      // Mark OOS — mirrors the car modal's own oosToggleAllBtn handler:
+      // marks every car in the resolved vehicle's CURRENT set (not just the
+      // one number typed in, same as that button), one combined push for
+      // the whole consist rather than one per car, and the same 1-point
+      // award. Doesn't touch consist overrides (see initQuickReportForm's
+      // own top comment) — carParts is just v.label's own cars, matching
+      // every other quick-report action's simpler, not consist-override-
+      // aware resolution.
+      const carParts = String(v.label).split('-');
+      const reason = oosReasonInput ? oosReasonInput.value.trim() : '';
+      submitBtn.disabled = true;
+      const originalSubmitLabel = submitBtn.textContent;
+      submitBtn.textContent = 'Reporting…';
+      await Promise.all(carParts.map((c, i) => markCarOutOfService(c, reason, { isFirst: i === 0, label: v.label }, v.label)));
+      awardPoints(1);
     }
     note.textContent = `Reported car ${formatCarNumberForDisplay(v.label)} — done!`;
     setTimeout(()=>{
