@@ -1436,7 +1436,8 @@ exports.syncLastSeenCars = onSchedule({ schedule: 'every 1 minutes', secrets: [V
       // rather than adding a new one, so this doesn't cost anything extra.
       rosterPatches[key] = Object.assign({}, rosterPatches[key], {
         lastSeenAt: now, lastSeenStop: stopName,
-        lastLocation: admin.firestore.FieldValue.delete()
+        lastLocation: admin.firestore.FieldValue.delete(),
+        lastLocationRail: admin.firestore.FieldValue.delete()
       });
     }
 
@@ -1459,7 +1460,8 @@ exports.syncLastSeenCars = onSchedule({ schedule: 'every 1 minutes', secrets: [V
       // deleting an already-absent field is a no-op.
       rosterPatches[key] = Object.assign({}, rosterPatches[key], {
         firstTrackedToday: now, trackingDay: today,
-        lastLocation: admin.firestore.FieldValue.delete()
+        lastLocation: admin.firestore.FieldValue.delete(),
+        lastLocationRail: admin.firestore.FieldValue.delete()
       });
       // prior.lastActiveAt (when it exists) is exactly how long ago this
       // car was last confirmed active, however long that gap turns out to

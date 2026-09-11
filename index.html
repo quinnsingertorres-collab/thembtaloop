@@ -472,6 +472,11 @@ body.dark .discord-banner{background:#5865F2; border-color:#5865F2; color:#fff;}
        differently from the (already-split) car-info panel — split the same
        way here so both panels scroll the same, reliable way. */
     overflow:hidden;
+    /* display:flex column so #trainsPanelQuickReportBtn (a direct sibling
+       of #trainsPanelScrollInner now, see the HTML comment there) sits as a
+       fixed footer below the scrollable content instead of needing to be
+       scrolled to — see that comment for why. */
+    display:flex; flex-direction:column;
     border-radius:var(--radius) 0 0 var(--radius); border-right:none;
     transform:translateX(0);
     /* top is deliberately left out of this transition — it tracks scroll
@@ -484,8 +489,14 @@ body.dark .discord-banner{background:#5865F2; border-color:#5865F2; color:#fff;}
     transition:transform 0.22s ease;
     z-index:55;
   }
+  /* flex:1 (not height:100%) now that the panel itself is the flex column —
+     min-height:0 is required alongside it: a flex item's default min-height
+     is auto (effectively its content's natural height), which without this
+     override would keep growing the scroll area to fit ALL the content
+     instead of actually shrinking to the space left after the footer
+     button below, silently breaking the internal scroll entirely. */
   #trainsPanelScrollInner{
-    padding:16px; height:100%;
+    padding:16px; flex:1 1 auto; min-height:0;
     overflow-y:auto; overflow-x:hidden;
     scrollbar-width:none; -ms-overflow-style:none;
     overscroll-behavior:contain;
@@ -546,6 +557,11 @@ body.dark .discord-banner{background:#5865F2; border-color:#5865F2; color:#fff;}
     position:fixed; top:0; right:0; bottom:0; z-index:70;
     width:min(88vw, 400px); max-width:100vw;
     margin:0; padding:0;
+    /* display:flex column so #trainsPanelQuickReportBtn (a direct sibling
+       of #trainsPanelScrollInner now, see the HTML comment there) sits as a
+       fixed footer below the scrollable content instead of needing to be
+       scrolled to — see that comment for why. */
+    display:flex; flex-direction:column;
     border-radius:16px 0 0 16px; border-right:none;
     transform:translateX(100%);
     transition:transform 0.25s ease;
@@ -554,9 +570,18 @@ body.dark .discord-banner{background:#5865F2; border-color:#5865F2; color:#fff;}
   body.mobile-trains-open .main-grid > .panel:last-child{
     transform:translateX(0);
   }
+  /* flex:1 (not height:100%) now that the panel itself is the flex column —
+     min-height:0 is required alongside it: a flex item's default min-height
+     is auto (effectively its content's natural height), which without this
+     override would keep growing the scroll area to fit ALL the content
+     instead of actually shrinking to the space left after the footer
+     button below, silently breaking the internal scroll entirely. Bottom
+     padding no longer needs the safe-area-inset-bottom term the footer
+     button below now carries instead, since this is no longer the
+     bottom-most element in the drawer. */
   #trainsPanelScrollInner{
-    padding:calc(16px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom)) 16px;
-    height:100%; overflow-y:auto; overflow-x:hidden;
+    padding:calc(16px + env(safe-area-inset-top)) 16px 16px 16px;
+    flex:1 1 auto; min-height:0; overflow-y:auto; overflow-x:hidden;
     scrollbar-width:none; -ms-overflow-style:none;
     overscroll-behavior:contain;
   }
@@ -682,17 +707,18 @@ body.dark .discord-banner{background:#5865F2; border-color:#5865F2; color:#fff;}
    .mobile-trains-open-tab{display:none;} fallback its sibling tab already
    had (see near the top of this file). */
 .mobile-quick-report-open-tab{display:none;}
-/* Report-type toggle inside the quick-report drawer/page. Now 4 buttons
-   (Standing by / Running express / Destination change / Mark OOS) — 4
-   across in one row got cramped once "Destination change" and "Mark OOS"
-   joined the original 2, so this wraps into 2 rows of 2 instead of
-   squeezing every label down to fit. flex-basis is a real percentage (not
-   flex:1's default auto-basis) specifically so wrapping lands exactly 2
-   per row instead of however many fit at whatever width each label happens
-   to shrink to. */
+/* Report-type toggle inside the quick-report drawer/page. Now 5 buttons
+   (Standing by / Running express / Destination change / Mark OOS / Yard) —
+   a 2-per-row basis (the original layout for 4 buttons) leaves this fifth
+   one stranded alone on its own row, so this is 3 per row instead: still
+   wraps evenly (3 + 2) and each column comfortably fits even the longest
+   label ("Destination change") across two short lines. flex-basis is a
+   real percentage (not flex:1's default auto-basis) specifically so
+   wrapping lands exactly 3 per row instead of however many fit at whatever
+   width each label happens to shrink to. */
 .quick-report-type-toggle{display:flex; flex-wrap:wrap; gap:6px; margin:10px 0 14px;}
 .quick-report-type-btn{
-  flex:1 1 calc(50% - 3px); padding:9px 6px; border-radius:8px; border:1px solid var(--border);
+  flex:1 1 calc(33.333% - 4px); padding:9px 6px; border-radius:8px; border:1px solid var(--border);
   background:var(--panel-alt, rgba(255,255,255,0.05)); color:var(--text-dim);
   font-family:'Space Grotesk', sans-serif; font-size:13px; font-weight:600;
   cursor:pointer; transition:background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
@@ -745,6 +771,25 @@ body.dark .discord-banner{background:#5865F2; border-color:#5865F2; color:#fff;}
 .snapshot-map-btn:active{transform:scale(0.97);}
 .snapshot-map-btn:disabled{opacity:0.6; cursor:default; transform:none;}
 .snapshot-map-btn svg{flex:0 0 auto;}
+
+/* Overrides the plain-flow auto-centering margin above now that this
+   particular button (see the HTML comment by #trainsPanelQuickReportBtn)
+   is a direct flex-column child of the trains panel itself, not inline
+   content inside #trainsPanelScrollInner anymore — a fixed footer below
+   the scrollable vehicle list rather than its last (and previously
+   easy-to-miss-scrolling-to) row. align-self:center keeps it sized to its
+   own content and centered on the cross axis exactly like margin:auto did
+   before, since a flex column's default align-items:stretch would
+   otherwise stretch it to the panel's full width instead. flex:0 0 auto
+   keeps it from being compressed if the panel above it ever runs short on
+   height. Bottom margin carries the safe-area-inset-bottom term
+   #trainsPanelScrollInner used to (see its own comment) since this is now
+   the true bottom-most element in both the desktop-docked and mobile
+   drawer layouts. */
+#trainsPanelQuickReportBtn{
+  flex:0 0 auto; align-self:center;
+  margin:10px 0 calc(16px + env(safe-area-inset-bottom));
+}
 
 .track-line-v{position:absolute; width:7px; background:var(--line-black); border-radius:3px; top:2px;}
 
@@ -1731,18 +1776,32 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
         </select>
       </div>
       <div class="vehicle-list" id="vehicleList"><div class="train-loading-scene"><div class="train-loading-caption">Loading trains<span class="train-loading-dot">.</span><span class="train-loading-dot">.</span><span class="train-loading-dot">.</span></div></div></div>
-      <!-- Low-emphasis link to the standalone Quick Report page, sitting
-           below the vehicle list itself (not inside it, so it's unaffected
-           by vehicleList's own re-renders) — same restrained pill style as
-           Snapshot Map above, and shown on every device (no mobile-only
-           gate) since the mobile-only quick-report drawer/tab elsewhere on
-           this page is a faster path for standing on a train right now, not
-           a substitute for this one being reachable from here too. -->
+      </div>
+      <!-- Low-emphasis link to the standalone Quick Report page — deliberately
+           OUTSIDE #trainsPanelScrollInner (a sibling of it, not a child), so
+           it's a fixed footer that's always on-screen and tappable without
+           first scrolling the vehicle list to reach it (see the flex-column
+           CSS on .main-grid > .panel:last-child and #trainsPanelQuickReportBtn's
+           own CSS). Living inside the scroll area used to mean reaching it
+           required scrolling past the whole vehicle list first — on a short
+           landscape-iPad viewport especially, that meant tapping it while a
+           momentum scroll was still technically in progress, which iOS
+           Safari can silently swallow as "stop the scroll" instead of "tap
+           the button." Reported repeatedly as "does nothing on iPad,"
+           including landscape-only reports after two earlier, real, but
+           narrower touch-event fixes (see the click/touchend listener setup
+           further down) didn't fully resolve it — this removes the
+           precondition (scrolling to reach it) those fixes couldn't
+           control, rather than trying to out-guess WebKit's scroll/tap
+           arbitration again. Same restrained pill style as Snapshot Map
+           above, and shown on every device (no mobile-only gate) since the
+           mobile-only quick-report drawer/tab elsewhere on this page is a
+           faster path for standing on a train right now, not a substitute
+           for this one being reachable from here too. -->
       <button class="snapshot-map-btn" id="trainsPanelQuickReportBtn" data-navto="QUICKREPORT" title="Report standing by or running express">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="9" r="2.5" stroke="currentColor" stroke-width="2"/></svg>
         <span>Quick Report</span>
       </button>
-      </div>
     </div>
   </div>
 
@@ -1783,13 +1842,14 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
         <span class="note">Type a car number from the set — no need to find the train first.</span>
       </div>
       <div class="roster-field-label">Car number</div>
-      <input type="text" class="roster-input" id="quickReportCarNumber" placeholder="e.g. 1932" inputmode="numeric" autocomplete="off" style="margin-top:6px;">
+      <input type="text" class="roster-input" id="quickReportCarNumber" placeholder="e.g. 1932" inputmode="numeric" pattern="[0-9]*" autocomplete="off" style="margin-top:6px;">
 
       <div class="quick-report-type-toggle">
         <button type="button" class="quick-report-type-btn active" id="quickReportTypeStandingBy">Standing by</button>
         <button type="button" class="quick-report-type-btn" id="quickReportTypeExpress">Running express</button>
         <button type="button" class="quick-report-type-btn" id="quickReportTypeDestination">Destination change</button>
         <button type="button" class="quick-report-type-btn" id="quickReportTypeOOS">Mark OOS</button>
+        <button type="button" class="quick-report-type-btn" id="quickReportTypeYard">Yard</button>
       </div>
 
       <datalist id="quickReportStationsDatalist"></datalist>
@@ -1825,6 +1885,25 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
       <div id="quickReportOOSFields" style="display:none;">
         <div class="signin-note">Marks every car in this train's current set out of service &mdash; not just one car.</div>
         <input type="text" class="roster-input" id="quickReportOOSReason" placeholder="Reason (optional) &mdash; e.g. mechanical issue, door problem" style="margin-top:6px;">
+      </div>
+
+      <!-- Unlike the other three types, this one doesn't need the typed car
+           to currently be a live, active vehicle at all — the whole point is
+           reporting where an out-of-service car is sitting, so resolution
+           goes through the Fleet Roster's own car list instead (see
+           resolveTypedRosterCar in initQuickReportForm). Writes straight to
+           the same roster doc/fields as the car detail page's own "Last
+           known location" dropdown (see LAST_LOCATION_OPTIONS) plus a rail
+           number that dropdown has no room for — just reached through a
+           faster, single-purpose form instead of opening that car's full
+           roster page. -->
+      <div id="quickReportYardFields" style="display:none;">
+        <div class="roster-field-label">Yard</div>
+        <select class="roster-input" id="quickReportYardSelect" style="margin-top:6px;">
+          <option value="">Choose a yard&hellip;</option>
+        </select>
+        <div class="roster-field-label">Rail number</div>
+        <input type="number" class="roster-input" id="quickReportYardRail" placeholder="e.g. 2" inputmode="numeric" min="0" style="margin-top:6px;">
       </div>
 
       <button class="account-btn" id="quickReportSubmitBtn" style="margin-top:12px; width:100%;">Submit report</button>
@@ -2073,13 +2152,14 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
     </div>
     <div id="qrPageForm">
       <div class="roster-field-label">Car number</div>
-      <input type="text" class="roster-input" id="qrPageCarNumber" placeholder="e.g. 1932" inputmode="numeric" autocomplete="off" style="margin-top:6px;">
+      <input type="text" class="roster-input" id="qrPageCarNumber" placeholder="e.g. 1932" inputmode="numeric" pattern="[0-9]*" autocomplete="off" style="margin-top:6px;">
 
       <div class="quick-report-type-toggle">
         <button type="button" class="quick-report-type-btn active" id="qrPageTypeStandingBy">Standing by</button>
         <button type="button" class="quick-report-type-btn" id="qrPageTypeExpress">Running express</button>
         <button type="button" class="quick-report-type-btn" id="qrPageTypeDestination">Destination change</button>
         <button type="button" class="quick-report-type-btn" id="qrPageTypeOOS">Mark OOS</button>
+        <button type="button" class="quick-report-type-btn" id="qrPageTypeYard">Yard</button>
       </div>
 
       <datalist id="qrPageStationsDatalist"></datalist>
@@ -2115,6 +2195,17 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
       <div id="qrPageOOSFields" style="display:none;">
         <div class="signin-note">Marks every car in this train's current set out of service &mdash; not just one car.</div>
         <input type="text" class="roster-input" id="qrPageOOSReason" placeholder="Reason (optional) &mdash; e.g. mechanical issue, door problem" style="margin-top:6px;">
+      </div>
+
+      <!-- See the mobile drawer's own copy of this field (#quickReportYardFields)
+           for why this one skips the usual live-vehicle resolution. -->
+      <div id="qrPageYardFields" style="display:none;">
+        <div class="roster-field-label">Yard</div>
+        <select class="roster-input" id="qrPageYardSelect" style="margin-top:6px;">
+          <option value="">Choose a yard&hellip;</option>
+        </select>
+        <div class="roster-field-label">Rail number</div>
+        <input type="number" class="roster-input" id="qrPageYardRail" placeholder="e.g. 2" inputmode="numeric" min="0" style="margin-top:6px;">
       </div>
 
       <button class="account-btn" id="qrPageSubmitBtn" style="margin-top:12px; width:100%;">Submit report</button>
@@ -2479,7 +2570,7 @@ window.addEventListener('popstate', ()=>{
 // needs to be hand-updated to the current date/time whenever a real change
 // is deployed. Any ISO 8601 string with an offset works — init() renders it
 // in the visitor's own local time regardless of what offset is used here.
-const APP_LAST_UPDATED = '2026-09-11T00:09:30-04:00';
+const APP_LAST_UPDATED = '2026-09-11T00:27:25-04:00';
 const MBTA_API_KEY = '7171c5e6f11c447bb3591c1fc1f3b5a9';
 const MBTA_HEADERS = { 'Accept':'application/vnd.api+json' };
 function withMbtaKey(url){
@@ -3975,6 +4066,19 @@ const DESTINATION_OPTIONS = [
 ];
 const DESTINATION_KEY = 'destination_overrides_v1';
 
+// Where an out-of-service Green Line car actually is, between runs — a
+// fixed list rather than free text so reports stay consistent/searchable
+// instead of a dozen different spellings of the same yard. Shared between
+// the Fleet Roster car detail page's own "Last known location" field (see
+// buildCarDetailPanel) and the Quick Report Yard tab (see
+// initQuickReportForm) — both write to the same data.lastLocation, just
+// through two different UIs (a slow one for anyone poking around the
+// roster, a fast one for someone standing at the yard fence right now).
+const LAST_LOCATION_OPTIONS = [
+  'Medford/Tufts Storage', 'Innerbelt Yard', 'Riverside Yard',
+  'Reservoir Yard', 'Boston College Yard', 'Cleveland Circle Storage'
+];
+
 // Community "standing by" reports — a train holding at a station, with an
 // optional expected hold time and free-text notes. Tied to the reported
 // station and the trip it was made on; auto-clears the moment the train's
@@ -4349,7 +4453,21 @@ function formatLastSeenTime(ts){
 // The roster card's "Last tracked" line text — shared between the full
 // buildRosterPanel() render and updateRosterLiveState()'s lighter per-poll
 // DOM patch below, so both always agree on the exact same wording.
+//
+// A reported lastLocation (see LAST_LOCATION_OPTIONS — set either from the
+// car detail page's own dropdown or the Quick Report Yard tab) takes over
+// this line entirely rather than sitting alongside it: while a car's
+// sitting in a yard, "Last tracked: <old stop> (3d ago)" is stale and
+// actively misleading about where it actually is right now, so the known
+// current location is strictly more useful information in that same slot.
+// It clears itself automatically the moment the car starts tracking again
+// (see syncLastSeenCars in functions/index.js), so this override only ever
+// shows for as long as it's still accurate.
 function renderLastSeenText(data){
+  if(data && data.lastLocation){
+    const railText = (data.lastLocationRail !== undefined && data.lastLocationRail !== '') ? ` - ${data.lastLocationRail} Rail` : '';
+    return `Last known location: ${data.lastLocation}${railText}`;
+  }
   if(!data || !data.lastSeenStop){
     return 'Not tracked yet';
   }
@@ -10149,7 +10267,7 @@ function updateRosterLiveState(){
     if(lastSeenEl && rosterPanelDataCache){
       const data = rosterPanelDataCache.rosterData[key];
       lastSeenEl.textContent = renderLastSeenText(data);
-      lastSeenEl.style.opacity = (data && data.lastSeenStop) ? '' : '.6';
+      lastSeenEl.style.opacity = (data && (data.lastSeenStop || data.lastLocation)) ? '' : '.6';
     }
   });
 }
@@ -10578,7 +10696,7 @@ async function buildRosterPanel(){
       ? `<span class="roster-status-badge" style="background:${statusColor}">${escapeHtml(effectiveStatus)}</span>`
       : '';
 
-    const lastSeenLine = `<div class="roster-edited-by" data-last-seen-line="${entry.key}"${data.lastSeenStop ? '' : ' style="opacity:.6;"'}>${renderLastSeenText(data)}</div>`;
+    const lastSeenLine = `<div class="roster-edited-by" data-last-seen-line="${entry.key}"${(data.lastSeenStop || data.lastLocation) ? '' : ' style="opacity:.6;"'}>${renderLastSeenText(data)}</div>`;
     const firstTrackedLine = `<div class="roster-edited-by">${renderFirstTrackedText(data)}</div>`;
 
     // Green keeps its existing GLTPS-aware seat logic (getSeatCount, which
@@ -11177,6 +11295,13 @@ function wireCarDetailEvents(entry, container){
         }else if(POINTS_BY_FIELD[field]){
           pointsToAward += POINTS_BY_FIELD[field];
         }
+        // This dropdown has no room for a rail number (see locationField's
+        // comment above) — a rail number only means something paired with
+        // the exact yard it was reported alongside via the Quick Report
+        // Yard tab, so changing (or clearing) the location from here always
+        // drops whatever rail number went with the old value too, rather
+        // than leaving it stranded against a location it no longer matches.
+        if(field === 'lastLocation') patch.lastLocationRail = firebase.firestore.FieldValue.delete();
       });
 
       if(Object.keys(patch).length === 0){
@@ -11187,7 +11312,20 @@ function wireCarDetailEvents(entry, container){
       submitBtn.disabled = true;
       submitBtn.textContent = 'Submitting…';
       const saved = await saveRosterEntry(key, patch, entry.car);
-      if(rosterPanelDataCache) rosterPanelDataCache.rosterData[key] = Object.assign({}, rosterPanelDataCache.rosterData[key], saved);
+      if(rosterPanelDataCache){
+        const merged = Object.assign({}, rosterPanelDataCache.rosterData[key], saved);
+        // saved echoes patch verbatim, including any FieldValue.delete()
+        // sentinels (see the lastLocationRail clear above) — those are only
+        // meaningful to Firestore itself, so assigning one straight into the
+        // local cache would leave it looking "set" (an object, not
+        // undefined) to every reader here until the next full reload.
+        // Actually delete those keys locally instead of copying the
+        // sentinel over.
+        Object.keys(patch).forEach(f=>{
+          if(patch[f] instanceof firebase.firestore.FieldValue) delete merged[f];
+        });
+        rosterPanelDataCache.rosterData[key] = merged;
+      }
       if(pointsToAward > 0) awardPoints(pointsToAward);
       buildCarDetailPanel();
     });
@@ -11337,7 +11475,7 @@ async function buildCarDetailPanel(){
       </div>` : ''}
     ` : '';
 
-  const lastSeenLine = `<div class="roster-edited-by"${data.lastSeenStop ? '' : ' style="opacity:.6;"'}>${renderLastSeenText(data)}</div>`;
+  const lastSeenLine = `<div class="roster-edited-by"${(data.lastSeenStop || data.lastLocation) ? '' : ' style="opacity:.6;"'}>${renderLastSeenText(data)}</div>`;
   const firstTrackedLine = `<div class="roster-edited-by">${renderFirstTrackedText(data)}</div>`;
 
   const seats = showGltps ? getSeatCount(entry.type, gltps ? gltps.status : null) : (info.seats !== undefined ? info.seats : null);
@@ -11365,23 +11503,28 @@ async function buildCarDetailPanel(){
   // Lets anyone report where a not-currently-running Green Line car actually
   // is, once it's known to be out of active service (liveInfo.isActive is
   // false — same signal the "Not currently in service" badge above already
-  // uses). A fixed list rather than free text, since these are the real
+  // uses). A fixed list rather than free text (see LAST_LOCATION_OPTIONS,
+  // now shared with the Quick Report Yard tab), since these are the real
   // storage/yard locations cars sit in between runs — keeps reports
   // consistent and searchable instead of a dozen different spellings of the
   // same yard. Green Line only: every option here is a Green Line location,
   // and the other lines don't have an equivalent yard-reporting need yet.
-  const LAST_LOCATION_OPTIONS = [
-    'Medford/Tufts Storage', 'Innerbelt Yard', 'Riverside Yard',
-    'Reservoir Yard', 'Boston College Yard', 'Cleveland Circle Storage'
-  ];
+  // data.lastLocationRail (set only via the Quick Report Yard tab, which
+  // asks for both fields together — this page's own dropdown has no room
+  // for a second input) is shown alongside it read-only here; changing the
+  // location from THIS dropdown always clears it too (see the submit
+  // handler below), since a rail number only means something paired with
+  // the specific yard it was reported for.
+  const railSuffix = data.lastLocation && data.lastLocationRail !== undefined && data.lastLocationRail !== ''
+    ? ` &mdash; Rail ${escapeHtml(data.lastLocationRail)}` : '';
   const locationField = (!liveInfo.isActive && state.activeLine === 'green') ? `
       <div class="roster-field-label">Last known location</div>
       ${state.signedIn
         ? `<select class="roster-input" data-car="${entry.car}" data-field="lastLocation" data-old-value="${data.lastLocation||''}">
              <option value="" ${!data.lastLocation ? 'selected' : ''}>Not reported</option>
              ${LAST_LOCATION_OPTIONS.map(opt => `<option value="${opt}" ${data.lastLocation===opt ? 'selected' : ''}>${opt}</option>`).join('')}
-           </select>`
-        : `<div class="roster-readonly">${data.lastLocation ? data.lastLocation : '<span style="opacity:.5;">Not reported</span>'}</div>`}
+           </select>${railSuffix ? `<div class="roster-edited-by">${railSuffix.replace(' &mdash; ', '')}</div>` : ''}`
+        : `<div class="roster-readonly">${data.lastLocation ? escapeHtml(data.lastLocation) + railSuffix : '<span style="opacity:.5;">Not reported</span>'}</div>`}
     ` : '';
 
   // Most recent spotting photo of this car, sourced from mbtapics.vercel.app
@@ -14064,10 +14207,12 @@ function initQuickReportForm(idPrefix, onSuccess){
   const typeExpressBtn = document.getElementById(id('TypeExpress'));
   const typeDestinationBtn = document.getElementById(id('TypeDestination'));
   const typeOOSBtn = document.getElementById(id('TypeOOS'));
+  const typeYardBtn = document.getElementById(id('TypeYard'));
   const standingByFields = document.getElementById(id('StandingByFields'));
   const expressFields = document.getElementById(id('ExpressFields'));
   const destinationFields = document.getElementById(id('DestinationFields'));
   const oosFields = document.getElementById(id('OOSFields'));
+  const yardFields = document.getElementById(id('YardFields'));
   const untilReleaseCheckbox = document.getElementById(id('UntilRelease'));
   const minutesInput = document.getElementById(id('Minutes'));
   const stationInput = document.getElementById(id('Station'));
@@ -14078,10 +14223,27 @@ function initQuickReportForm(idPrefix, onSuccess){
   const destinationSelect = document.getElementById(id('DestinationSelect'));
   const destinationOtherInput = document.getElementById(id('DestinationOtherInput'));
   const oosReasonInput = document.getElementById(id('OOSReason'));
+  const yardSelect = document.getElementById(id('YardSelect'));
+  const yardRailInput = document.getElementById(id('YardRail'));
   const note = document.getElementById(id('Note'));
   const submitBtn = document.getElementById(id('SubmitBtn'));
   const datalist = document.getElementById(id('StationsDatalist'));
   if(!carInput || !submitBtn) return;
+
+  // Genuinely numeric-only — inputmode="numeric"/pattern="[0-9]*" on the
+  // input itself (see its own markup) only hint at a numeric keyboard and
+  // don't actually stop a physical/Bluetooth keyboard, autofill, or a paste
+  // from putting symbols in anyway, so this strips anything that isn't a
+  // digit as it's typed. Registered before the other carInput 'input'
+  // listeners below (auto-fill station, qrPage map lookup) so they always
+  // see the already-sanitized value, not whatever was typed before this
+  // ran. Kept as plain text (not type="number") since real car numbers can
+  // start with a leading zero (e.g. Blue Line's "0700") that a number input
+  // would silently strip.
+  carInput.addEventListener('input', ()=>{
+    const digitsOnly = carInput.value.replace(/\D/g, '');
+    if(digitsOnly !== carInput.value) carInput.value = digitsOnly;
+  });
 
   // Every system-wide station, not just the eventually-resolved car's own
   // route — which line/branch it's on isn't known until the car number is
@@ -14107,6 +14269,15 @@ function initQuickReportForm(idPrefix, onSuccess){
     });
   }
 
+  // Same LAST_LOCATION_OPTIONS list the Fleet Roster car detail page's own
+  // "Last known location" dropdown uses (see buildCarDetailPanel) — both
+  // write to the same data.lastLocation field, just through two different
+  // UIs.
+  if(yardSelect){
+    yardSelect.innerHTML = `<option value="">Choose a yard&hellip;</option>` +
+      LAST_LOCATION_OPTIONS.map(opt => `<option value="${opt}">${opt}</option>`).join('');
+  }
+
   let activeType = 'standingby';
   function setType(type){
     activeType = type;
@@ -14114,16 +14285,19 @@ function initQuickReportForm(idPrefix, onSuccess){
     typeExpressBtn.classList.toggle('active', type === 'express');
     if(typeDestinationBtn) typeDestinationBtn.classList.toggle('active', type === 'destination');
     if(typeOOSBtn) typeOOSBtn.classList.toggle('active', type === 'oos');
+    if(typeYardBtn) typeYardBtn.classList.toggle('active', type === 'yard');
     standingByFields.style.display = type === 'standingby' ? '' : 'none';
     expressFields.style.display = type === 'express' ? '' : 'none';
     if(destinationFields) destinationFields.style.display = type === 'destination' ? '' : 'none';
     if(oosFields) oosFields.style.display = type === 'oos' ? '' : 'none';
+    if(yardFields) yardFields.style.display = type === 'yard' ? '' : 'none';
     note.textContent = '';
   }
   typeStandingByBtn.addEventListener('click', ()=> setType('standingby'));
   typeExpressBtn.addEventListener('click', ()=> setType('express'));
   if(typeDestinationBtn) typeDestinationBtn.addEventListener('click', ()=> setType('destination'));
   if(typeOOSBtn) typeOOSBtn.addEventListener('click', ()=> setType('oos'));
+  if(typeYardBtn) typeYardBtn.addEventListener('click', ()=> setType('yard'));
 
   if(untilReleaseCheckbox && minutesInput){
     untilReleaseCheckbox.addEventListener('change', ()=>{
@@ -14162,6 +14336,33 @@ function initQuickReportForm(idPrefix, onSuccess){
         getCarNumbersForVehicle(veh).some(c => c.length > stripped.length && c.endsWith(stripped))
       );
       if(matches.length === 1) return matches[0];
+    }
+    return null;
+  }
+
+  // Yard reports are the one type that doesn't need — and can't use —
+  // resolveTypedCar above: a car sitting in a yard is by definition NOT in
+  // state.vehicles (nothing's been reporting a live position for it), so
+  // that whole resolution path would always fail for exactly the cars this
+  // form exists to report on. Resolves against ROSTER_CARS (the Fleet
+  // Roster's own full car list for whichever line is currently active)
+  // instead — same normalization approach as resolveTypedCar (exact match,
+  // then leading-zero-stripped, then 4-digit-padded), just without that
+  // one's final live-vehicle-only trailing-digits fallback, since every
+  // roster car number is already fully known and unique on its own line.
+  function resolveTypedRosterCar(carTyped){
+    const trimmed = String(carTyped).trim();
+    if(!trimmed) return null;
+    let entry = ROSTER_CARS.find(e => e.car === trimmed);
+    if(entry) return entry;
+    const stripped = trimmed.replace(/^0+(?=\d)/, '');
+    if(stripped !== trimmed){
+      entry = ROSTER_CARS.find(e => e.car === stripped);
+      if(entry) return entry;
+    }
+    if(/^\d+$/.test(trimmed) && trimmed.length < 4){
+      entry = ROSTER_CARS.find(e => e.car === trimmed.padStart(4, '0'));
+      if(entry) return entry;
     }
     return null;
   }
@@ -14220,6 +14421,8 @@ function initQuickReportForm(idPrefix, onSuccess){
     if(destinationSelect) destinationSelect.value = '';
     if(destinationOtherInput){ destinationOtherInput.value = ''; destinationOtherInput.style.display = 'none'; }
     if(oosReasonInput) oosReasonInput.value = '';
+    if(yardSelect) yardSelect.value = '';
+    if(yardRailInput) yardRailInput.value = '';
     note.textContent = '';
     // Otherwise the NEXT car number typed after a successful submit would
     // see the (now-cleared, empty) station field as "the user's own text"
@@ -14235,6 +14438,42 @@ function initQuickReportForm(idPrefix, onSuccess){
   submitBtn.addEventListener('click', async ()=>{
     const carTyped = carInput.value.trim();
     if(!carTyped){ note.textContent = 'Enter a car number first.'; return; }
+
+    // Handled entirely separately, before the live-vehicle resolution every
+    // other type below shares — see resolveTypedRosterCar's own comment for
+    // why a yard report specifically can't go through that path, and
+    // resetForm/setType('standingby') at the very end mean this can't just
+    // fall into the shared success tail either (that tail assumes a
+    // resolved vehicle `v`, which this type never has).
+    if(activeType === 'yard'){
+      const rosterEntry = resolveTypedRosterCar(carTyped);
+      if(!rosterEntry){
+        note.textContent = `Car ${carTyped} isn't a recognized car number on this line — double check the number and make sure you're on the right line.`;
+        return;
+      }
+      const yard = yardSelect ? yardSelect.value : '';
+      if(!yard){ note.textContent = 'Choose a yard first.'; return; }
+      const railTyped = yardRailInput ? yardRailInput.value.trim() : '';
+      // Deliberately checked against the empty string, not truthiness — "0"
+      // is a real, valid rail number and would otherwise get rejected here.
+      if(railTyped === ''){ note.textContent = 'Enter a rail number first (0 is fine).'; return; }
+      submitBtn.disabled = true;
+      const originalSubmitLabel = submitBtn.textContent;
+      submitBtn.textContent = 'Reporting…';
+      await saveRosterEntry(rosterEntry.key, { lastLocation: yard, lastLocationRail: railTyped }, rosterEntry.car);
+      if(rosterPanelDataCache) delete rosterPanelDataCache.rosterData[rosterEntry.key];
+      awardPoints(5);
+      note.textContent = `Reported car ${formatCarNumberForDisplay(rosterEntry.car)} — done!`;
+      setTimeout(()=>{
+        submitBtn.disabled = false;
+        submitBtn.textContent = originalSubmitLabel;
+        if(onSuccess) onSuccess();
+        resetForm();
+        setType('standingby');
+      }, 900);
+      return;
+    }
+
     const v = resolveTypedCar(carTyped);
     if(!v){
       note.textContent = `Car ${carTyped} isn't currently active on this line — double check the number and make sure you're on the right line's track map.`;
