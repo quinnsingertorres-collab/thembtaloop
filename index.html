@@ -2479,7 +2479,7 @@ window.addEventListener('popstate', ()=>{
 // needs to be hand-updated to the current date/time whenever a real change
 // is deployed. Any ISO 8601 string with an offset works — init() renders it
 // in the visitor's own local time regardless of what offset is used here.
-const APP_LAST_UPDATED = '2026-09-10T23:57:55-04:00';
+const APP_LAST_UPDATED = '2026-09-11T00:09:30-04:00';
 const MBTA_API_KEY = '7171c5e6f11c447bb3591c1fc1f3b5a9';
 const MBTA_HEADERS = { 'Accept':'application/vnd.api+json' };
 function withMbtaKey(url){
@@ -12880,10 +12880,55 @@ document.querySelectorAll('.menu-link[data-navto]').forEach(link=>{
 // dropdown-closing step since it isn't inside one. Null-guarded like the
 // mobile open-tab listeners just above, rather than assuming the element's
 // there.
+//
+// This button lives inside the desktop-docked trains panel (and the mobile
+// drawer's copy of it), whose own `top` is a live CSS custom property
+// (--panel-dock-top) rewritten every animation frame off a `window` scroll
+// listener — see applyPanelDockTop above. On iOS Safari that same scroll
+// listener also fires once more as the URL bar finishes auto-collapsing,
+// which can land a split second after the finger lifts. When a touch
+// target's on-screen geometry moves between touchstart and touchend, WebKit
+// silently cancels the synthesized `click` it would otherwise fire — no
+// error, the tap just does nothing. This exact codebase has already hit
+// that bug class more than once for other JS-repositioned fixed elements
+// (see .bottom-nav's forced compositing layer above, and the
+// modal-slide-wrap/modal-card scroll split, and the earlier "Quick Report
+// map layout shift" fix), which is almost certainly what's behind this
+// being reported three separate times as "does nothing on iPad" even after
+// two earlier, real, but narrower fixes (the double-tap-zoom guard and the
+// swipe-gesture skip) — those fixed genuine bugs of their own, just not
+// this one. Rather than fighting the panel's intended dock-follows-scroll
+// behavior, fire navigation directly off touchend instead of only waiting
+// on `click`, so a cancelled click synthesis can no longer swallow the tap.
+// Guarded two ways: a short dedupe window stops a genuine click (mouse/
+// trackpad, or an uncancelled touch click) from double-navigating right
+// after the touchend already handled it, and a small movement tolerance
+// stops a scroll/drag that happens to release over this button from being
+// misread as a tap.
 const trainsPanelQuickReportBtn = document.getElementById('trainsPanelQuickReportBtn');
-if(trainsPanelQuickReportBtn) trainsPanelQuickReportBtn.addEventListener('click', ()=>{
-  switchPage('QUICKREPORT');
-});
+if(trainsPanelQuickReportBtn){
+  const TAP_MAX_DRIFT = 10; // px
+  let qrBtnTouchStartX = 0, qrBtnTouchStartY = 0, qrBtnNavigatedAt = 0;
+  const navToQuickReportPanel = ()=>{
+    const now = Date.now();
+    if(now - qrBtnNavigatedAt < 500) return; // already handled by the other event this same gesture
+    qrBtnNavigatedAt = now;
+    switchPage('QUICKREPORT');
+  };
+  trainsPanelQuickReportBtn.addEventListener('click', navToQuickReportPanel);
+  trainsPanelQuickReportBtn.addEventListener('touchstart', (e)=>{
+    const t = e.touches[0];
+    qrBtnTouchStartX = t ? t.clientX : 0;
+    qrBtnTouchStartY = t ? t.clientY : 0;
+  }, { passive:true });
+  trainsPanelQuickReportBtn.addEventListener('touchend', (e)=>{
+    if(e.touches.length > 0) return; // mid multi-touch, not a real release yet
+    const t = e.changedTouches && e.changedTouches[0];
+    const dist = t ? Math.hypot(t.clientX - qrBtnTouchStartX, t.clientY - qrBtnTouchStartY) : 0;
+    if(dist > TAP_MAX_DRIFT) return; // was a scroll/drag that ended here, not a tap
+    navToQuickReportPanel();
+  }, { passive:true });
+}
 
 // Icon: opens a quick-switch dropdown to jump straight to another line
 // (see the line-switch-dropdown markup/CSS and updateLogoForLine above),
