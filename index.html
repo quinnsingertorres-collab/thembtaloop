@@ -83,7 +83,26 @@
 <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
 <meta name="theme-color" content="#047F4F">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<!-- Without this, iOS draws the status bar over a standalone/home-screen
+     launch as opaque white-with-black-text by default — this app's :root
+     is dark (#0B1420) out of the box, so that showed up as a stray white
+     bar across the very top of the screen, clashing with everything below
+     it. black-translucent draws it as an overlay instead (system icons
+     switch to light-on-dark automatically) and lets the page's own content
+     show through underneath — safe, since every top-of-screen element here
+     already reserves env(safe-area-inset-top) (see the .gate-card/header
+     padding rules) rather than assuming the status bar was reserving that
+     space for it. -->
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="In the Loop">
+<!-- Mobile Safari's "Detect Telephone Numbers" heuristic auto-links any
+     phone-number-shaped digit run it finds in page text into a blue,
+     underlined "tel:" link — a real risk here given how much of this app's
+     text IS bare digit runs (car numbers, official post numbers, stop
+     counts). Without this, a car number or post number that happens to
+     match the pattern would silently turn into a fake call link with its
+     own styling that overrides this app's own, on iOS only. -->
+<meta name="format-detection" content="telephone=no">
 <link rel="manifest" href="/manifest.json">
 <!-- Google Fonts as preconnect + a real <link rel="stylesheet"> instead of
      an @import inside the <style> block below: an @import has to be
@@ -125,7 +144,15 @@ body.dark{
   --nav-bg:#14253B;
 }
 
-*{box-sizing:border-box;}
+/* Suppresses the OS-drawn gray/blue tap-highlight rectangle Android Chrome
+   and iOS Safari both flash over whatever was just tapped — every
+   interactive element in this app already has its own deliberate :active
+   press feedback (the transform:scale(0.97) pattern used throughout), so
+   that overlay was just visual noise on top of it, and it looked
+   especially wrong on round/pill-shaped controls (stop dots, train
+   bubbles, snapshot-map-btn) since the default highlight box ignores
+   border-radius entirely. */
+*{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
 html,body{margin:0; padding:0; background:var(--bg); color:var(--text); font-family:'IBM Plex Sans', sans-serif; transition:background 0.2s, color 0.2s; scrollbar-width:none; -ms-overflow-style:none;}
 /* overflow-x:hidden lives on html ONLY (not body) — it's what clips the
    .full-bleed panels' 100vw/-50vw breakout technique, and html is enough
@@ -1473,6 +1500,24 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
 #qrPageMapContainer{height:240px; border-radius:10px; overflow:hidden; margin-top:14px; margin-bottom:14px; background:var(--panel); isolation:isolate;}
 #qrPageMapContainer .leaflet-control-attribution{background:rgba(11,20,32,0.75); color:var(--text-faint); font-size:9px;}
 #qrPageMapContainer .leaflet-control-attribution a{color:var(--text-faint);}
+
+/* iOS Safari force-zooms the whole page in when the input a person just
+   tapped has a computed font-size under 16px — every text input in this
+   app (.roster-input at 12.5px, .account-input/.car-search-row input at
+   13px, .filter-bar input/select at 12px, plus the handful like
+   #rosterSearch with no explicit size at all, which inherit an even
+   smaller UA default) sits below that threshold on desktop's tighter type
+   scale. On mobile that means tapping literally any field — car search,
+   station autocomplete, sign-in PIN, standing-by/express forms, moderator
+   broadcast, roster edit rows — snaps the viewport into a pinch-zoomed
+   state that often doesn't reset on blur. !important + mobile-only is
+   deliberate here: this needs to win over every one of those existing
+   class/id rules above without having to track down and hand-edit each
+   one, and desktop's smaller sizing (where this bug doesn't exist) stays
+   completely untouched. */
+@media (max-width:899px){
+  input, select, textarea{font-size:16px !important;}
+}
 </style>
 <!-- Leaflet's CSS used to stay here in the document head, on the theory
      that stylesheets should load early so the map's own layout/controls
@@ -2397,7 +2442,7 @@ window.addEventListener('popstate', ()=>{
 // needs to be hand-updated to the current date/time whenever a real change
 // is deployed. Any ISO 8601 string with an offset works — init() renders it
 // in the visitor's own local time regardless of what offset is used here.
-const APP_LAST_UPDATED = '2026-09-10T18:03:07-04:00';
+const APP_LAST_UPDATED = '2026-09-10T23:44:58-04:00';
 const MBTA_API_KEY = '7171c5e6f11c447bb3591c1fc1f3b5a9';
 const MBTA_HEADERS = { 'Accept':'application/vnd.api+json' };
 function withMbtaKey(url){
@@ -14147,12 +14192,37 @@ initQuickReportForm('qrPage', null);
   // first. Excludes the Leaflet map specifically — double-tap there is a
   // real, intentional "zoom the map in" control (Leaflet's own
   // doubleClickZoom), not an accidental page zoom, and should keep working.
+  //
+  // Time alone turned out not to be enough of a test: EVERY touchend fires
+  // this, including the one at the end of an ordinary scroll drag — so
+  // scrolling the trains list to reveal a button at the bottom (the Quick
+  // Report link, say) and then tapping it right away produced two
+  // touchends inside that same 300ms window, and this treated the second
+  // one (the actual button tap) as a double-tap-zoom attempt and
+  // preventDefault'd it — which on iOS also silently kills the synthesized
+  // click that was about to follow, so the tap just did nothing. Reported
+  // twice as "the Quick Report button doesn't work on iPad" before this
+  // was found; the first fix (excluding it from the swipe-drawer gesture
+  // handler nearby) addressed a real but different problem and didn't
+  // touch this one. A genuine double-tap-to-zoom lands both taps in
+  // roughly the same spot, unlike a scroll-release followed by a tap
+  // somewhere else on the screen — so now BOTH conditions have to hold:
+  // close together in time AND close together in position.
+  const DOUBLE_TAP_MAX_DIST = 40; // px
   let lastTouchEnd = 0;
+  let lastTouchEndX = 0;
+  let lastTouchEndY = 0;
   document.addEventListener('touchend', (e)=>{
     if(e.target.closest('.leaflet-container')) return;
     const now = Date.now();
-    if(now - lastTouchEnd <= 300) e.preventDefault();
+    const touch = e.changedTouches && e.changedTouches[0];
+    const x = touch ? touch.clientX : 0;
+    const y = touch ? touch.clientY : 0;
+    const dist = Math.hypot(x - lastTouchEndX, y - lastTouchEndY);
+    if(now - lastTouchEnd <= 300 && dist <= DOUBLE_TAP_MAX_DIST) e.preventDefault();
     lastTouchEnd = now;
+    lastTouchEndX = x;
+    lastTouchEndY = y;
   }, { passive:false });
 })();
 
