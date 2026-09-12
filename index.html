@@ -2595,7 +2595,7 @@ window.addEventListener('popstate', ()=>{
 // needs to be hand-updated to the current date/time whenever a real change
 // is deployed. Any ISO 8601 string with an offset works — init() renders it
 // in the visitor's own local time regardless of what offset is used here.
-const APP_LAST_UPDATED = '2026-09-11T00:50:50-04:00';
+const APP_LAST_UPDATED = '2026-09-12T01:18:09-04:00';
 const MBTA_API_KEY = '7171c5e6f11c447bb3591c1fc1f3b5a9';
 const MBTA_HEADERS = { 'Accept':'application/vnd.api+json' };
 function withMbtaKey(url){
@@ -9624,7 +9624,44 @@ function hasGreenLineFleetNumber(v){
   return String(v.label).split('-').some(carNum => isGreenLineFleetNumber(carNum));
 }
 
+// Traced from a user-supplied KML footprint of the actual yard property
+// (Somerville, off McGrath Highway/the old "Innerbelt" route — where the
+// yard's name comes from), not just MBTA's own stop naming. The text-based
+// check below (stopName containing "innerbelt") only catches a car when
+// MBTA's feed happens to associate it with a stop resource actually named
+// that, which in practice it often doesn't for a car that's simply parked
+// somewhere inside the yard rather than sitting at a labeled stop — leaving
+// those cars incorrectly still shown as "on the map" in active service.
+// Checking the vehicle's own reported lat/lon against this polygon instead
+// catches every car physically within the yard's fence line, regardless of
+// what stop (if any) MBTA's feed happens to pair it with. [lat, lon] pairs,
+// closed ring (first/last point repeat, harmless for the ray-casting test
+// below either way).
+const INNERBELT_YARD_POLYGON = [
+  [42.3752105, -71.0818701], [42.3751621, -71.0815823], [42.3751573, -71.0814126],
+  [42.3751367, -71.0812044], [42.3750703, -71.0809587], [42.3749559, -71.0807215],
+  [42.3749204, -71.0799543], [42.3750435, -71.0793107], [42.3751282, -71.0789032],
+  [42.3754254, -71.0780297], [42.3761904, -71.0773329], [42.3768835, -71.0771914],
+  [42.377279, -71.0773445], [42.3774656, -71.0786767], [42.3772915, -71.0790304],
+  [42.3767562, -71.079088], [42.37555, -71.0789539], [42.3756332, -71.0804242],
+  [42.3754733, -71.0822022], [42.3752105, -71.0818701]
+];
+// Standard ray-casting point-in-polygon test: draw a ray from the point out
+// to the right and count how many polygon edges it crosses — odd means
+// inside, even means outside. polygon is an array of [lat, lon] pairs.
+function pointInPolygon(lat, lon, polygon){
+  let inside = false;
+  for(let i = 0, j = polygon.length - 1; i < polygon.length; j = i++){
+    const yi = polygon[i][0], xi = polygon[i][1];
+    const yj = polygon[j][0], xj = polygon[j][1];
+    const intersect = ((yi > lat) !== (yj > lat)) &&
+      (lon < (xj - xi) * (lat - yi) / (yj - yi) + xi);
+    if(intersect) inside = !inside;
+  }
+  return inside;
+}
 function isAtInnerbeltYard(v){
+  if(typeof v.lat === 'number' && typeof v.lon === 'number' && pointInPolygon(v.lat, v.lon, INNERBELT_YARD_POLYGON)) return true;
   if(!v.stopName) return false;
   const name = v.stopName.toLowerCase();
   return name.includes('innerbelt') || name.includes('inner belt');

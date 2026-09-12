@@ -703,10 +703,42 @@ exports.sendPushOnCarOutOfService = onDocumentCreated(
 const MBTA_API_KEY = '7171c5e6f11c447bb3591c1fc1f3b5a9';
 const MBTA_HEADERS = { 'Accept': 'application/vnd.api+json' };
 
+// Same yard footprint (traced from a user-supplied KML) and same
+// ray-casting point-in-polygon test as index.html's client-side copy (see
+// INNERBELT_YARD_POLYGON/pointInPolygon there) — kept in agreement
+// deliberately. This server-side copy is what actually sets a car's
+// lastLocation to "Innerbelt Yard" on the roster (see the geofence check
+// inside the syncLastSeenCars loop below); index.html's copy only drives
+// what's shown live on the track map for whoever has it open right now.
+const INNERBELT_YARD_POLYGON = [
+  [42.3752105, -71.0818701], [42.3751621, -71.0815823], [42.3751573, -71.0814126],
+  [42.3751367, -71.0812044], [42.3750703, -71.0809587], [42.3749559, -71.0807215],
+  [42.3749204, -71.0799543], [42.3750435, -71.0793107], [42.3751282, -71.0789032],
+  [42.3754254, -71.0780297], [42.3761904, -71.0773329], [42.3768835, -71.0771914],
+  [42.377279, -71.0773445], [42.3774656, -71.0786767], [42.3772915, -71.0790304],
+  [42.3767562, -71.079088], [42.37555, -71.0789539], [42.3756332, -71.0804242],
+  [42.3754733, -71.0822022], [42.3752105, -71.0818701]
+];
+function pointInPolygon(lat, lon, polygon){
+  let inside = false;
+  for(let i = 0, j = polygon.length - 1; i < polygon.length; j = i++){
+    const yi = polygon[i][0], xi = polygon[i][1];
+    const yj = polygon[j][0], xj = polygon[j][1];
+    const intersect = ((yi > lat) !== (yj > lat)) &&
+      (lon < (xj - xi) * (lat - yi) / (yj - yi) + xi);
+    if(intersect) inside = !inside;
+  }
+  return inside;
+}
+
 const LAST_SEEN_LINE_FEEDS = [
   {
+    // latitude/longitude added to fields[vehicle] (Green only — the other
+    // three lines don't need it) so fetchLineVehicles can test each car's
+    // position against INNERBELT_YARD_POLYGON below, same geofence index.html
+    // uses client-side for the track map.
     line: 'green',
-    url: 'https://api-v3.mbta.com/vehicles?filter[route]=Green-B,Green-C,Green-D,Green-E,Mattapan&include=stop&fields[vehicle]=label&fields[stop]=name'
+    url: 'https://api-v3.mbta.com/vehicles?filter[route]=Green-B,Green-C,Green-D,Green-E,Mattapan&include=stop&fields[vehicle]=label,latitude,longitude&fields[stop]=name'
   },
   {
     line: 'red',
@@ -903,6 +935,12 @@ async function fetchLineVehicles(line, url){
     const stopRel = v.relationships && v.relationships.stop && v.relationships.stop.data;
     const stopName = stopRel ? (included['stop:' + stopRel.id] || {}).name : null;
     if(!stopName) return;
+    // Green-only (see fields[vehicle] above — the other three lines never
+    // request latitude/longitude, so these are just undefined for them and
+    // pointInPolygon is never reached below).
+    const lat = v.attributes.latitude, lon = v.attributes.longitude;
+    const inInnerbeltYard = line === 'green' && typeof lat === 'number' && typeof lon === 'number'
+      && pointInPolygon(lat, lon, INNERBELT_YARD_POLYGON);
     const carNums = getCarNumbersForVehicle(line, v.attributes.label, v.attributes.carriages);
     const keys = carNums.map(n => rosterStorageKey(line, n));
     // Green Line married pairs are fixed 2-car units — a 4-car train (two
@@ -930,7 +968,7 @@ async function fetchLineVehicles(line, url){
       // that need a human-readable car number (push notification copy) or
       // the owning line (e.g. to look up its roster doc) don't have to
       // reverse-parse `key`, which is only unprefixed for Green.
-      carEntries.push({ key, stopName, partners, carNum: carNums[i], line });
+      carEntries.push({ key, stopName, partners, carNum: carNums[i], line, inInnerbeltYard });
     });
     // trip relationship linkage (data:{type,id}) is present on the vehicle
     // resource by default from MBTA's API regardless of the include=/fields[]
@@ -1404,9 +1442,19 @@ exports.syncLastSeenCars = onSchedule({ schedule: 'every 1 minutes', secrets: [V
   const priorStops = stateSnap.exists ? (stateSnap.data().stops || {}) : {};
   const priorActive = firstTrackedSnap.exists ? (firstTrackedSnap.data().cars || {}) : {};
   const priorTripsByVehicle = tripsSeenSnap.exists ? (tripsSeenSnap.data().tripsByVehicle || {}) : {};
+  // Cars currently inside INNERBELT_YARD_POLYGON as of the last run, kept in
+  // this same state doc (alongside stops) rather than a new one — piggybacks
+  // on the read/write this function is already doing every minute. Only used
+  // to detect the OFF->ON transition below so the roster write fires once
+  // per yard visit instead of every single minute a car sits parked there;
+  // a car simply missing from this map (rather than explicitly false) is
+  // what "not currently in the yard" looks like, so it re-fires correctly
+  // the next time that same car re-enters after having left.
+  const priorYardCars = stateSnap.exists ? (stateSnap.data().yardCars || {}) : {};
 
   const nextStops = {};
   const nextActive = {};
+  const nextYardCars = {};
   const rosterPatches = {};
   const currentKeys = new Set();
   // "Car back after a long gap" push candidates, gathered below and acted
@@ -1423,7 +1471,7 @@ exports.syncLastSeenCars = onSchedule({ schedule: 'every 1 minutes', secrets: [V
   // slack here costs nothing real while cutting out nearly all the noise.
   const MIN_GAP_DAYS_TO_CONSIDER = 1;
 
-  current.forEach(({ key, stopName, carNum, line }) => {
+  current.forEach(({ key, stopName, carNum, line, inInnerbeltYard }) => {
     currentKeys.add(key);
     nextStops[key] = stopName;
     if(priorStops[key] !== stopName){
@@ -1475,6 +1523,28 @@ exports.syncLastSeenCars = onSchedule({ schedule: 'every 1 minutes', secrets: [V
         }
       }
     }
+
+    // Geofenced Innerbelt Yard detection (see INNERBELT_YARD_POLYGON/
+    // fetchLineVehicles above) — set on the OFF->ON transition only (see
+    // priorYardCars comment above), and deliberately applied AFTER both
+    // branches above so it wins over either one's lastLocation delete: a
+    // car whose stopName just changed while it's still inside the yard
+    // polygon (e.g. MBTA re-associates it with a different nearby stop
+    // between runs even though it hasn't actually moved) should still read
+    // as "at the yard," not get its clear-on-stop-change logic stomp that
+    // back to "not reported." lastLocationRail isn't set here — there's no
+    // way to know which physical rail from GPS position alone, so it's left
+    // for someone to fill in by hand (car detail page dropdown) or via a
+    // Quick Report Yard submission.
+    if(inInnerbeltYard){
+      nextYardCars[key] = true;
+      if(!priorYardCars[key]){
+        rosterPatches[key] = Object.assign({}, rosterPatches[key], {
+          lastLocation: 'Innerbelt Yard',
+          lastLocationRail: admin.firestore.FieldValue.delete()
+        });
+      }
+    }
   });
 
   // Cars that were being tracked but are missing this run: carry them
@@ -1493,7 +1563,7 @@ exports.syncLastSeenCars = onSchedule({ schedule: 'every 1 minutes', secrets: [V
 
   const patchEntries = Object.entries(rosterPatches);
   if(patchEntries.length) await commitRosterPatches(patchEntries);
-  await stateRef.set({ stops: nextStops, updatedAt: now });
+  await stateRef.set({ stops: nextStops, yardCars: nextYardCars, updatedAt: now });
   await firstTrackedRef.set({ cars: nextActive, updatedAt: now });
 
   // ---- "Distinct trips tracked" lifetime counter ----
