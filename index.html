@@ -986,17 +986,42 @@ body.dark .stop-dot{background:var(--bg);}
   transform:translateZ(0);
   -webkit-transform:translateZ(0);
   will-change:transform;
+  /* This box spans the FULL viewport width (left:0; right:0) and — since
+     it's centered content (align-items/justify-content:center) — is mostly
+     empty transparent space on either side of the actual chip/pill stack
+     (background:none, so none of that empty space paints anything). But
+     `background:none` only means it doesn't PAINT there; the box is still
+     there for hit-testing, and at z-index 60 (57 on desktop) it sits above
+     the docked trains panel's own z-index:55 — so any part of that panel
+     that happens to fall within .bottom-nav's full-width box (like
+     #trainsPanelQuickReportBtn, a fixed footer flush against the panel's
+     bottom edge by design — see its own CSS) had every tap silently
+     swallowed by this invisible, click-eating margin instead of ever
+     reaching the button underneath. Confirmed directly via
+     elementFromPoint() at the button's own screen position returning this
+     element, not the button — this is almost certainly the real
+     explanation for that button being reported broken on iPad yet again
+     right after the fix that turned it into a fixed footer, since that's
+     exactly what moved it into this dead zone. Same fix already used
+     elsewhere in this codebase for the exact same class of bug (see
+     .modal-overlay/.modal-slide-wrap): pointer-events:none on the full-
+     width box itself, pointer-events:auto on .bottom-nav-stack (the one
+     child that actually holds real, visible, tappable content) below. */
+  pointer-events:none;
 }
 /* Single connected surface — chip on top, route pill below, one shared
    background/border/shadow/radius so they read as one control cluster
    instead of two separate floating pieces with a gap between them.
    overflow:hidden clips both children to the stack's own rounded corners
-   even though neither has its own radius anymore. */
+   even though neither has its own radius anymore. pointer-events:auto
+   re-enables taps on this actual content, since the parent .bottom-nav
+   above turns hit-testing off across its full transparent width. */
 .bottom-nav-stack{
   display:flex; flex-direction:column; align-items:stretch;
   background:var(--nav-bg); border:1px solid var(--border); border-radius:20px;
   box-shadow:0 6px 20px rgba(20,40,30,0.12);
   overflow:hidden; max-width:100%;
+  pointer-events:auto;
 }
 .bottom-nav-inner{display:flex; gap:6px; padding:6px; flex-wrap:wrap; max-width:100%; justify-content:center; order:0;}
 /* Default is below the route pill — order:1 puts it last in the column,
@@ -2570,7 +2595,7 @@ window.addEventListener('popstate', ()=>{
 // needs to be hand-updated to the current date/time whenever a real change
 // is deployed. Any ISO 8601 string with an offset works — init() renders it
 // in the visitor's own local time regardless of what offset is used here.
-const APP_LAST_UPDATED = '2026-09-11T00:30:50-04:00';
+const APP_LAST_UPDATED = '2026-09-11T00:50:50-04:00';
 const MBTA_API_KEY = '7171c5e6f11c447bb3591c1fc1f3b5a9';
 const MBTA_HEADERS = { 'Accept':'application/vnd.api+json' };
 function withMbtaKey(url){
