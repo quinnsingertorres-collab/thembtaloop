@@ -1544,6 +1544,22 @@ exports.syncLastSeenCars = onSchedule({ schedule: 'every 1 minutes', secrets: [V
           lastLocationRail: admin.firestore.FieldValue.delete()
         });
       }
+    }else if(priorYardCars[key]){
+      // GPS-confirmed ON->OFF transition: this car was inside the yard
+      // polygon last run and now isn't, i.e. it's back in service. Reset
+      // its last-known-location right here instead of waiting on the
+      // separate stopName-changed branch above to eventually catch it —
+      // that one can lag a run or two right as a train pulls out, since
+      // MBTA sometimes keeps reporting the same nearby stop briefly even
+      // after the car's own GPS position has already left the yard. Setting
+      // lastSeenStop/lastSeenAt here (not just clearing lastLocation) is
+      // what makes the roster immediately read as "wherever it is live"
+      // rather than sitting blank until the next real stop change lands.
+      rosterPatches[key] = Object.assign({}, rosterPatches[key], {
+        lastSeenAt: now, lastSeenStop: stopName,
+        lastLocation: admin.firestore.FieldValue.delete(),
+        lastLocationRail: admin.firestore.FieldValue.delete()
+      });
     }
   });
 
