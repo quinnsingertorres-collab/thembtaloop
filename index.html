@@ -1977,7 +1977,6 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
 
     <div class="roster-row" id="diversionComposerRow">
       <div class="roster-row-head"><span class="roster-car-chip">Report a Diversion/Closure</span></div>
-      <div class="roster-edited-by">Marks every station strictly between the two you pick as closed on the track map (same red &times; used for planned trackwork) — the From/To stations themselves stay open unless one is the actual end of the line, since trains can usually still short-turn there. Leave Direction on "Both directions" for a full closure, or pick one side if the other direction is still running normally (e.g. single-tracking). Pushes to anyone subscribed to Diversions or to this line/branch's T-Alerts.</div>
       <div class="roster-field-label">Line/branch</div>
       <select class="roster-input" id="diversionRoute"></select>
       <div class="roster-field-label">Direction</div>
@@ -1995,7 +1994,7 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
       <div class="roster-field-label" id="diversionToLabel">To station</div>
       <select class="roster-input" id="diversionTo"></select>
       <div class="roster-field-label">Notes (optional)</div>
-      <textarea class="roster-textarea" id="diversionNotes" placeholder="e.g. Shuttle buses replacing service, boarding at the Copley busway..."></textarea>
+      <textarea class="roster-textarea" id="diversionNotes"></textarea>
       <div class="roster-field-label">Expires in</div>
       <select class="roster-input" id="diversionExpiry">
         <option value="1">1 hour</option>
@@ -2601,7 +2600,7 @@ window.addEventListener('popstate', ()=>{
 // needs to be hand-updated to the current date/time whenever a real change
 // is deployed. Any ISO 8601 string with an offset works — init() renders it
 // in the visitor's own local time regardless of what offset is used here.
-const APP_LAST_UPDATED = '2026-09-12T17:54:15-04:00';
+const APP_LAST_UPDATED = '2026-09-12T18:09:35-04:00';
 const MBTA_API_KEY = '7171c5e6f11c447bb3591c1fc1f3b5a9';
 const MBTA_HEADERS = { 'Accept':'application/vnd.api+json' };
 function withMbtaKey(url){
@@ -4210,6 +4209,10 @@ async function markStandingByReportStopped(vehicleId){
 // reported start and end station. Auto-clears once the train reaches/passes
 // the end station, starts a new trip, or goes untracked.
 let expressReportCache = {};
+// vehicleId -> true once "reached/passed the reported end station" has been
+// observed on a PRIOR poll too — see the debounce comment in
+// clearStaleDestinationOverrides' express-report sweep for why this exists.
+let expressReachedEndTracker = {};
 const expressReportCacheCtl = makeSnapshotCache('express_reports', (docs)=>{
   const map = {};
   docs.forEach(doc => { map[doc.id] = doc.data(); });
@@ -4226,6 +4229,11 @@ async function saveExpressReport(v, startStation, endStation, intermediateStop){
   try{
     await fbDb.collection('express_reports').doc(v.id).set(payload);
     expressReportCache[v.id] = payload;
+    // A brand-new report reusing this vehicle id shouldn't inherit a
+    // leftover "already confirmed reached end" flag from whatever express
+    // report (if any) previously occupied it — see expressReachedEndTracker's
+    // own comment.
+    delete expressReachedEndTracker[v.id];
     const stopNote = intermediateStop ? ` (still stopping at ${intermediateStop})` : '';
     logEdit(state.userName, state.uid, `Reported car ${formatCarNumberForDisplay(v.label)} running express from ${startStation} to ${endStation}${stopNote}`);
     return true;
@@ -4243,6 +4251,7 @@ async function clearExpressReport(vehicleId, isManualCancel){
   const existing = expressReportCache[vehicleId];
   try{ await fbDb.collection('express_reports').doc(vehicleId).delete(); }catch(e){ console.error(e); }
   delete expressReportCache[vehicleId];
+  delete expressReachedEndTracker[vehicleId];
   if(existing){
     if(isManualCancel){
       try{
@@ -5562,12 +5571,21 @@ function renderTrainDots(){
       bubble.style.minHeight = '28px';
       bubble.style.left = staggeredBubbleX + 'px';
       bubble.title = `${getDisplayBranch(entry.v.branch)} \u00b7 Car ${formatCarNumberForDisplay(effectiveBubbleLabel)} \u2014 tap for details`;
+      // Just "does an override doc exist for this vehicle" — used to
+      // re-validate headsign/direction/tripId against the live vehicle here
+      // too, which made the badge flicker off (then back on) any time
+      // MBTA's feed reported a momentarily-stale/off headsign or tripId for
+      // a poll or two, even though the override was never actually cleared.
+      // That re-validation already happens properly in exactly two places
+      // that actually DELETE the stale doc when it fails: showCarModal
+      // (headsign/direction check, deliberately NOT tripId — see its own
+      // comment on why tripId churns too often to trust) and
+      // clearStaleDestinationOverrides' 5-minute not-seen sweep. Once
+      // either of those has cleared it, destinationOverrideCache[entry.v.id]
+      // is gone and this is simply false — no need for the render itself to
+      // re-derive staleness from a live, single-poll snapshot.
       const destOverrideEntry = destinationOverrideCache[entry.v.id];
-      const hasAlteredDestination = !!destOverrideEntry && (
-        (!destOverrideEntry.originalHeadsign || destOverrideEntry.originalHeadsign === entry.v.headsign) &&
-        (destOverrideEntry.originalDirection === undefined || destOverrideEntry.originalDirection === entry.v.direction) &&
-        (!destOverrideEntry.originalTripId || !entry.v.tripId || destOverrideEntry.originalTripId === entry.v.tripId)
-      );
+      const hasAlteredDestination = !!destOverrideEntry;
       const destBadge = hasAlteredDestination
         ? `<span class="bubble-dest-badge" title="Destination reported as changed"><svg viewBox="0 0 24 24" width="15" height="15" fill="none"><path d="M12 3.5L2 20.5h20L12 3.5z" fill="currentColor"/><rect x="10.8" y="8.8" width="2.4" height="5.6" rx="1.2" fill="#fff"/><circle cx="12" cy="17.2" r="1.35" fill="#fff"/></svg></span>`
         : '';
@@ -5575,9 +5593,17 @@ function renderTrainDots(){
       const expressBadge = expressEntry
         ? `<span class="bubble-express-badge" title="Reported running express from ${escapeHtml(expressEntry.startStation)} to ${escapeHtml(expressEntry.endStation)}"><svg viewBox="0 0 24 24" width="12" height="12" fill="none"><path d="M5 5l7 7-7 7" stroke="#F59E0B" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><path d="M13 5l7 7-7 7" stroke="#F59E0B" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg></span>`
         : '';
+      // stoppedAtTs (see markStandingByReportStopped) is set exactly once,
+      // the first poll where the live vehicle was confirmed STOPPED_AT the
+      // reported station, and never reset except when the whole report
+      // clears — trusting it here instead of re-comparing entry.v.stopName
+      // against standingByEntry.stationName live on every render avoids the
+      // badge flickering off for a poll or two whenever MBTA's feed
+      // momentarily reports an adjacent/stale stopName right around the
+      // moment of arrival (a real, observed GPS/feed-boundary quirk), even
+      // though the train never actually left.
       const standingByEntry = standingByCache[entry.v.id];
-      const hasArrivedAtStandingByStation = standingByEntry && entry.v.stopName
-        && normName(entry.v.stopName) === normName(standingByEntry.stationName);
+      const hasArrivedAtStandingByStation = !!(standingByEntry && standingByEntry.stoppedAtTs);
       const standingByBadge = hasArrivedAtStandingByStation
         ? `<span class="bubble-standingby-badge" title="Reported standing by at ${escapeHtml(standingByEntry.stationName)}"><svg viewBox="0 0 24 24" fill="none"><path d="M8 2h8l6 6v8l-6 6H8l-6-6V8l6-6z" fill="#D64545" stroke="#fff" stroke-width="1.5"/></svg></span>`
         : '';
@@ -9597,26 +9623,46 @@ function clearStaleDestinationOverrides(now){
   // before the train ever reached the reported stations. The
   // reached/passed-end-station check below is already a reliable signal
   // on its own.
+  //
+  // expressReachedEndTracker requires that reached/passed-end signal to
+  // hold on two CONSECUTIVE polls before actually clearing, rather than
+  // acting on the first poll it's seen — MBTA's feed occasionally reports
+  // a car's stopName as the NEXT station a poll or two early (a GPS/
+  // boundary quirk near the edge of a station's stop radius), which was
+  // enough to satisfy this check and delete the report — permanently, with
+  // no self-correction like the ladder badge flicker-bugs above — before
+  // the train had actually reached the reported end station. Same
+  // "confirm it's still true on a later check before acting" shape as
+  // isLongDwellAtTerminus/isLongDwellAtInnerbelt elsewhere in this file,
+  // just keyed on repetition rather than elapsed dwell time.
   Object.keys(expressReportCache).forEach(vehicleId=>{
     const report = expressReportCache[vehicleId];
     const lastSeen = vehicleLastSeenTs[vehicleId];
     if(lastSeen === undefined || (now - lastSeen) > DESTINATION_OVERRIDE_STALE_MS){
       clearExpressReport(vehicleId);
+      delete expressReachedEndTracker[vehicleId];
       return;
     }
     const liveVehicle = state.vehicles.find(v => v.id === vehicleId);
-    if(!liveVehicle) return;
-    if(!liveVehicle.branch) return;
+    if(!liveVehicle){ delete expressReachedEndTracker[vehicleId]; return; }
+    if(!liveVehicle.branch){ delete expressReachedEndTracker[vehicleId]; return; }
     const pageKeyForVehicle = liveVehicle.branch === 'RED'
       ? (getRedLineBranch(liveVehicle) === 'ashmont' ? 'REDASHMONT' : 'REDBRAINTREE')
       : (PAGES[liveVehicle.branch] ? liveVehicle.branch : null);
-    if(!pageKeyForVehicle) return;
+    if(!pageKeyForVehicle){ delete expressReachedEndTracker[vehicleId]; return; }
     const curIdx = findStopIndex(pageKeyForVehicle, liveVehicle.stopName);
     const endIdx = findStopIndex(pageKeyForVehicle, report.endStation);
-    if(curIdx === null || endIdx === null) return;
+    if(curIdx === null || endIdx === null){ delete expressReachedEndTracker[vehicleId]; return; }
     const hasReachedOrPassedEnd = liveVehicle.direction === 0 ? curIdx >= endIdx : curIdx <= endIdx;
     if(hasReachedOrPassedEnd){
-      clearExpressReport(vehicleId);
+      if(expressReachedEndTracker[vehicleId]){
+        clearExpressReport(vehicleId);
+        delete expressReachedEndTracker[vehicleId];
+      }else{
+        expressReachedEndTracker[vehicleId] = true;
+      }
+    }else{
+      delete expressReachedEndTracker[vehicleId];
     }
   });
   // A hidden train reappears the moment it's actually moved to a
