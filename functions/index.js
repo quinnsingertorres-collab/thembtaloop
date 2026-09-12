@@ -783,6 +783,16 @@ const ALERT_ROUTE_LABELS = {
   'Mattapan': 'Mattapan Line', 'Red': 'Red Line', 'Orange': 'Orange Line', 'Blue': 'Blue Line'
 };
 
+// Server-side mirror of index.html's own dirLabelsForRoute — kept in
+// agreement deliberately so a single-direction diversion's push notification
+// (see sendPushOnCommunityAlert below) describes the same direction the same
+// way the app itself does.
+function dirLabelsForRoute(route){
+  return (route === 'Red' || route === 'Orange')
+    ? { west: 'Southbound', east: 'Northbound' }
+    : { west: 'Westbound', east: 'Eastbound' };
+}
+
 // MBTA "effect" values that describe an actual diversion/closure (as opposed
 // to e.g. DELAY, ELEVATOR_CLOSURE, or a plain SERVICE_CHANGE with no service
 // impact) — an MBTA-sourced alert with one of these effects qualifies for
@@ -840,8 +850,11 @@ exports.sendPushOnCommunityAlert = onDocumentCreated(
     const where = (data.fromStation && data.toStation)
       ? (data.fromStation === data.toStation ? data.fromStation : `${data.fromStation} to ${data.toStation}`)
       : null;
+    const directionSuffix = (data.directionOnly !== undefined && data.directionOnly !== null)
+      ? ` (${dirLabelsForRoute(data.route)[data.directionOnly === 0 ? 'west' : 'east']} only)`
+      : '';
     const body = where !== null
-      ? `${where}${data.notes ? ': ' + data.notes.slice(0, 120) : ''}`
+      ? `${where}${directionSuffix}${data.notes ? ': ' + data.notes.slice(0, 120) : ''}`
       : (data.text || '').slice(0, 180);
     if(!body) return;
     const title = `${ALERT_ROUTE_LABELS[data.route] || data.route} diversion/closure`;

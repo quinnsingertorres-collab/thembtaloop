@@ -1977,9 +1977,15 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
 
     <div class="roster-row" id="diversionComposerRow">
       <div class="roster-row-head"><span class="roster-car-chip">Report a Diversion/Closure</span></div>
-      <div class="roster-edited-by">Marks every station strictly between the two you pick as closed on the track map (same red &times; used for planned trackwork) — the From/To stations themselves stay open unless one is the actual end of the line, since trains can usually still short-turn there. Pushes to anyone subscribed to Diversions or to this line/branch's T-Alerts.</div>
+      <div class="roster-edited-by">Marks every station strictly between the two you pick as closed on the track map (same red &times; used for planned trackwork) — the From/To stations themselves stay open unless one is the actual end of the line, since trains can usually still short-turn there. Leave Direction on "Both directions" for a full closure, or pick one side if the other direction is still running normally (e.g. single-tracking). Pushes to anyone subscribed to Diversions or to this line/branch's T-Alerts.</div>
       <div class="roster-field-label">Line/branch</div>
       <select class="roster-input" id="diversionRoute"></select>
+      <div class="roster-field-label">Direction</div>
+      <select class="roster-input" id="diversionDirection">
+        <option value="both" selected>Both directions</option>
+        <option value="0" id="diversionDirWestOpt">Westbound only</option>
+        <option value="1" id="diversionDirEastOpt">Eastbound only</option>
+      </select>
       <div class="roster-field-label">From station</div>
       <select class="roster-input" id="diversionFrom"></select>
       <label style="display:flex; align-items:center; gap:6px; margin:6px 0 2px; font-size:13px; color:var(--text-dim);">
@@ -2595,7 +2601,7 @@ window.addEventListener('popstate', ()=>{
 // needs to be hand-updated to the current date/time whenever a real change
 // is deployed. Any ISO 8601 string with an offset works — init() renders it
 // in the visitor's own local time regardless of what offset is used here.
-const APP_LAST_UPDATED = '2026-09-12T01:26:30-04:00';
+const APP_LAST_UPDATED = '2026-09-12T17:54:15-04:00';
 const MBTA_API_KEY = '7171c5e6f11c447bb3591c1fc1f3b5a9';
 const MBTA_HEADERS = { 'Accept':'application/vnd.api+json' };
 function withMbtaKey(url){
@@ -4657,6 +4663,28 @@ function updateDirectionLabels(){
   if(eastCol) eastCol.textContent = labels.east;
   const westOpt = document.getElementById('filterDirWestOpt');
   const eastOpt = document.getElementById('filterDirEastOpt');
+  if(westOpt) westOpt.textContent = labels.west + ' only';
+  if(eastOpt) eastOpt.textContent = labels.east + ' only';
+}
+
+// Route-scoped counterpart to dirLabels()/useNorthSouthLabels() above — the
+// diversion composer's own Line/branch dropdown is independent of whatever
+// line happens to be open in the main app right now (a moderator can post a
+// Red Line closure while looking at the Green Line track map), so its
+// Direction option labels can't rely on state.activeLine the way the main
+// track map's filter does. Same west/east vs. south/north split, just keyed
+// off the composer's own route value instead.
+function dirLabelsForRoute(route){
+  return (route === 'Red' || route === 'Orange')
+    ? { west:'Southbound', east:'Northbound' }
+    : { west:'Westbound', east:'Eastbound' };
+}
+function updateDiversionDirectionLabels(){
+  const routeEl = document.getElementById('diversionRoute');
+  if(!routeEl) return;
+  const labels = dirLabelsForRoute(routeEl.value);
+  const westOpt = document.getElementById('diversionDirWestOpt');
+  const eastOpt = document.getElementById('diversionDirEastOpt');
   if(westOpt) westOpt.textContent = labels.west + ' only';
   if(eastOpt) eastOpt.textContent = labels.east + ' only';
 }
@@ -8394,7 +8422,11 @@ const liveDiversionBypassCacheCtl = makeSnapshotCache('community_alerts', (docs)
     if(!pageKeys.length) return;
     const notesHtml = d.notes ? `: ${escapeHtml(d.notes)}` : '';
     const reason = `Diversion reported by ${escapeHtml(d.postedBy || 'a member')}${notesHtml}.`;
-    entries.push(...buildRangeClosure(pageKeys, d.fromStation, d.toStation, { reason, communityDiversionId: doc.id },
+    // d.directionOnly is simply absent (undefined) on a "both directions"
+    // doc — same as every hardcoded BYPASSED_STOPS entry without one — so
+    // passing it through unconditionally here is safe either way; see
+    // getBypassInfo's own directionOnly check above.
+    entries.push(...buildRangeClosure(pageKeys, d.fromStation, d.toStation, { reason, communityDiversionId: doc.id, directionOnly: d.directionOnly },
       diversionExcludeOpts(pageKeys, d.fromStation, d.toStation)));
   });
   liveDiversionBypassStops = entries;
@@ -13197,6 +13229,7 @@ function populateDiversionStationSelects(){
   const fromSel = document.getElementById('diversionFrom');
   const toSel = document.getElementById('diversionTo');
   if(!routeSel || !fromSel || !toSel) return;
+  updateDiversionDirectionLabels();
   const stops = stopsForRoute(routeSel.value);
   const optionsHtml = stops.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('');
   fromSel.innerHTML = optionsHtml;
@@ -13272,6 +13305,7 @@ function resetDiversionComposerToCreateMode(){
   document.getElementById('diversionSendBtn').textContent = 'Confirm & post diversion';
   document.getElementById('diversionEditingNote').style.display = 'none';
   document.getElementById('diversionSingleStation').checked = false;
+  document.getElementById('diversionDirection').value = 'both';
   syncDiversionSingleStationUI();
 }
 
@@ -13282,6 +13316,7 @@ function loadDiversionIntoComposerForEdit(d){
   populateDiversionStationSelects();
   if(d.fromStation) document.getElementById('diversionFrom').value = d.fromStation;
   if(d.toStation) document.getElementById('diversionTo').value = d.toStation;
+  document.getElementById('diversionDirection').value = (d.directionOnly !== undefined && d.directionOnly !== null) ? String(d.directionOnly) : 'both';
   syncDiversionSingleStationUI();
   document.getElementById('diversionNotes').value = d.notes || '';
   const expiryEl = document.getElementById('diversionExpiry');
@@ -13341,11 +13376,14 @@ async function loadDiversionsList(){
     body.innerHTML = rows.map(d=>{
       const canEdit = state.isModerator;
       const canRemove = state.isModerator || (d.postedByUid && d.postedByUid === state.uid);
+      const directionTag = (d.directionOnly !== undefined && d.directionOnly !== null)
+        ? ` · ${dirLabelsForRoute(d.route)[d.directionOnly === 0 ? 'west' : 'east']} only`
+        : '';
       const routeLine = !(d.fromStation && d.toStation)
         ? escapeHtml(d.text || '') // pre-migration docs (old free-text-only shape)
         : d.fromStation === d.toStation
-          ? `${escapeHtml(d.fromStation)} (station closed)`
-          : `${escapeHtml(d.fromStation)} → ${escapeHtml(d.toStation)}`;
+          ? `${escapeHtml(d.fromStation)} (station closed)${directionTag}`
+          : `${escapeHtml(d.fromStation)} → ${escapeHtml(d.toStation)}${directionTag}`;
       const expiryLabel = d.expiresAt ? `Ends ${new Date(d.expiresAt).toLocaleString()}` : 'No expiration set';
       const notesHtml = d.notes ? `<div class="roster-edited-by">${escapeHtml(d.notes)}</div>` : '';
       const btns = [
@@ -13410,10 +13448,19 @@ document.getElementById('diversionSendBtn').addEventListener('click', async ()=>
   const routeEl = document.getElementById('diversionRoute');
   const fromEl = document.getElementById('diversionFrom');
   const toEl = document.getElementById('diversionTo');
+  const directionEl = document.getElementById('diversionDirection');
   const notesEl = document.getElementById('diversionNotes');
   const note = document.getElementById('diversionNote');
   const route = routeEl.value;
   const fromStation = fromEl.value;
+  // null means "both directions" (the default/common case) — only 0 or 1
+  // restricts the closure to just that side, same convention getBypassInfo/
+  // the hardcoded BYPASSED_STOPS entries already use (see directionOnly
+  // there). Never written to Firestore as the literal value null (see the
+  // create/update calls below) — getBypassInfo's own directionOnly check
+  // only treats the field as "not restricted" when it's absent entirely,
+  // not when it's present-but-null.
+  const directionOnly = directionEl.value === 'both' ? null : parseInt(directionEl.value, 10);
   // Single-station mode hides the To select and keeps it synced to From via
   // syncDiversionSingleStationUI — reading isDiversionSingleStationMode()
   // here too, rather than trusting toEl.value alone, means a single-station
@@ -13441,26 +13488,35 @@ document.getElementById('diversionSendBtn').addEventListener('click', async ()=>
   const isEdit = !!editingDiversionId;
   const single = fromStation === toStation;
   const rangeDescription = single ? fromStation : `${fromStation} to ${toStation}`;
+  const directionSuffix = directionOnly === null ? '' : ` (${dirLabelsForRoute(route)[directionOnly === 0 ? 'west' : 'east']} only)`;
   const confirmMsg = isEdit
-    ? `Update this diversion to ${single ? fromStation : `${fromStation} → ${toStation}`} on ${ALERT_ROUTE_LABELS[route] || route}?`
-    : `Mark ${rangeDescription} on ${ALERT_ROUTE_LABELS[route] || route} as ${single ? 'closed' : 'diverted/closed'}, and notify subscribers?`;
+    ? `Update this diversion to ${single ? fromStation : `${fromStation} → ${toStation}`}${directionSuffix} on ${ALERT_ROUTE_LABELS[route] || route}?`
+    : `Mark ${rangeDescription}${directionSuffix} on ${ALERT_ROUTE_LABELS[route] || route} as ${single ? 'closed' : 'diverted/closed'}, and notify subscribers?`;
   if(!window.confirm(confirmMsg)) return;
   const expiresAt = computeDiversionExpiresAt();
+  // Firestore FieldValue.delete() (edit path only) clears a previously-set
+  // directionOnly when a moderator switches an existing single-direction
+  // diversion back to "both" — omitting the key from a .update() call
+  // leaves the old value in place, unlike .add() where a simply-omitted key
+  // never existed in the first place.
+  const directionPatch = directionOnly === null
+    ? (isEdit ? { directionOnly: firebase.firestore.FieldValue.delete() } : {})
+    : { directionOnly };
   try{
     if(isEdit){
-      await fbDb.collection('community_alerts').doc(editingDiversionId).update({
+      await fbDb.collection('community_alerts').doc(editingDiversionId).update(Object.assign({
         route, fromStation, toStation, notes: notes || null, expiresAt,
         editedBy: state.userName, editedByUid: state.uid || null, editedAt: Date.now()
-      });
-      logEdit(state.userName, state.uid, `Edited diversion/closure on ${ALERT_ROUTE_LABELS[route] || route}: ${rangeDescription}`);
+      }, directionPatch));
+      logEdit(state.userName, state.uid, `Edited diversion/closure on ${ALERT_ROUTE_LABELS[route] || route}: ${rangeDescription}${directionSuffix}`);
       note.textContent = 'Diversion updated.';
       resetDiversionComposerToCreateMode();
     }else{
-      await fbDb.collection('community_alerts').add({
+      await fbDb.collection('community_alerts').add(Object.assign({
         route, fromStation, toStation, notes: notes || null, ts: Date.now(),
         postedBy: state.userName, postedByUid: state.uid || null, expiresAt
-      });
-      logEdit(state.userName, state.uid, `Reported diversion/closure on ${ALERT_ROUTE_LABELS[route] || route}: ${rangeDescription}`);
+      }, directionPatch));
+      logEdit(state.userName, state.uid, `Reported diversion/closure on ${ALERT_ROUTE_LABELS[route] || route}: ${rangeDescription}${directionSuffix}`);
       note.textContent = 'Diversion posted.';
     }
     notesEl.value = '';
