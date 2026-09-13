@@ -2004,6 +2004,15 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
       <select class="roster-input" id="diversionTo"></select>
       <div class="roster-field-label">Notes (optional)</div>
       <textarea class="roster-textarea" id="diversionNotes"></textarea>
+      <div class="roster-field-label">Starts</div>
+      <select class="roster-input" id="diversionStartMode">
+        <option value="now" selected>Immediately</option>
+        <option value="custom">Scheduled date/time&hellip;</option>
+      </select>
+      <div id="diversionStartCustomRow" style="display:none;">
+        <div class="roster-field-label">Start date/time</div>
+        <input type="datetime-local" class="roster-input" id="diversionStartCustom">
+      </div>
       <div class="roster-field-label">Expires in</div>
       <select class="roster-input" id="diversionExpiry">
         <option value="1">1 hour</option>
@@ -2609,7 +2618,7 @@ window.addEventListener('popstate', ()=>{
 // needs to be hand-updated to the current date/time whenever a real change
 // is deployed. Any ISO 8601 string with an offset works — init() renders it
 // in the visitor's own local time regardless of what offset is used here.
-const APP_LAST_UPDATED = '2026-09-13T02:30:32-04:00';
+const APP_LAST_UPDATED = '2026-09-13T08:38:02-04:00';
 const MBTA_API_KEY = '7171c5e6f11c447bb3591c1fc1f3b5a9';
 const MBTA_HEADERS = { 'Accept':'application/vnd.api+json' };
 function withMbtaKey(url){
@@ -8452,6 +8461,7 @@ const liveDiversionBypassCacheCtl = makeSnapshotCache('community_alerts', (docs)
   docs.forEach(doc=>{
     const d = doc.data();
     if(d.expiresAt && d.expiresAt < now) return; // expired — fetchCommunityAlerts() handles actually deleting these
+    if(d.startsAt && d.startsAt > now) return; // scheduled for a future start — not in effect yet, so no red-X until then
     if(!d.fromStation || !d.toStation) return; // pre-migration docs (old free-text-only shape) — nothing to render
     const pageKeys = ALERT_ROUTE_TO_PAGE_KEYS[d.route] || [];
     if(!pageKeys.length) return;
@@ -13366,6 +13376,29 @@ document.getElementById('diversionExpiry').addEventListener('change', ()=>{
     document.getElementById('diversionExpiry').value === 'custom' ? '' : 'none';
 });
 
+// Mirrors computeDiversionExpiresAt's shape but for the OTHER end of a
+// diversion's lifetime: when it should first take effect. Returns null for
+// "starts immediately" (the default, and also what an empty custom field
+// falls back to — same "don't silently fail" reasoning as expiresAt) or a
+// millisecond epoch timestamp for a scheduled future start. A diversion
+// with a startsAt in the future is still saved to Firestore right away (so
+// moderators can see it queued up in Upcoming Diversions) but is excluded
+// from the live red-X bypass render and its push notification is deferred
+// — see liveDiversionBypassCacheCtl and functions/index.js's
+// sendPushOnCommunityAlert / syncLastSeenCars deferred-push sweep.
+function computeDiversionStartsAt(){
+  const modeEl = document.getElementById('diversionStartMode');
+  if(!modeEl || modeEl.value !== 'custom') return null;
+  const dtVal = document.getElementById('diversionStartCustom').value;
+  if(!dtVal) return null;
+  const t = new Date(dtVal).getTime(); // datetime-local parses as local time already, no timezone math needed
+  return isNaN(t) ? null : t;
+}
+document.getElementById('diversionStartMode').addEventListener('change', ()=>{
+  document.getElementById('diversionStartCustomRow').style.display =
+    document.getElementById('diversionStartMode').value === 'custom' ? '' : 'none';
+});
+
 // Set while the composer is being reused to edit an already-posted
 // diversion (see loadDiversionIntoComposerForEdit, triggered from the
 // Upcoming Diversions list below) rather than create a new one — null the
@@ -13378,6 +13411,9 @@ function resetDiversionComposerToCreateMode(){
   document.getElementById('diversionEditingNote').style.display = 'none';
   document.getElementById('diversionSingleStation').checked = false;
   document.getElementById('diversionDirection').value = 'both';
+  document.getElementById('diversionStartMode').value = 'now';
+  document.getElementById('diversionStartCustomRow').style.display = 'none';
+  document.getElementById('diversionStartCustom').value = '';
   syncDiversionSingleStationUI();
 }
 
@@ -13391,6 +13427,20 @@ function loadDiversionIntoComposerForEdit(d){
   document.getElementById('diversionDirection').value = (d.directionOnly !== undefined && d.directionOnly !== null) ? String(d.directionOnly) : 'both';
   syncDiversionSingleStationUI();
   document.getElementById('diversionNotes').value = d.notes || '';
+  const startModeEl = document.getElementById('diversionStartMode');
+  const startCustomRow = document.getElementById('diversionStartCustomRow');
+  const startCustomEl = document.getElementById('diversionStartCustom');
+  if(d.startsAt){
+    startModeEl.value = 'custom';
+    startCustomRow.style.display = '';
+    const sdt = new Date(d.startsAt);
+    const spad = n => String(n).padStart(2, '0');
+    startCustomEl.value = `${sdt.getFullYear()}-${spad(sdt.getMonth()+1)}-${spad(sdt.getDate())}T${spad(sdt.getHours())}:${spad(sdt.getMinutes())}`;
+  }else{
+    startModeEl.value = 'now';
+    startCustomRow.style.display = 'none';
+    startCustomEl.value = '';
+  }
   const expiryEl = document.getElementById('diversionExpiry');
   const customRow = document.getElementById('diversionExpiryCustomRow');
   const dtEl = document.getElementById('diversionExpiryCustom');
@@ -13458,6 +13508,15 @@ async function loadDiversionsList(){
           : `${escapeHtml(d.fromStation)} → ${escapeHtml(d.toStation)}${directionTag}`;
       const expiryLabel = d.expiresAt ? `Ends ${new Date(d.expiresAt).toLocaleString()}` : 'No expiration set';
       const notesHtml = d.notes ? `<div class="roster-edited-by">${escapeHtml(d.notes)}</div>` : '';
+      // Same "starts in the future" check as liveDiversionBypassCacheCtl —
+      // this is purely a display distinction here (the actual gating of the
+      // map render and push notification happens elsewhere), so a moderator
+      // scanning this list can tell a scheduled-but-not-yet-active closure
+      // apart from one that's already in effect.
+      const isScheduled = d.startsAt && d.startsAt > now;
+      const statusHtml = isScheduled
+        ? `<div class="roster-edited-by" style="color:var(--accent-yellow, #F9DE51);">Scheduled — starts ${new Date(d.startsAt).toLocaleString()}</div>`
+        : '';
       const btns = [
         canEdit ? `<button class="modal-info-btn" data-edit-diversion="${d.id}">Edit</button>` : '',
         canRemove ? `<button class="modal-info-btn" data-remove-diversion="${d.id}">Remove</button>` : ''
@@ -13466,6 +13525,7 @@ async function loadDiversionsList(){
         <div class="roster-row" style="margin-bottom:8px;">
           <div class="roster-row-head"><span class="roster-car-chip">${escapeHtml(ALERT_ROUTE_LABELS[d.route] || d.route || '?')}</span></div>
           <div class="roster-edited-by"><strong>${routeLine}</strong></div>
+          ${statusHtml}
           ${notesHtml}
           <div class="roster-edited-by">Reported by ${escapeHtml(d.postedBy || 'a member')} · ${timeSincePosted(new Date(d.ts).toISOString())} · ${expiryLabel}</div>
           ${btns ? `<div style="margin-top:6px; display:flex; gap:8px;">${btns}</div>` : ''}
@@ -13561,34 +13621,42 @@ document.getElementById('diversionSendBtn').addEventListener('click', async ()=>
   const single = fromStation === toStation;
   const rangeDescription = single ? fromStation : `${fromStation} to ${toStation}`;
   const directionSuffix = directionOnly === null ? '' : ` (${dirLabelsForRoute(route)[directionOnly === 0 ? 'west' : 'east']} only)`;
+  const startsAt = computeDiversionStartsAt();
+  const startsSuffix = (startsAt && startsAt > Date.now()) ? ` — scheduled to start ${new Date(startsAt).toLocaleString()}` : '';
   const confirmMsg = isEdit
-    ? `Update this diversion to ${single ? fromStation : `${fromStation} → ${toStation}`}${directionSuffix} on ${ALERT_ROUTE_LABELS[route] || route}?`
-    : `Mark ${rangeDescription}${directionSuffix} on ${ALERT_ROUTE_LABELS[route] || route} as ${single ? 'closed' : 'diverted/closed'}, and notify subscribers?`;
+    ? `Update this diversion to ${single ? fromStation : `${fromStation} → ${toStation}`}${directionSuffix} on ${ALERT_ROUTE_LABELS[route] || route}${startsSuffix}?`
+    : `Mark ${rangeDescription}${directionSuffix} on ${ALERT_ROUTE_LABELS[route] || route} as ${single ? 'closed' : 'diverted/closed'}${startsSuffix}, and notify subscribers${startsSuffix ? ' once it starts' : ''}?`;
   if(!window.confirm(confirmMsg)) return;
   const expiresAt = computeDiversionExpiresAt();
   // Firestore FieldValue.delete() (edit path only) clears a previously-set
   // directionOnly when a moderator switches an existing single-direction
   // diversion back to "both" — omitting the key from a .update() call
   // leaves the old value in place, unlike .add() where a simply-omitted key
-  // never existed in the first place.
+  // never existed in the first place. startsAtPatch follows the exact same
+  // pattern for the "Starts" field — same firestore.FieldValue.delete()
+  // reasoning applies if an edit switches a scheduled diversion back to
+  // "Immediately".
   const directionPatch = directionOnly === null
     ? (isEdit ? { directionOnly: firebase.firestore.FieldValue.delete() } : {})
     : { directionOnly };
+  const startsAtPatch = startsAt === null
+    ? (isEdit ? { startsAt: firebase.firestore.FieldValue.delete() } : {})
+    : { startsAt };
   try{
     if(isEdit){
       await fbDb.collection('community_alerts').doc(editingDiversionId).update(Object.assign({
         route, fromStation, toStation, notes: notes || null, expiresAt,
         editedBy: state.userName, editedByUid: state.uid || null, editedAt: Date.now()
-      }, directionPatch));
-      logEdit(state.userName, state.uid, `Edited diversion/closure on ${ALERT_ROUTE_LABELS[route] || route}: ${rangeDescription}${directionSuffix}`);
+      }, directionPatch, startsAtPatch));
+      logEdit(state.userName, state.uid, `Edited diversion/closure on ${ALERT_ROUTE_LABELS[route] || route}: ${rangeDescription}${directionSuffix}${startsSuffix}`);
       note.textContent = 'Diversion updated.';
       resetDiversionComposerToCreateMode();
     }else{
       await fbDb.collection('community_alerts').add(Object.assign({
         route, fromStation, toStation, notes: notes || null, ts: Date.now(),
         postedBy: state.userName, postedByUid: state.uid || null, expiresAt
-      }, directionPatch));
-      logEdit(state.userName, state.uid, `Reported diversion/closure on ${ALERT_ROUTE_LABELS[route] || route}: ${rangeDescription}${directionSuffix}`);
+      }, directionPatch, startsAtPatch));
+      logEdit(state.userName, state.uid, `Reported diversion/closure on ${ALERT_ROUTE_LABELS[route] || route}: ${rangeDescription}${directionSuffix}${startsSuffix}`);
       note.textContent = 'Diversion posted.';
     }
     notesEl.value = '';

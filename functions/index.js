@@ -847,6 +847,12 @@ exports.sendPushOnCommunityAlert = onDocumentCreated(
     if(!(await claimPushEvent(event.id))) return;
     const data = event.data.data();
     if(!data || !data.route) return;
+    // A diversion posted with a future startsAt (see index.html's composer
+    // "Starts" field) shouldn't notify subscribers before it's actually in
+    // effect — skip here, and let the deferred-push sweep in
+    // syncLastSeenCars below send this same push once startsAt has passed
+    // (it also sets startPushSent so this doc is never pushed twice).
+    if(data.startsAt && data.startsAt > Date.now()) return;
     const where = (data.fromStation && data.toStation)
       ? (data.fromStation === data.toStation ? data.fromStation : `${data.fromStation} to ${data.toStation}`)
       : null;
@@ -861,6 +867,11 @@ exports.sendPushOnCommunityAlert = onDocumentCreated(
     const prefField = ALERT_ROUTE_PREF_FIELDS[data.route];
     const prefFields = prefField ? ['notifyDiversions', prefField] : ['notifyDiversions'];
     await sendToFilteredSubscribersMulti(prefFields, { title, body, url: './' });
+    // A startsAt already in the past at creation time (a moderator can type
+    // one in manually) still pushes immediately above — mark it sent so the
+    // deferred sweep below doesn't also match it on its next run and push a
+    // second time.
+    if(data.startsAt) await event.data.ref.update({ startPushSent: true }).catch(()=>{});
   }
 );
 
@@ -1847,6 +1858,43 @@ exports.syncLastSeenCars = onSchedule({ schedule: 'every 1 minutes', secrets: [V
     }
   }catch(e){
     console.error('Expired diversion cleanup failed:', e);
+  }
+
+  // ---- Deferred push for scheduled diversions (startsAt) ----
+  // sendPushOnCommunityAlert (the onCreate trigger, above) deliberately
+  // skips pushing a diversion posted with a future startsAt, so subscribers
+  // aren't told about a closure before it's actually in effect. This sweep,
+  // once a minute (same cadence as the expired-diversion cleanup right
+  // above), sends that same push the first run after startsAt has passed.
+  // startPushSent marks a doc done so a diversion that's swept on more than
+  // one run (this fires every minute; a deploy delay or a cold start could
+  // easily span more than one tick) only ever pushes once. Own try/catch,
+  // same reasoning as every other block in this function — a failure here
+  // shouldn't touch anything else this run already committed.
+  try{
+    const dueSnap = await db.collection('community_alerts').where('startsAt', '<=', now).get();
+    for(const doc of dueSnap.docs){
+      const data = doc.data();
+      if(data.startPushSent) continue;
+      await doc.ref.update({ startPushSent: true });
+      if(!data.route) continue;
+      const where = (data.fromStation && data.toStation)
+        ? (data.fromStation === data.toStation ? data.fromStation : `${data.fromStation} to ${data.toStation}`)
+        : null;
+      const directionSuffix = (data.directionOnly !== undefined && data.directionOnly !== null)
+        ? ` (${dirLabelsForRoute(data.route)[data.directionOnly === 0 ? 'west' : 'east']} only)`
+        : '';
+      const body = where !== null
+        ? `${where}${directionSuffix}${data.notes ? ': ' + data.notes.slice(0, 120) : ''}`
+        : (data.text || '').slice(0, 180);
+      if(!body) continue;
+      const title = `${ALERT_ROUTE_LABELS[data.route] || data.route} diversion/closure`;
+      const prefField = ALERT_ROUTE_PREF_FIELDS[data.route];
+      const prefFields = prefField ? ['notifyDiversions', prefField] : ['notifyDiversions'];
+      await sendToFilteredSubscribersMulti(prefFields, { title, body, url: './' });
+    }
+  }catch(e){
+    console.error('Deferred scheduled-diversion push failed:', e);
   }
 
   // ---- push_event_dedupe cleanup (see claimPushEvent above) ----
