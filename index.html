@@ -937,7 +937,16 @@ body.dark .stop-dot{background:var(--bg);}
 }
 
 /* ---------- Vehicle list ---------- */
-.vehicle-list{display:flex; flex-direction:column; gap:7px; max-height:520px; overflow-y:auto; padding-right:4px; scrollbar-width:none; -ms-overflow-style:none;}
+/* This is the specific nested overflow-y:auto container named in
+   .bottom-nav's own forced-compositing-layer comment as the trigger for a
+   real iOS Safari bug where touch-scrolling it can visually detach an
+   unrelated position:fixed element (.bottom-nav) elsewhere on the page.
+   That fix isolates .bottom-nav into its own compositing layer, which
+   helps but — per real-world reports of this exact WebKit bug class —
+   isn't always sufficient on its own; isolating the scrolling container
+   itself into its own layer too, the same way, makes the fix more
+   reliable rather than relying on only one side of the interaction. */
+.vehicle-list{display:flex; flex-direction:column; gap:7px; max-height:520px; overflow-y:auto; padding-right:4px; scrollbar-width:none; -ms-overflow-style:none; transform:translateZ(0); -webkit-transform:translateZ(0); will-change:transform;}
 .vehicle-list::-webkit-scrollbar{display:none;}
 @media (min-width:900px){
   /* The trains panel itself now scrolls as a whole fixed-height dock (see
@@ -2600,7 +2609,7 @@ window.addEventListener('popstate', ()=>{
 // needs to be hand-updated to the current date/time whenever a real change
 // is deployed. Any ISO 8601 string with an offset works — init() renders it
 // in the visitor's own local time regardless of what offset is used here.
-const APP_LAST_UPDATED = '2026-09-12T22:24:59-04:00';
+const APP_LAST_UPDATED = '2026-09-13T02:30:32-04:00';
 const MBTA_API_KEY = '7171c5e6f11c447bb3591c1fc1f3b5a9';
 const MBTA_HEADERS = { 'Accept':'application/vnd.api+json' };
 function withMbtaKey(url){
