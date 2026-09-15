@@ -1936,7 +1936,7 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
         <select class="roster-input" id="quickReportYardSelect" style="margin-top:6px;">
           <option value="">Choose a yard&hellip;</option>
         </select>
-        <div class="roster-field-label">Rail number</div>
+        <div class="roster-field-label">Rail number (optional &mdash; extra points if included)</div>
         <input type="number" class="roster-input" id="quickReportYardRail" inputmode="numeric" min="0" style="margin-top:6px;">
       </div>
 
@@ -2252,7 +2252,7 @@ body.hide-chip-weather .route-status-chip > .chip-sep:not(.date-dot){display:non
         <select class="roster-input" id="qrPageYardSelect" style="margin-top:6px;">
           <option value="">Choose a yard&hellip;</option>
         </select>
-        <div class="roster-field-label">Rail number</div>
+        <div class="roster-field-label">Rail number (optional &mdash; extra points if included)</div>
         <input type="number" class="roster-input" id="qrPageYardRail" inputmode="numeric" min="0" style="margin-top:6px;">
       </div>
 
@@ -2618,7 +2618,7 @@ window.addEventListener('popstate', ()=>{
 // needs to be hand-updated to the current date/time whenever a real change
 // is deployed. Any ISO 8601 string with an offset works — init() renders it
 // in the visitor's own local time regardless of what offset is used here.
-const APP_LAST_UPDATED = '2026-09-14T15:20:52-04:00';
+const APP_LAST_UPDATED = '2026-09-14T23:05:16-04:00';
 const MBTA_API_KEY = '7171c5e6f11c447bb3591c1fc1f3b5a9';
 const MBTA_HEADERS = { 'Accept':'application/vnd.api+json' };
 function withMbtaKey(url){
@@ -14711,16 +14711,27 @@ function initQuickReportForm(idPrefix, onSuccess){
       }
       const yard = yardSelect ? yardSelect.value : '';
       if(!yard){ note.textContent = 'Choose a yard first.'; return; }
+      // Rail number is optional — the yard alone is still a useful report on
+      // its own. Deliberately checked against the empty string, not
+      // truthiness, when it IS given — "0" is a real, valid rail number.
       const railTyped = yardRailInput ? yardRailInput.value.trim() : '';
-      // Deliberately checked against the empty string, not truthiness — "0"
-      // is a real, valid rail number and would otherwise get rejected here.
-      if(railTyped === ''){ note.textContent = 'Enter a rail number first (0 is fine).'; return; }
+      const hasRail = railTyped !== '';
       submitBtn.disabled = true;
       const originalSubmitLabel = submitBtn.textContent;
       submitBtn.textContent = 'Reporting…';
-      await saveRosterEntry(rosterEntry.key, { lastLocation: yard, lastLocationRail: railTyped }, rosterEntry.car);
+      // A rail number left blank clears any previously-recorded one for this
+      // car rather than leaving it in place — a stale rail number attached
+      // to a freshly-reported (possibly different) yard would otherwise read
+      // as still-current information it isn't.
+      const rosterPatch = hasRail
+        ? { lastLocation: yard, lastLocationRail: railTyped }
+        : { lastLocation: yard, lastLocationRail: firebase.firestore.FieldValue.delete() };
+      await saveRosterEntry(rosterEntry.key, rosterPatch, rosterEntry.car);
       if(rosterPanelDataCache) delete rosterPanelDataCache.rosterData[rosterEntry.key];
-      awardPoints(5);
+      // Base points for reporting the yard alone; a bonus on top for also
+      // including the rail number, since that's more useful and takes an
+      // extra step to go find.
+      awardPoints(hasRail ? 5 : 3);
       note.textContent = `Reported car ${formatCarNumberForDisplay(rosterEntry.car)} — done!`;
       setTimeout(()=>{
         submitBtn.disabled = false;
